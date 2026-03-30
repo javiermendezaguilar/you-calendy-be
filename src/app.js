@@ -1,0 +1,94 @@
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const cookieParser = require("cookie-parser");
+const ApiError = require("./utils/ApiError");
+const app = express();
+const router = require("./router");
+const loggerMiddleware = require("./middleware/loggerMiddleware");
+const { analyticsMiddleware } = require("./middleware/analyticsMiddleware");
+const swaggerUi = require("swagger-ui-express");
+const swaggerFile = require("../swagger_output.json"); // Generated Swagger file
+const path = require("path");
+const user = require("./models/User/user");
+// const League = require("./models/League/league");
+// const Team = require("./models/League/team");
+const { CronJob } = require("cron");
+const sendNotification = require("./utils/pushNotification");
+// Remove webhook handler
+// const { handlePayment } = require("./functions/webhook");
+// No need to load dotenv here as it's already loaded in index.js
+// const dotenv = require("dotenv");
+const adminNotification = require("./utils/adminNotification");
+// const Season = require("./models/League/season");
+// dotenv.config({ path: "./config/config.env" });
+// Comment out Stripe to avoid dependency on STRIPE_SECRET
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
+const moment = require("moment");
+
+console.log(moment().endOf("day").toDate());
+
+// League related global variable doesn't exist
+// console.log(global.onlineUsers);
+
+// Middlewares
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5000",
+      "http://localhost:5173",
+      "http://localhost",
+      "https://you-calendy-fe-pi.vercel.app",
+    ],
+    credentials: true,
+  })
+);
+app.options("*", cors());
+app.use(cookieParser()); // Parse cookies for authentication
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+app.use(loggerMiddleware);
+app.use(analyticsMiddleware);
+
+// Stripe webhook raw body parser
+app.post(
+  "/webhook/stripe",
+  express.raw({ type: "application/json" }),
+  (req, res, next) => {
+    req.rawBody = req.body;
+    next();
+  },
+  require("./controllers/webhookController").handleStripeWebhook
+);
+app.post(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  (req, res, next) => {
+    req.rawBody = req.body;
+    next();
+  },
+  require("./controllers/businessController").handleStripeWebhook
+);
+
+app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(express.json());
+
+// router index
+app.use("/", router);
+// api doc
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
+
+app.get("/", async (req, res) => {
+  // Commented out season-related code
+  res.send("BE-boilerplate v1.1");
+  // await user.updateMany({}, { $set: { isNotificationEnabled: true } });
+});
+
+// send back a 404 error for any unknown api request
+app.use((req, res, next) => {
+  next(new ApiError(404, "Not found"));
+});
+
+// Cron jobs removed to simplify boilerplate
+
+module.exports = app;

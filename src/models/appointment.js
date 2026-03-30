@@ -1,0 +1,266 @@
+const mongoose = require("mongoose");
+const Schema = mongoose.Schema;
+
+const appointmentSchema = new Schema(
+  {
+    client: {
+      type: Schema.Types.ObjectId,
+      ref: "Client",
+      required: true,
+    },
+    business: {
+      type: Schema.Types.ObjectId,
+      ref: "Business",
+      required: true,
+    },
+    service: {
+      type: Schema.Types.ObjectId,
+      ref: "Service", // Reference to service model
+      required: true,
+    },
+    staff: {
+      type: Schema.Types.ObjectId,
+      ref: "Staff",
+      default: null, // An appointment might not have a specific staff member
+    },
+    date: {
+      type: Date,
+      required: true,
+    },
+    startTime: {
+      type: String,
+      required: true,
+    },
+    endTime: {
+      type: String,
+      required: true,
+    },
+    duration: {
+      type: Number, // Duration in minutes
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: [
+        "Pending",
+        "Confirmed",
+        "Canceled",
+        "Completed",
+        "No-Show",
+        "Missed",
+      ],
+      default: "Pending",
+    },
+    notes: {
+      type: String,
+      default: "",
+    },
+    clientNotes: {
+      type: String,
+      default: "",
+    },
+    referencePhotos: [
+      {
+        url: String,
+        public_id: String,
+      },
+    ],
+    personalization: {
+      pastHaircut: {
+        type: String,
+        default: "",
+      },
+      instructions: {
+        type: String,
+        default: "",
+      },
+      photos: [
+        {
+          url: String,
+          public_id: String,
+        },
+      ],
+    },
+    paymentStatus: {
+      type: String,
+      enum: ["Pending", "Paid", "Refunded", "Failed"],
+      default: "Pending",
+    },
+    price: {
+      type: Number,
+      required: true,
+    },
+    penalty: {
+      applied: {
+        type: Boolean,
+        default: false,
+      },
+      amount: {
+        type: Number,
+        default: 0,
+      },
+      paid: {
+        type: Boolean,
+        default: false,
+      },
+      paidDate: {
+        type: Date,
+      },
+    },
+    reminderSent: {
+      type: Boolean,
+      default: false,
+    },
+    delay: {
+      notified: {
+        type: Boolean,
+        default: false,
+      },
+      message: {
+        type: String,
+        default: "",
+      },
+      notifiedAt: {
+        type: Date,
+      },
+      estimatedDelay: {
+        type: Number, // Delay in minutes (legacy)
+        default: 0,
+      },
+      // New fields for rescheduling
+      newDate: {
+        type: Date,
+        default: null,
+      },
+      newStartTime: {
+        type: String,
+        default: null,
+      },
+      newEndTime: {
+        type: String,
+        default: null,
+      },
+    },
+    // Promotion information
+    promotion: {
+      applied: {
+        type: Boolean,
+        default: false,
+      },
+      promotionId: {
+        type: Schema.Types.ObjectId,
+        ref: "Promotion",
+      },
+      originalPrice: {
+        type: Number,
+        default: 0,
+      },
+      discountAmount: {
+        type: Number,
+        default: 0,
+      },
+      discountPercentage: {
+        type: Number,
+        default: 0,
+      },
+    },
+    // Flash Sale information
+    flashSale: {
+      applied: {
+        type: Boolean,
+        default: false,
+      },
+      flashSaleId: {
+        type: Schema.Types.ObjectId,
+        ref: "FlashSale",
+      },
+      originalPrice: {
+        type: Number,
+        default: 0,
+      },
+      discountAmount: {
+        type: Number,
+        default: 0,
+      },
+      discountPercentage: {
+        type: Number,
+        default: 0,
+      },
+    },
+    reminderTime: {
+      type: String,
+      enum: [
+        "1_hour_before",
+        "2_hours_before",
+        "3_hours_before",
+        "4_hours_before",
+        null,
+      ],
+      default: null,
+      description: "When to send the reminder before the appointment",
+    },
+    appointmentReminder: {
+      type: Boolean,
+      default: false,
+      description:
+        "Whether appointment reminder is enabled for this appointment",
+    },
+    messageReminder: {
+      type: String,
+      default: "",
+      description: "The message to send as a reminder",
+    },
+    // Review request information
+    reviewRequest: {
+      sent: {
+        type: Boolean,
+        default: false,
+        description:
+          "Whether a review request SMS was sent for this appointment",
+      },
+      message: {
+        type: String,
+        default: "",
+        description: "The review request message that was sent via SMS",
+      },
+      sentAt: {
+        type: Date,
+        default: null,
+        description: "When the review request SMS was sent",
+      },
+      sentBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+        description: "The business owner who sent the review request",
+      },
+      error: {
+        type: String,
+        default: null,
+        description: "Error code or type if SMS sending failed",
+      },
+      errorMessage: {
+        type: String,
+        default: null,
+        description: "Human-readable error message if SMS sending failed",
+      },
+    },
+  },
+  { timestamps: true }
+);
+
+// Virtual field for full date time
+appointmentSchema.virtual("dateTime").get(function () {
+  const [hours, minutes] = this.startTime.split(":");
+  const appointmentDate = new Date(this.date);
+  appointmentDate.setHours(parseInt(hours, 10));
+  appointmentDate.setMinutes(parseInt(minutes, 10));
+  return appointmentDate;
+});
+
+// Index for efficient queries
+// appointmentSchema.index({ business: 1, date: 1 });
+// appointmentSchema.index({ client: 1, date: 1 });
+// appointmentSchema.index({ status: 1 });
+
+module.exports = mongoose.model("Appointment", appointmentSchema);

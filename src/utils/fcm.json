@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "barbermanagement-42d90",
+  "private_key_id": "4f7356c6f87f35fd3d34bdf8c6d6a7f5efdba7d5",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCcuyK28DeBh1QK\nWrDRjhEEArkfKmqxpAVrWp2WIpnBGCNy4+4x6MCRqjAiULZRgtG+BY3WgN2Jptra\nETWClyje6IdG0I0l7Gr8GcUhruMNfQmgLENPmbLeB+srj6BzrHLR91thW3+dRPXM\nImC0LSYEsMKqBxn6t8AUZZ3Lvw6VxD3tLu3mBng+h4HPZsxv0e4TCWMllWJ6aaUe\nR19rFuQb2Yn0w9GUoIbnhKHFFkWdbvtSKiorS+w3pnlzx00HmAQZre9+1K83laJ7\nugasyygm8+a03u9kg6+cV6Z4C2vG60FaNO0CDZ6RCklQN7YoaOiFs39JSYn55K/n\nLgZBCBNvAgMBAAECggEAGEh+Rm3Ni8oV4UzP3IfwZvitCgEeasuI82skw2A1Bk/h\nHinme+EeBPOjZY2v0c09Bf4CTdvFd1Bc1DCaY9Nbx72rR/OECv4oTUsI2gEouKxI\n04JII4sixXfgne0w5PsxBwsWI21zxkAq/SfOZ9we6dchMgrLoabaoc5ktm6xqc5x\nzPULfuh0Fk9pel0dBcTFKtEqs6OujDCsBr3Xm4nG6m9/C3SdGUePqBoQ286zuLzZ\nzXPOuNEqzQG/7PCNVXmY+fNoOvRfPHfXSurxXUy27aC8t0C0Xv/AnnKWW+CIIoO/\nEzEjoYlx6f2tyzrPMHHJRLLsgI78c0GJ/seUn6w5gQKBgQDSTIhTqcV3RxNim+Qb\nVd/GRyECT7avbbooZIQr3AcrfaMWqOSERhq3n6q/8tlxkimilIVASeOkd0MsJ4Wb\nsuelRVkeFh2lkHj3YunpIVyDSBhyAdYNGHaL4FhGbDBk98TDVEvu9paWhh/cw3Tc\nJKR80V5eWMlFXyUN+IKY5pr1jwKBgQC+ynsgQxzgHyZF+4aKGg1PY6yJqHqnjmT0\nsqf2w4RwqIoD4wzr10Eo5EWP/LSLpmjUxmCV2/bjM+Tqza5/6kWcz67E2C+lVtxv\nU3MTtLofSkSHm8DwbFG5o2kxmDZK9JFMr22vq255KB8FaTKHcJtiHJp7KPz9gFOx\n26uxvwzUIQKBgEXZtc5ULYqYyQ+PyAxsUY+CQKyL3ZoXUCXqfRw0UQ1ZBbqZDo4A\n2w7ysbxf5WmbqsidnETmRf5yvpUD65Tzr41to1Qi9GXxvrws1pTgx+GzKKt1gKuI\n3JdJRQjfFpPy2CAo96+/p/UHR74EDeSxJxFuWXHs+61XFO+3A2nV7tJxAoGAIfQI\ny2oGJoCEoCmt/L+8JKe5Wdoo0c7OepmcuJZ86EumHCD4+LOa/fr5wjEXtE6OE2em\nYqT9n9tpXrvx1QPNFaYEFTXf7M2zdwBj11rvUIg3/+YhBOhR9vZ0zwWmi9pQTVRe\n8cdRZrBULPNWsbHBhUlP2KEnvLlsq5dLS9uTHeECgYACfqwu88HeiHZ0XZdWMyyq\n8lHPmPcgOik76HRbx79zCsoOgvZ1I5RvS5/GloZI1b4WZSh/mg+fRs9e5caRPPFs\nTJHAValix4QWk5lG+/R4BUWdSW22JiVHGYfH4Ni+s7ikpckfqOorknznvWfY+azB\ngkQpWhvdHvNBUcMUtZ8jCg==\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@barbermanagement-42d90.iam.gserviceaccount.com",
+  "client_id": "114130783153271214501",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40barbermanagement-42d90.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

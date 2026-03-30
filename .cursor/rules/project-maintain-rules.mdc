@@ -1,0 +1,12 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Only modify what I explicitly ask for. Do not refactor, optimize, clean up, or alter any unrelated code or files — even if it seems beneficial or "harmless." If a related change is required for functionality, highlight it first before applying it. Always show a clear summary of what was changed and why. No silent assumptions or inferred enhancements.
+Do not go above and beyond. Do not try to anticipate or extend my request. Just do exactly what I ask — nothing more, nothing less. If anything seems ambiguous or open-ended, pause and ask for clarification instead of assuming.
+If a solution (whether provided by you or requested by me) has any side effects — such as impacting performance, security, maintainability, compatibility, or functionality elsewhere — explicitly alert me before proceeding. For example, if a change affects performance or will likely break another part of the system, stop and explain the risk, then ask if I want to adjust that as well.
+
+(Important)
+
+Do not over-engineer. Prioritize clarity and simplicity in solutions unless asked to make them extensible or abstract.

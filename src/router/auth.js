@@ -25,15 +25,23 @@ const {
   updateNotificationSettings,
 } = require("../controllers/authController");
 const { isAuthenticated, isAdmin } = require("../middleware/auth");
+const createRateLimiter = require("../middleware/rateLimit");
 const uploader = require("../utils/uploader");
 
+const authWriteLimiter = createRateLimiter({
+  keyPrefix: "auth-write",
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 10,
+  message: "Too many authentication attempts, please try again later.",
+});
+
 // Auth routes
-router.route("/register").post(register);
-router.route("/login").post(login);
+router.route("/register").post(authWriteLimiter, register);
+router.route("/login").post(authWriteLimiter, login);
 // Logout doesn't require authentication (works even with expired tokens)
 router.route("/logout").post(logout);
-router.route("/forgotPassword").post(forgotPassword);
-router.route("/resetPassword").put(resetPassword);
+router.route("/forgotPassword").post(authWriteLimiter, forgotPassword);
+router.route("/resetPassword").put(authWriteLimiter, resetPassword);
 router.route("/updatePassword").put(isAuthenticated, updatePassword);
 router.route("/me").get(isAuthenticated, getMe);
 // router.route("/updateProfile").put(
@@ -67,7 +75,7 @@ router
 //     updateAdminProfile
 //   );
 
-router.route("/socialAuth").post(socialAuth);
+router.route("/socialAuth").post(authWriteLimiter, socialAuth);
 
 router.route("/barbers").get(isAuthenticated, getBarber);
 

@@ -1,18 +1,50 @@
 const admin = require("firebase-admin");
-const serviceAccount = require("./fcm.json");
 const createNotification = require("./createNotification");
 const { google } = require("googleapis");
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+const path = require("path");
+const {
+  loadServiceAccount,
+  describeServiceAccountSource,
+} = require("./serviceAccount");
+
+const firebaseFallbackPaths = [path.join(__dirname, "fcm.json")];
+
+const firebaseServiceAccount = loadServiceAccount({
+  jsonEnvVar: "FIREBASE_SERVICE_ACCOUNT_JSON",
+  base64EnvVar: "FIREBASE_SERVICE_ACCOUNT_BASE64",
+  filePathEnvVar: "FIREBASE_SERVICE_ACCOUNT_FILE",
+  fallbackPaths: firebaseFallbackPaths,
 });
+
+console.log(
+  "Firebase service account source:",
+  describeServiceAccountSource(firebaseServiceAccount.source, firebaseFallbackPaths)
+);
+
+if (firebaseServiceAccount.credentials || firebaseServiceAccount.keyFilename) {
+  admin.initializeApp({
+    credential: firebaseServiceAccount.credentials
+      ? admin.credential.cert(firebaseServiceAccount.credentials)
+      : admin.credential.cert(firebaseServiceAccount.keyFilename),
+  });
+} else {
+  console.warn("Firebase service account not configured. Push notifications will be disabled.");
+}
+
 const sendNotification = async (user, title, body, type, data) => {
   try {
     // Use centralized notification creation function
     const notification = await createNotification(user, body, type, data);
 
-    if (user.deviceToken && user.isNotificationEnabled) {
+    if (
+      user.deviceToken &&
+      user.isNotificationEnabled &&
+      (firebaseServiceAccount.credentials || firebaseServiceAccount.keyFilename)
+    ) {
       const auth = new google.auth.GoogleAuth({
-        keyFile: "./src/utils/fcm.json",
+        ...(firebaseServiceAccount.credentials
+          ? { credentials: firebaseServiceAccount.credentials }
+          : { keyFile: firebaseServiceAccount.keyFilename }),
         scopes: ["https://www.googleapis.com/auth/cloud-platform"],
       });
       const accessToken = await auth.getAccessToken();

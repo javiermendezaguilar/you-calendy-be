@@ -1,3 +1,5 @@
+require("./instrument");
+
 // Load environment variables first
 const dotenv = require("dotenv");
 const path = require("path");

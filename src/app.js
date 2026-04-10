@@ -3,6 +3,7 @@ const Sentry = require("./instrument");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
+const rateLimit = require("express-rate-limit");
 const ApiError = require("./utils/ApiError");
 const app = express();
 const router = require("./router");
@@ -11,6 +12,7 @@ const { analyticsMiddleware } = require("./middleware/analyticsMiddleware");
 const swaggerUi = require("swagger-ui-express");
 const swaggerFile = require("../swagger_output.json"); // Generated Swagger file
 const path = require("path");
+const createCsrfProtection = require("./middleware/csrfProtection");
 const user = require("./models/User/user");
 // const League = require("./models/League/league");
 // const Team = require("./models/League/team");
@@ -29,23 +31,39 @@ const moment = require("moment");
 
 console.log(moment().endOf("day").toDate());
 
+const allowedOrigins = [
+  "http://localhost:5000",
+  "http://localhost:5173",
+  "http://localhost",
+  "https://you-calendy-fe-pi.vercel.app",
+  "https://you-calendy-fe-three.vercel.app",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+const appLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests, please try again later.",
+  },
+});
+
 // League related global variable doesn't exist
 // console.log(global.onlineUsers);
+
+app.set("trust proxy", 1);
 
 // Middlewares
 app.use(
   cors({
-    origin: [
-      "http://localhost:5000",
-      "http://localhost:5173",
-      "http://localhost",
-      "https://you-calendy-fe-pi.vercel.app",
-      "https://you-calendy-fe-three.vercel.app",
-    ],
+    origin: allowedOrigins,
     credentials: true,
   })
 );
-app.options("*", cors());
+app.options("*", cors({ origin: allowedOrigins, credentials: true }));
 app.use(cookieParser()); // Parse cookies for authentication
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.use(loggerMiddleware);
@@ -74,6 +92,8 @@ app.post(
 app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
+app.use(appLimiter);
+app.use(createCsrfProtection({ allowedOrigins }));
 
 // router index
 app.use("/", router);

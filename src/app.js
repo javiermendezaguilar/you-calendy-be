@@ -11,6 +11,7 @@ const { analyticsMiddleware } = require("./middleware/analyticsMiddleware");
 const swaggerUi = require("swagger-ui-express");
 const swaggerFile = require("../swagger_output.json"); // Generated Swagger file
 const path = require("path");
+const createCsrfProtection = require("./middleware/csrfProtection");
 const user = require("./models/User/user");
 // const League = require("./models/League/league");
 // const Team = require("./models/League/team");
@@ -29,23 +30,26 @@ const moment = require("moment");
 
 console.log(moment().endOf("day").toDate());
 
+const allowedOrigins = [
+  "http://localhost:5000",
+  "http://localhost:5173",
+  "http://localhost",
+  "https://you-calendy-fe-pi.vercel.app",
+  "https://you-calendy-fe-three.vercel.app",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
 // League related global variable doesn't exist
 // console.log(global.onlineUsers);
 
 // Middlewares
 app.use(
   cors({
-    origin: [
-      "http://localhost:5000",
-      "http://localhost:5173",
-      "http://localhost",
-      "https://you-calendy-fe-pi.vercel.app",
-      "https://you-calendy-fe-three.vercel.app",
-    ],
+    origin: allowedOrigins,
     credentials: true,
   })
 );
-app.options("*", cors());
+app.options("*", cors({ origin: allowedOrigins, credentials: true }));
 app.use(cookieParser()); // Parse cookies for authentication
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.use(loggerMiddleware);
@@ -74,6 +78,7 @@ app.post(
 app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
+app.use(createCsrfProtection({ allowedOrigins }));
 
 // router index
 app.use("/", router);

@@ -3,6 +3,7 @@ const Sentry = require("./instrument");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
+const rateLimit = require("express-rate-limit");
 const ApiError = require("./utils/ApiError");
 const app = express();
 const router = require("./router");
@@ -38,6 +39,17 @@ const allowedOrigins = [
   "https://you-calendy-fe-three.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
+
+const appLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests, please try again later.",
+  },
+});
 
 // League related global variable doesn't exist
 // console.log(global.onlineUsers);
@@ -80,6 +92,7 @@ app.post(
 app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
+app.use(appLimiter);
 app.use(createCsrfProtection({ allowedOrigins }));
 
 // router index

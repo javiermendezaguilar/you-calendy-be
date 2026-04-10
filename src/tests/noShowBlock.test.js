@@ -1,6 +1,6 @@
 const request = require('supertest');
 const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
 const jwt = require('jsonwebtoken');
 
 // Set environment variables before requiring app
@@ -17,7 +17,7 @@ const Staff = require('../models/staff');
 let mongoServer;
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
+  mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   const uri = mongoServer.getUri();
   // Override mongoose connection for testing
   if (mongoose.connection.readyState !== 0) {
@@ -47,6 +47,7 @@ describe('No-Show Booking Block Enforcement', () => {
 
     // 1. Create Business Owner (Barber)
     barber = await User.create({
+      name: 'Barber One',
       firstName: 'Barber',
       lastName: 'One',
       email: 'barber@example.com',
@@ -75,7 +76,7 @@ describe('No-Show Booking Block Enforcement', () => {
       firstName: 'Staff',
       lastName: 'One',
       business: business._id,
-      services: [{ service: service._id }],
+      services: [{ service: service._id, timeInterval: 30 }],
       isActive: true
     });
 
@@ -111,7 +112,7 @@ describe('No-Show Booking Block Enforcement', () => {
 
   test('should reject booking from a blocked client', async () => {
     const res = await request(app)
-      .post('/api/appointments')
+      .post('/appointments')
       .set('Authorization', `Bearer ${blockedToken}`)
       .send({
         businessId: business._id.toString(),
@@ -130,7 +131,7 @@ describe('No-Show Booking Block Enforcement', () => {
 
   test('should allow booking from a non-blocked client', async () => {
     const res = await request(app)
-      .post('/api/appointments')
+      .post('/appointments')
       .set('Authorization', `Bearer ${normalToken}`)
       .send({
         businessId: business._id.toString(),
@@ -151,7 +152,7 @@ describe('No-Show Booking Block Enforcement', () => {
   test('should allow booking immediately after being unblocked', async () => {
     // 1. Verify client is initially blocked
     const firstAttempt = await request(app)
-      .post('/api/appointments')
+      .post('/appointments')
       .set('Authorization', `Bearer ${blockedToken}`)
       .send({
         businessId: business._id.toString(),
@@ -165,14 +166,14 @@ describe('No-Show Booking Block Enforcement', () => {
 
     // 2. Barber unblocks the client
     const unblockRes = await request(app)
-      .put(`/api/business/clients/${blockedClient._id}/unblock`)
+      .put(`/business/clients/${blockedClient._id}/unblock`)
       .set('Authorization', `Bearer ${barberToken}`);
     
     expect(unblockRes.status).toBe(200);
 
     // 3. Client tries to book again
     const secondAttempt = await request(app)
-      .post('/api/appointments')
+      .post('/appointments')
       .set('Authorization', `Bearer ${blockedToken}`)
       .send({
         businessId: business._id.toString(),

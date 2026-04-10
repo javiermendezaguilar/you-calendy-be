@@ -1,4 +1,5 @@
 const express = require("express");
+const Sentry = require("./instrument");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
@@ -88,6 +89,22 @@ app.get("/", async (req, res) => {
 // send back a 404 error for any unknown api request
 app.use((req, res, next) => {
   next(new ApiError(404, "Not found"));
+});
+
+Sentry.setupExpressErrorHandler(app);
+
+app.use((err, req, res, next) => {
+  const statusCode = err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
+
+  if (statusCode >= 500) {
+    console.error("Unhandled application error:", message);
+  }
+
+  res.status(statusCode).json({
+    success: false,
+    message,
+  });
 });
 
 // Cron jobs removed to simplify boilerplate

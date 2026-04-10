@@ -3,6 +3,10 @@ const { TranslationServiceClient } = require("@google-cloud/translate").v3;
 const path = require("path");
 const TranslationCache = require("../models/translationCache");
 const dotenv = require("dotenv");
+const {
+  loadServiceAccount,
+  describeServiceAccountSource,
+} = require("./serviceAccount");
 
 // Load environment variables from config.env
 dotenv.config({ path: path.join(__dirname, "../config/config.env") });
@@ -45,39 +49,42 @@ function resolveKeyFilePathFromEnv(envPath) {
   return null;
 }
 
-let keyFilename = resolveKeyFilePathFromEnv(process.env.GCLOUD_TRANSLATE_KEYFILE);
-if (!keyFilename) {
-  // Fallback: assume key is placed under src directory next to this file
-  keyFilename = path.join(srcDir, "global-approach-469211-g4-d88a01b7357d.json");
-  if (!fs.existsSync(keyFilename)) {
-    // Final fallback: project root
-    const rootFallback = path.join(projectRoot, "global-approach-469211-g4-d88a01b7357d.json");
-    if (fs.existsSync(rootFallback)) {
-      keyFilename = rootFallback;
-    }
-  }
+const translationFallbackPaths = [
+  path.join(srcDir, "global-approach-469211-g4-d88a01b7357d.json"),
+  path.join(projectRoot, "global-approach-469211-g4-d88a01b7357d.json"),
+];
+
+const translationServiceAccount = loadServiceAccount({
+  jsonEnvVar: "GCLOUD_TRANSLATE_SERVICE_ACCOUNT_JSON",
+  base64EnvVar: "GCLOUD_TRANSLATE_SERVICE_ACCOUNT_BASE64",
+  filePathEnvVar: "GCLOUD_TRANSLATE_KEYFILE",
+  fallbackPaths: translationFallbackPaths,
+});
+
+let keyFilename = translationServiceAccount.keyFilename;
+if (!keyFilename && process.env.GCLOUD_TRANSLATE_KEYFILE) {
+  keyFilename = resolveKeyFilePathFromEnv(process.env.GCLOUD_TRANSLATE_KEYFILE);
 }
 
 console.log("Resolved key file path:", keyFilename);
+console.log(
+  "Translation credential source:",
+  describeServiceAccountSource(
+    translationServiceAccount.source,
+    translationFallbackPaths
+  )
+);
+
+const hasInlineCredentials = Boolean(translationServiceAccount.credentials);
+const hasKeyFile = Boolean(keyFilename && fs.existsSync(keyFilename));
+const translationEnabled =
+  (hasInlineCredentials || hasKeyFile) && Boolean(projectId);
 
 // If the key file still doesn't exist, disable translation gracefully
-if (!fs.existsSync(keyFilename)) {
+if (!hasInlineCredentials && !hasKeyFile) {
   console.error("Google Cloud key file not found at any expected location.");
   console.error("Checked:", process.env.GCLOUD_TRANSLATE_KEYFILE, "=>", keyFilename);
   console.error("Translation will be disabled.");
-  module.exports = {
-    translateText: async (text, targetLang) => {
-      console.log(`Translation disabled - returning original text: "${text}"`);
-      return text;
-    },
-    translateBatch: async (texts, targetLang) => {
-      const inputArray = Array.isArray(texts) ? texts : [texts];
-      console.log(`Translation disabled - returning original texts:`, inputArray);
-      return inputArray;
-    },
-    detectLanguage: async () => "en",
-  };
-  return;
 }
 
 // Check if project ID is available
@@ -85,24 +92,18 @@ if (!projectId) {
   console.error(
     "GCLOUD_PROJECT_ID not found in environment variables. Translation will be disabled."
   );
-  module.exports = {
-    translateText: async (text, targetLang) => {
-      console.log(`Translation disabled - returning original text: "${text}"`);
-      return text;
-    },
-    translateBatch: async (texts, targetLang) => {
-      const inputArray = Array.isArray(texts) ? texts : [texts];
-      console.log(`Translation disabled - returning original texts:`, inputArray);
-      return inputArray;
-    },
-    detectLanguage: async () => "en",
-  };
-  return;
 }
 
-console.log("Initializing Google Cloud Translation client...");
-const client = new TranslationServiceClient({ keyFilename });
-console.log("Google Cloud Translation client initialized successfully");
+let client = null;
+if (translationEnabled) {
+  console.log("Initializing Google Cloud Translation client...");
+  client = new TranslationServiceClient(
+    hasInlineCredentials
+      ? { credentials: translationServiceAccount.credentials }
+      : { keyFilename }
+  );
+  console.log("Google Cloud Translation client initialized successfully");
+}
 
 /**
  * Translate a single text string
@@ -111,6 +112,11 @@ console.log("Google Cloud Translation client initialized successfully");
  * @returns {Promise<string>} - The translated text
  */
 async function translateText(text, targetLang) {
+  if (!translationEnabled || !client) {
+    console.log(`Translation disabled - returning original text: "${text}"`);
+    return text;
+  }
+
   if (!text || !targetLang || targetLang === "en") {
     console.log(
       `Skipping translation - text: "${text}", targetLang: ${targetLang}`
@@ -216,6 +222,11 @@ async function translateText(text, targetLang) {
 async function translateBatch(texts, targetLang) {
   // Always coerce to array to maintain consistent API contract
   const inputArray = Array.isArray(texts) ? texts : [texts];
+  if (!translationEnabled || !client) {
+    console.log(`Translation disabled - returning original texts:`, inputArray);
+    return inputArray;
+  }
+
   if (!targetLang || targetLang === "en") return inputArray;
 
   console.log(`Batch translation: ${inputArray.length} texts to ${targetLang}`);
@@ -365,6 +376,7 @@ async function translateBatch(texts, targetLang) {
  * @returns {Promise<string>} - Detected language code
  */
 async function detectLanguage(text) {
+  if (!translationEnabled || !client) return "en";
   if (!text) return "en";
   try {
     const [response] = await client.detectLanguage({

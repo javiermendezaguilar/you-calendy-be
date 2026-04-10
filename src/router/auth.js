@@ -25,17 +25,33 @@ const {
   updateNotificationSettings,
 } = require("../controllers/authController");
 const { isAuthenticated, isAdmin } = require("../middleware/auth");
-const createRateLimiter = require("../middleware/rateLimit");
+const rateLimit = require("express-rate-limit");
 const uploader = require("../utils/uploader");
 
-const authWriteLimiter = createRateLimiter({
-  keyPrefix: "auth-write",
+const authRouterLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  maxRequests: 10,
-  message: "Too many authentication attempts, please try again later.",
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication requests, please try again later.",
+  },
+});
+
+const authWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication attempts, please try again later.",
+  },
 });
 
 // Auth routes
+router.use(authRouterLimiter);
 router.route("/register").post(authWriteLimiter, register);
 router.route("/login").post(authWriteLimiter, login);
 // Logout doesn't require authentication (works even with expired tokens)

@@ -42,6 +42,8 @@ const allowedOrigins = [
 // League related global variable doesn't exist
 // console.log(global.onlineUsers);
 
+app.set("trust proxy", 1);
+
 // Middlewares
 app.use(
   cors({

@@ -13,6 +13,20 @@ const { uploadToCloudinary, deleteImage } = require("../functions/cloudinary");
 const BarberLink = require("../models/barberLink");
 const { generateInvitationToken } = require("../utils/index");
 
+const sanitizeAuthUser = (userDoc) => {
+  if (!userDoc) return userDoc;
+
+  const user =
+    typeof userDoc.toObject === "function" ? userDoc.toObject() : { ...userDoc };
+
+  delete user.password;
+  delete user.passwordResetToken;
+  delete user.passwordResetTokenExpires;
+  delete user.pendingPenalties;
+
+  return user;
+};
+
 //register
 const register = async (req, res) => {
   // #swagger.tags = ['Auth']
@@ -175,7 +189,7 @@ const register = async (req, res) => {
     return SuccessHandler(
       {
         token: jwtToken,
-        user,
+        user: sanitizeAuthUser(user),
         business,
         barberLink,
         signup: true,
@@ -266,7 +280,7 @@ const login = async (req, res) => {
     return SuccessHandler(
       {
         token: jwtToken,
-        user,
+        user: sanitizeAuthUser(user),
       },
       200,
       res,
@@ -496,7 +510,7 @@ const getMe = async (req, res) => {
   */
   try {
     const user = await User.findById(req.user._id);
-    return SuccessHandler(user, 200, res);
+    return SuccessHandler(sanitizeAuthUser(user), 200, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -663,7 +677,7 @@ const socialAuth = async (req, res) => {
 
       // Set cookie for social auth (regular user)
       return SuccessHandler(
-        { token, user: exUser }, 
+        { token, user: sanitizeAuthUser(exUser) }, 
         200, 
         res,
         {
@@ -708,7 +722,7 @@ const socialAuth = async (req, res) => {
       const token = await user.getJWTToken();
       // Set cookie for new social auth user
       return SuccessHandler(
-        { token, user, signup: true }, 
+        { token, user: sanitizeAuthUser(user), signup: true }, 
         200, 
         res,
         {

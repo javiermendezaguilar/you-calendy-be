@@ -35,7 +35,6 @@ const allowedOrigins = [
   "http://localhost:5000",
   "http://localhost:5173",
   "http://localhost",
-  "https://you-calendy-fe-pi.vercel.app",
   "https://you-calendy-fe-three.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);

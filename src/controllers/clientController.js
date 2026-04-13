@@ -19,6 +19,73 @@ const Note = require("../models/note");
 const Auditing = require("../models/auditing");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
 
+const normalizeLegacyNoteItem = (note) => ({
+  _id: note._id,
+  content: note.content,
+  images: Array.isArray(note.images) ? note.images.filter(Boolean) : [],
+  createdAt: note.createdAt,
+  clientId: note.clientId,
+  createdBy: note.createdBy,
+  galleryId: null,
+  galleryImage: null,
+  galleryTitle: null,
+  response: note.response || note.reviewNote,
+  respondedBy: note.respondedBy || note.reviewedBy,
+  respondedAt: note.respondedAt || note.reviewedAt,
+  reportType: note.reportType,
+  status: note.status,
+  rating: note.rating,
+  source: "note",
+});
+
+const normalizeGallerySuggestionItem = (gallery, suggestion) => ({
+  _id: suggestion._id,
+  content: suggestion.note,
+  images: suggestion.imageUrl ? [suggestion.imageUrl] : [],
+  createdAt: suggestion.createdAt,
+  clientId: gallery.client,
+  createdBy: suggestion.createdBy,
+  galleryId: gallery._id,
+  galleryImage: gallery.imageUrl,
+  galleryTitle: gallery.title,
+  response: suggestion.response,
+  respondedBy: suggestion.respondedBy,
+  respondedAt: suggestion.respondedAt,
+  source: "gallery",
+});
+
+const normalizeGalleryReportItem = (gallery, report) => ({
+  _id: report._id,
+  content: report.note,
+  reportType: report.reportType,
+  status: report.status,
+  rating: report.rating,
+  images: report.imageUrl ? [report.imageUrl] : [],
+  createdAt: report.createdAt,
+  clientId: gallery.client,
+  createdBy: report.createdBy,
+  galleryId: gallery._id,
+  galleryImage: gallery.imageUrl,
+  galleryTitle: gallery.title,
+  reviewNote: report.reviewNote,
+  reviewedBy: report.reviewedBy,
+  reviewedAt: report.reviewedAt,
+  response: report.reviewNote,
+  respondedBy: report.reviewedBy,
+  respondedAt: report.reviewedAt,
+  source: "gallery",
+});
+
+const sortByCreatedAtDesc = (a, b) =>
+  new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+
+const ALLOWED_REPORT_STATUSES = new Set([
+  "pending",
+  "reviewed",
+  "resolved",
+  "dismissed",
+]);
+
 /**
  * @desc Add a new client to a business (phone number only)
  * @route POST /api/business/clients
@@ -2075,7 +2142,9 @@ const getClientSuggestions = async (req, res) => {
     */
   try {
     const { page = 1, limit = 10 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
 
     // Use _id directly for ObjectId queries (more reliable than string conversion)
     const userId = req.user._id || req.user.id;
@@ -2084,59 +2153,49 @@ const getClientSuggestions = async (req, res) => {
       return ErrorHandler("Business not found for this user.", 404, req, res);
     }
 
-    // Get suggestions from HaircutGallery model where suggestions array is not empty
     const galleryWithSuggestions = await HaircutGallery.find({
       business: business._id,
       isActive: true,
-      "suggestions.0": { $exists: true }, // Has at least one suggestion
+      "suggestions.0": { $exists: true },
     })
       .populate("client", "firstName lastName phone profileImage")
       .populate("suggestions.createdBy", "firstName lastName")
-      .sort({ "suggestions.createdAt": -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+      .sort({ updatedAt: -1 });
 
-    // Flatten suggestions from all gallery entries
-    const suggestions = [];
+    const legacyNotes = await Note.find({
+      businessId: business._id,
+      type: "suggestion",
+    })
+      .populate("clientId", "firstName lastName phone profileImage")
+      .populate("createdBy", "firstName lastName")
+      .sort({ createdAt: -1 });
+
+    const combinedSuggestions = [];
+
     galleryWithSuggestions.forEach((gallery) => {
       gallery.suggestions.forEach((suggestion) => {
-        suggestions.push({
-          _id: suggestion._id,
-          content: suggestion.note,
-          images: suggestion.imageUrl ? [suggestion.imageUrl] : [],
-          createdAt: suggestion.createdAt,
-          clientId: gallery.client,
-          createdBy: suggestion.createdBy,
-          galleryId: gallery._id,
-          galleryImage: gallery.imageUrl,
-          galleryTitle: gallery.title,
-          // Barber response fields (if any)
-          response: suggestion.response,
-          respondedBy: suggestion.respondedBy,
-          respondedAt: suggestion.respondedAt,
-        });
+        combinedSuggestions.push(
+          normalizeGallerySuggestionItem(gallery, suggestion)
+        );
       });
     });
 
-    // Get total count of suggestions across all galleries
-    const totalGalleries = await HaircutGallery.find({
-      business: business._id,
-      isActive: true,
-      "suggestions.0": { $exists: true },
+    legacyNotes.forEach((note) => {
+      combinedSuggestions.push(normalizeLegacyNoteItem(note));
     });
 
-    let total = 0;
-    totalGalleries.forEach((gallery) => {
-      total += gallery.suggestions.length;
-    });
+    combinedSuggestions.sort(sortByCreatedAtDesc);
+
+    const total = combinedSuggestions.length;
+    const suggestions = combinedSuggestions.slice(skip, skip + limitNumber);
 
     return SuccessHandler(
       {
         suggestions,
         pagination: {
           total,
-          page: parseInt(page),
-          pages: Math.ceil(total / parseInt(limit)),
+          page: pageNumber,
+          pages: Math.ceil(total / limitNumber),
         },
       },
       200,
@@ -2226,7 +2285,13 @@ const getClientReports = async (req, res) => {
     */
   try {
     const { status, page = 1, limit = 10 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+    const normalizedStatus =
+      typeof status === "string" && ALLOWED_REPORT_STATUSES.has(status)
+        ? status
+        : null;
 
     // Use _id directly for ObjectId queries (more reliable than string conversion)
     const userId = req.user._id || req.user.id;
@@ -2242,68 +2307,57 @@ const getClientReports = async (req, res) => {
     };
 
     // If status filter is provided, add it to the query
-    if (status) {
-      query["reports.status"] = status;
+    if (status && !normalizedStatus) {
+      return ErrorHandler("Invalid report status filter.", 400, req, res);
     }
 
-    // Get reports from HaircutGallery model where reports array is not empty
+    if (normalizedStatus) {
+      query["reports.status"] = normalizedStatus;
+    }
+
     const galleryWithReports = await HaircutGallery.find(query)
       .populate("client", "firstName lastName phone profileImage")
       .populate("reports.createdBy", "firstName lastName")
-      .sort({ "reports.createdAt": -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+      .sort({ updatedAt: -1 });
 
-    // Flatten reports from all gallery entries
-    const reports = [];
+    const legacyReportQuery = {
+      businessId: business._id,
+      type: "report",
+    };
+    if (normalizedStatus) {
+      legacyReportQuery.status = normalizedStatus;
+    }
+
+    const legacyReports = await Note.find(legacyReportQuery)
+      .populate("clientId", "firstName lastName phone profileImage")
+      .populate("createdBy", "firstName lastName")
+      .sort({ createdAt: -1 });
+
+    const combinedReports = [];
     galleryWithReports.forEach((gallery) => {
       gallery.reports.forEach((report) => {
-        // Apply status filter if provided (since MongoDB query might not filter nested arrays perfectly)
-        if (!status || report.status === status) {
-          reports.push({
-            _id: report._id,
-            content: report.note,
-            reportType: report.reportType,
-            status: report.status,
-            rating: report.rating,
-            images: report.imageUrl ? [report.imageUrl] : [],
-            createdAt: report.createdAt,
-            clientId: gallery.client,
-            createdBy: report.createdBy,
-            galleryId: gallery._id,
-            galleryImage: gallery.imageUrl,
-            galleryTitle: gallery.title,
-            reviewNote: report.reviewNote,
-            reviewedBy: report.reviewedBy,
-            reviewedAt: report.reviewedAt,
-          });
+        if (!normalizedStatus || report.status === normalizedStatus) {
+          combinedReports.push(normalizeGalleryReportItem(gallery, report));
         }
       });
     });
 
-    // Get total count of reports across all galleries
-    const totalGalleries = await HaircutGallery.find({
-      business: business._id,
-      isActive: true,
-      "reports.0": { $exists: true },
+    legacyReports.forEach((note) => {
+      combinedReports.push(normalizeLegacyNoteItem(note));
     });
 
-    let total = 0;
-    totalGalleries.forEach((gallery) => {
-      gallery.reports.forEach((report) => {
-        if (!status || report.status === status) {
-          total++;
-        }
-      });
-    });
+    combinedReports.sort(sortByCreatedAtDesc);
+
+    const total = combinedReports.length;
+    const reports = combinedReports.slice(skip, skip + limitNumber);
 
     return SuccessHandler(
       {
         reports,
         pagination: {
           total,
-          page: parseInt(page),
-          pages: Math.ceil(total / parseInt(limit)),
+          page: pageNumber,
+          pages: Math.ceil(total / limitNumber),
         },
       },
       200,
@@ -2467,6 +2521,55 @@ const respondToClientNote = async (req, res) => {
       );
     }
 
+    const legacySuggestionUpdate = await Note.findOneAndUpdate(
+      {
+        _id: noteId,
+        businessId: business._id,
+        type: "suggestion",
+      },
+      {
+        $set: {
+          response,
+          respondedBy: req.user.id,
+          respondedAt: new Date(),
+        },
+      },
+      { new: true }
+    ).populate("clientId", "firstName lastName phone profileImage");
+
+    if (legacySuggestionUpdate) {
+      return SuccessHandler(
+        { message: "Response sent successfully", note: legacySuggestionUpdate },
+        200,
+        res
+      );
+    }
+
+    const legacyReportUpdate = await Note.findOneAndUpdate(
+      {
+        _id: noteId,
+        businessId: business._id,
+        type: "report",
+      },
+      {
+        $set: {
+          reviewNote: response,
+          reviewedBy: req.user.id,
+          reviewedAt: new Date(),
+          ...(status ? { status } : {}),
+        },
+      },
+      { new: true }
+    ).populate("clientId", "firstName lastName phone profileImage");
+
+    if (legacyReportUpdate) {
+      return SuccessHandler(
+        { message: "Response sent successfully", note: legacyReportUpdate },
+        200,
+        res
+      );
+    }
+
     return ErrorHandler("Note not found.", 404, req, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
@@ -2511,7 +2614,6 @@ const getClientNoteCounts = async (req, res) => {
       return ErrorHandler("Business not found for this user.", 404, req, res);
     }
 
-    // Get counts for suggestions and reports from HaircutGallery
     const galleryEntries = await HaircutGallery.find({
       business: business._id,
       isActive: true,
@@ -2521,8 +2623,13 @@ const getClientNoteCounts = async (req, res) => {
       ],
     });
 
-    let suggestionsCount = 0;
-    let reportsCount = 0;
+    const [legacySuggestionsCount, legacyReportsCount] = await Promise.all([
+      Note.countDocuments({ businessId: business._id, type: "suggestion" }),
+      Note.countDocuments({ businessId: business._id, type: "report" }),
+    ]);
+
+    let suggestionsCount = legacySuggestionsCount;
+    let reportsCount = legacyReportsCount;
 
     galleryEntries.forEach((gallery) => {
       suggestionsCount += gallery.suggestions.length;

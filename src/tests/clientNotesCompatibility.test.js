@@ -208,4 +208,14 @@ describe("Client notes compatibility", () => {
       "resolved"
     );
   });
+
+  test("rejects unsupported report status filters", async () => {
+    const res = await request(app)
+      .get("/business/clients/reports?status=__proto__")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe("Invalid report status filter.");
+  });
 });

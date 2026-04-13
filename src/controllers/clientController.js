@@ -79,6 +79,13 @@ const normalizeGalleryReportItem = (gallery, report) => ({
 const sortByCreatedAtDesc = (a, b) =>
   new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
 
+const ALLOWED_REPORT_STATUSES = new Set([
+  "pending",
+  "reviewed",
+  "resolved",
+  "dismissed",
+]);
+
 /**
  * @desc Add a new client to a business (phone number only)
  * @route POST /api/business/clients
@@ -2281,6 +2288,10 @@ const getClientReports = async (req, res) => {
     const pageNumber = parseInt(page);
     const limitNumber = parseInt(limit);
     const skip = (pageNumber - 1) * limitNumber;
+    const normalizedStatus =
+      typeof status === "string" && ALLOWED_REPORT_STATUSES.has(status)
+        ? status
+        : null;
 
     // Use _id directly for ObjectId queries (more reliable than string conversion)
     const userId = req.user._id || req.user.id;
@@ -2296,8 +2307,12 @@ const getClientReports = async (req, res) => {
     };
 
     // If status filter is provided, add it to the query
-    if (status) {
-      query["reports.status"] = status;
+    if (status && !normalizedStatus) {
+      return ErrorHandler("Invalid report status filter.", 400, req, res);
+    }
+
+    if (normalizedStatus) {
+      query["reports.status"] = normalizedStatus;
     }
 
     const galleryWithReports = await HaircutGallery.find(query)
@@ -2309,8 +2324,8 @@ const getClientReports = async (req, res) => {
       businessId: business._id,
       type: "report",
     };
-    if (status) {
-      legacyReportQuery.status = status;
+    if (normalizedStatus) {
+      legacyReportQuery.status = normalizedStatus;
     }
 
     const legacyReports = await Note.find(legacyReportQuery)
@@ -2321,7 +2336,7 @@ const getClientReports = async (req, res) => {
     const combinedReports = [];
     galleryWithReports.forEach((gallery) => {
       gallery.reports.forEach((report) => {
-        if (!status || report.status === status) {
+        if (!normalizedStatus || report.status === normalizedStatus) {
           combinedReports.push(normalizeGalleryReportItem(gallery, report));
         }
       });

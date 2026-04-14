@@ -18,6 +18,18 @@ const jwt = require("jsonwebtoken");
 const Note = require("../models/note");
 const Auditing = require("../models/auditing");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
+const { getComparablePhone } = require("../utils/index");
+
+const resolveAuthenticatedClientId = (req) => {
+  return (
+    req.headers["x-client-id"] ||
+    req.client?._id?.toString?.() ||
+    req.user?.clientId ||
+    req.user?._id?.toString?.() ||
+    req.user?.id?.toString?.() ||
+    null
+  );
+};
 
 const normalizeLegacyNoteItem = (note) => ({
   _id: note._id,
@@ -1333,7 +1345,6 @@ const clientSignUp = async (req, res) => {
       );
     }
 
-    const { getComparablePhone } = require("../utils/index");
     const comparablePhone = getComparablePhone(phone);
     
     // Check if a FULLY REGISTERED client with this phone already exists
@@ -2803,9 +2814,7 @@ const getClientProfile = async (req, res) => {
        #swagger.security = [{ "Bearer": [] }]
     */
   try {
-    // Assuming client authentication is implemented similar to business auth
-    // For now, we'll use a client ID from request params or headers
-    const clientId = req.headers["x-client-id"] || req.user?.clientId;
+    const clientId = resolveAuthenticatedClientId(req);
 
     if (!clientId) {
       return ErrorHandler("Client ID is required.", 400, req, res);
@@ -2837,7 +2846,7 @@ const updateClientProfile = async (req, res) => {
        #swagger.parameters['removeProfileImage'] = { in: 'formData', type: 'boolean', description: 'Remove profile image if true' }
     */
   try {
-    const clientId = req.headers["x-client-id"] || req.user?.clientId;
+    const clientId = resolveAuthenticatedClientId(req);
     const { invitationToken } = req.query;
     let finalClientId = clientId;
 
@@ -2953,7 +2962,7 @@ const deleteClientProfile = async (req, res) => {
        #swagger.security = [{ "Bearer": [] }]
     */
   try {
-    const clientId = req.headers["x-client-id"] || req.user?.clientId;
+    const clientId = resolveAuthenticatedClientId(req);
 
     if (!clientId) {
       return ErrorHandler("Client ID is required.", 400, req, res);
@@ -3100,7 +3109,7 @@ const getClientOwnNotificationPreferences = async (req, res) => {
   /* #swagger.description = 'Get client\'s own notification preferences.'
    */
   try {
-    const clientId = req.headers["x-client-id"];
+    const clientId = resolveAuthenticatedClientId(req);
 
     if (!clientId) {
       return ErrorHandler("Client ID is required.", 400, req, res);
@@ -3145,7 +3154,7 @@ const toggleClientOwnNotifications = async (req, res) => {
        }
     */
   try {
-    const clientId = req.headers["x-client-id"];
+    const clientId = resolveAuthenticatedClientId(req);
     const { enabled } = req.body;
 
     if (!clientId) {

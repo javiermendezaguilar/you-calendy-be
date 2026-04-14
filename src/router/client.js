@@ -26,20 +26,26 @@ router.post(
 
 // Client-side profile routes
 router.get("/profile/:clientId", clientController.getPublicClientProfile);
-router.get("/profile", clientController.getClientProfile);
+router.get("/profile", isAuthenticated, clientController.getClientProfile);
 router.patch(
   "/profile",
+  isAuthenticated,
   uploader.single("profileImage"),
   clientController.updateClientProfile
 );
-router.delete("/profile", clientController.deleteClientProfile);
+router.delete("/profile", isAuthenticated, clientController.deleteClientProfile);
 
 // Client-side notification routes
 router.get(
   "/notifications",
+  isAuthenticated,
   clientController.getClientOwnNotificationPreferences
 );
-router.patch("/notifications", clientController.toggleClientOwnNotifications);
+router.patch(
+  "/notifications",
+  isAuthenticated,
+  clientController.toggleClientOwnNotifications
+);
 
 // Client gallery routes
 router.get("/gallery/:clientId", clientController.getClientGalleryByClient);

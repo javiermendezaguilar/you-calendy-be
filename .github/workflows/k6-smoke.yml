@@ -1,0 +1,49 @@
+name: Backend k6 Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "URL base del backend"
+        required: false
+        default: "https://api.groomnest.com"
+        type: string
+      vus:
+        description: "Numero de usuarios virtuales"
+        required: false
+        default: "3"
+        type: string
+      duration:
+        description: "Duracion del test"
+        required: false
+        default: "20s"
+        type: string
+
+jobs:
+  k6-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6 smoke
+        run: k6 run k6/smoke-auth.js
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url }}
+          K6_VUS: ${{ inputs.vus }}
+          K6_DURATION: ${{ inputs.duration }}
+          K6_BARBER_EMAIL: ${{ secrets.SMOKE_BARBER_EMAIL }}
+          K6_BARBER_PASSWORD: ${{ secrets.SMOKE_BARBER_PASSWORD }}
+
+      - name: Upload k6 script
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-script
+          path: k6/smoke-auth.js
+          if-no-files-found: error

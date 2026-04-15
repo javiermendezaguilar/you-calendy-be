@@ -1,17 +1,18 @@
 const { sendSMS } = require("./twilio");
 const sendMail = require("./sendMail");
 const {
-  validateAndDeductSmsCredits,
+  checkSmsCredits,
+  deductSmsCredits,
   validateAndDeductEmailCredits,
 } = require("./creditManager");
 
 /**
  * Credit-Aware Messaging Utilities
- * Wrapper functions that handle credit validation and deduction before sending messages
+ * Wrapper functions that handle credit validation and deduction around sending messages
  */
 
 /**
- * Send SMS with credit validation and deduction
+ * Send SMS with credit validation and post-send deduction
  * @param {string} to - Recipient phone number
  * @param {string} body - Message content
  * @param {string} businessId - Business ID for credit deduction
@@ -23,15 +24,9 @@ const sendSMSWithCredits = async (to, body, businessId, req, res) => {
   try {
     console.log(`Starting SMS credit validation for business ${businessId}`);
 
-    // Validate and deduct SMS credits
-    const creditValid = await validateAndDeductSmsCredits(
-      businessId,
-      1,
-      req,
-      res
-    );
-
-    if (creditValid !== true) {
+    // Check credits first, but only deduct after the provider confirms success.
+    const creditCheck = await checkSmsCredits(businessId, 1);
+    if (!creditCheck.hasCredits) {
       console.log(`Credit validation failed for business ${businessId}`);
       return {
         error: true,
@@ -46,6 +41,7 @@ const sendSMSWithCredits = async (to, body, businessId, req, res) => {
 
     // Send SMS
     const result = await sendSMS(to, body);
+    await deductSmsCredits(businessId, 1);
 
     console.log(
       `SMS sent successfully to ${to} using 1 credit from business ${businessId}. Message ID: ${result.sid}`
@@ -118,7 +114,7 @@ const sendEmailWithCredits = async (
 };
 
 /**
- * Send multiple SMS with credit validation and deduction
+ * Send multiple SMS with credit validation and post-send deduction
  * @param {Array} recipients - Array of recipient objects with 'phone' property
  * @param {string} body - Message content
  * @param {string} businessId - Business ID for credit deduction
@@ -136,14 +132,9 @@ const sendBulkSMSWithCredits = async (
   try {
     const totalRecipients = recipients.length;
 
-    // Validate and deduct SMS credits for all recipients
-    const creditValid = await validateAndDeductSmsCredits(
-      businessId,
-      totalRecipients,
-      req,
-      res
-    );
-    if (creditValid !== true) {
+    // Check total credit availability up front, but deduct only for successful sends.
+    const creditCheck = await checkSmsCredits(businessId, totalRecipients);
+    if (!creditCheck.hasCredits) {
       return {
         error: true,
         message: "Insufficient SMS credits",
@@ -164,7 +155,6 @@ const sendBulkSMSWithCredits = async (
       try {
         await sendSMS(recipient.phone, body);
         results.successCount++;
-        results.creditsUsed++;
       } catch (smsError) {
         results.failedCount++;
         results.failedRecipients.push({
@@ -176,6 +166,11 @@ const sendBulkSMSWithCredits = async (
           smsError.message
         );
       }
+    }
+
+    if (results.successCount > 0) {
+      await deductSmsCredits(businessId, results.successCount);
+      results.creditsUsed = results.successCount;
     }
 
     console.log(

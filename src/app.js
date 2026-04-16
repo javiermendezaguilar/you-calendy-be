@@ -31,12 +31,19 @@ const moment = require("moment");
 
 console.log(moment().endOf("day").toDate());
 
+const parseAllowedOrigins = (value) =>
+  (value || "")
+    .split(/[\s,]+/)
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
 const allowedOrigins = [
   "http://localhost:5000",
   "http://localhost:5173",
   "http://localhost",
   "https://you-calendy-fe-three.vercel.app",
   process.env.FRONTEND_URL,
+  ...parseAllowedOrigins(process.env.ADDITIONAL_ALLOWED_ORIGINS),
 ].filter(Boolean);
 
 const appLimiter = rateLimit({

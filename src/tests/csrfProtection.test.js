@@ -2,7 +2,8 @@ const request = require("supertest");
 
 process.env.JWT_SECRET = "mysecretcalendy";
 process.env.MONGO_URI = "mock-uri";
-process.env.FRONTEND_URL = "https://you-calendy-fe-three.vercel.app";
+process.env.FRONTEND_URL = "https://groomnest.com";
+process.env.ADDITIONAL_ALLOWED_ORIGINS = "https://app.groomnest.com";
 
 const app = require("../app");
 
@@ -28,5 +29,16 @@ describe("CSRF protection", () => {
     expect(res.status).toBe(403);
     expect(res.body.success).toBe(false);
     expect(res.body.message).toBe("Blocked by CSRF protection");
+  });
+
+  test("allows cookie-authenticated writes from an additional allowed origin", async () => {
+    const res = await request(app)
+      .post("/auth/logout")
+      .set("Origin", "https://app.groomnest.com")
+      .set("Cookie", ["userToken=fake-token"])
+      .send({ userType: "user" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
   });
 });

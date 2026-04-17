@@ -19,6 +19,19 @@ const Note = require("../models/note");
 const Auditing = require("../models/auditing");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
 const { getComparablePhone } = require("../utils/index");
+const {
+  getClientPhonesForOwner,
+  getClientByIdForOwner,
+} = require("../services/client/readService");
+const {
+  addClientSuggestionForOwner,
+  getClientSuggestionsForOwner,
+  addClientReportForOwner,
+  getClientReportsForOwner,
+  updateReportStatusForOwner,
+  respondToClientNoteForOwner,
+  getClientNoteCountsForOwner,
+} = require("../services/client/notesService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -103,73 +116,6 @@ const resolveAuthenticatedClientId = (req) => {
     null
   );
 };
-
-const normalizeLegacyNoteItem = (note) => ({
-  _id: note._id,
-  content: note.content,
-  images: Array.isArray(note.images) ? note.images.filter(Boolean) : [],
-  createdAt: note.createdAt,
-  clientId: note.clientId,
-  createdBy: note.createdBy,
-  galleryId: null,
-  galleryImage: null,
-  galleryTitle: null,
-  response: note.response || note.reviewNote,
-  respondedBy: note.respondedBy || note.reviewedBy,
-  respondedAt: note.respondedAt || note.reviewedAt,
-  reportType: note.reportType,
-  status: note.status,
-  rating: note.rating,
-  source: "note",
-});
-
-const normalizeGallerySuggestionItem = (gallery, suggestion) => ({
-  _id: suggestion._id,
-  content: suggestion.note,
-  images: suggestion.imageUrl ? [suggestion.imageUrl] : [],
-  createdAt: suggestion.createdAt,
-  clientId: gallery.client,
-  createdBy: suggestion.createdBy,
-  galleryId: gallery._id,
-  galleryImage: gallery.imageUrl,
-  galleryTitle: gallery.title,
-  response: suggestion.response,
-  respondedBy: suggestion.respondedBy,
-  respondedAt: suggestion.respondedAt,
-  source: "gallery",
-});
-
-const normalizeGalleryReportItem = (gallery, report) => ({
-  _id: report._id,
-  content: report.note,
-  reportType: report.reportType,
-  status: report.status,
-  rating: report.rating,
-  images: report.imageUrl ? [report.imageUrl] : [],
-  createdAt: report.createdAt,
-  clientId: gallery.client,
-  createdBy: report.createdBy,
-  galleryId: gallery._id,
-  galleryImage: gallery.imageUrl,
-  galleryTitle: gallery.title,
-  reviewNote: report.reviewNote,
-  reviewedBy: report.reviewedBy,
-  reviewedAt: report.reviewedAt,
-  response: report.reviewNote,
-  respondedBy: report.reviewedBy,
-  respondedAt: report.reviewedAt,
-  source: "gallery",
-});
-
-const sortByCreatedAtDesc = (a, b) =>
-  new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-
-const ALLOWED_REPORT_STATUSES = new Set([
-  "pending",
-  "reviewed",
-  "resolved",
-  "dismissed",
-]);
 
 /**
  * @desc Add a new client to a business (phone number only)
@@ -759,27 +705,10 @@ const getClientPhone = async (req, res) => {
        #swagger.security = [{ "Bearer": [] }]
     */
   try {
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const clients = await Client.find({ business: business._id }).select(
-      "_id phone firstName lastName email"
-    );
-
-    const phones = clients.map((c) => ({
-      clientId: c._id,
-      phone: c.phone,
-      firstName: c.firstName,
-      lastName: c.lastName,
-      email: c.email,
-    }));
-
-    return SuccessHandler({ phones }, 200, res);
+    const payload = await getClientPhonesForOwner(req.user);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -794,28 +723,10 @@ const getClientById = async (req, res) => {
          #swagger.security = [{ "Bearer": [] }]
       */
   try {
-    const { clientId } = req.params;
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    }).populate("staff", "firstName lastName");
-
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Include internalNotes and haircutPhotos in the response
-    const clientData = client.toObject();
-    return SuccessHandler(clientData, 200, res);
+    const payload = await getClientByIdForOwner(req.user, req.params.clientId);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2309,44 +2220,14 @@ const addClientSuggestion = async (req, res) => {
        }
     */
   try {
-    const { clientId } = req.params;
-    const { note, images = [] } = req.body;
-
-    if (!note) {
-      return ErrorHandler("Suggestion note is required.", 400, req, res);
-    }
-
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Create suggestion using the Note model
-    const Note = require("../models/note");
-    const suggestion = new Note({
-      businessId: business._id,
-      clientId: client._id,
-      createdBy: req.user.id,
-      content: note,
-      type: "suggestion",
-      images: images,
-    });
-
-    await suggestion.save();
-
-    return SuccessHandler(suggestion, 201, res);
+    const payload = await addClientSuggestionForOwner(
+      req.user,
+      req.params.clientId,
+      req.body
+    );
+    return SuccessHandler(payload, 201, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2363,68 +2244,10 @@ const getClientSuggestions = async (req, res) => {
        #swagger.parameters['limit'] = { in: 'query', description: 'Number of items per page', type: 'integer' }
     */
   try {
-    const { page = 1, limit = 10 } = req.query;
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-    const skip = (pageNumber - 1) * limitNumber;
-
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const galleryWithSuggestions = await HaircutGallery.find({
-      business: business._id,
-      isActive: true,
-      "suggestions.0": { $exists: true },
-    })
-      .populate("client", "firstName lastName phone profileImage")
-      .populate("suggestions.createdBy", "firstName lastName")
-      .sort({ updatedAt: -1 });
-
-    const legacyNotes = await Note.find({
-      businessId: business._id,
-      type: "suggestion",
-    })
-      .populate("clientId", "firstName lastName phone profileImage")
-      .populate("createdBy", "firstName lastName")
-      .sort({ createdAt: -1 });
-
-    const combinedSuggestions = [];
-
-    galleryWithSuggestions.forEach((gallery) => {
-      gallery.suggestions.forEach((suggestion) => {
-        combinedSuggestions.push(
-          normalizeGallerySuggestionItem(gallery, suggestion)
-        );
-      });
-    });
-
-    legacyNotes.forEach((note) => {
-      combinedSuggestions.push(normalizeLegacyNoteItem(note));
-    });
-
-    combinedSuggestions.sort(sortByCreatedAtDesc);
-
-    const total = combinedSuggestions.length;
-    const suggestions = combinedSuggestions.slice(skip, skip + limitNumber);
-
-    return SuccessHandler(
-      {
-        suggestions,
-        pagination: {
-          total,
-          page: pageNumber,
-          pages: Math.ceil(total / limitNumber),
-        },
-      },
-      200,
-      res
-    );
+    const payload = await getClientSuggestionsForOwner(req.user, req.query);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2449,46 +2272,14 @@ const addClientReport = async (req, res) => {
        }
     */
   try {
-    const { clientId } = req.params;
-    const { note, reportType = "other", images = [] } = req.body;
-
-    if (!note) {
-      return ErrorHandler("Report note is required.", 400, req, res);
-    }
-
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Create report using the Note model
-    const Note = require("../models/note");
-    const report = new Note({
-      businessId: business._id,
-      clientId: client._id,
-      createdBy: req.user.id,
-      content: note,
-      type: "report",
-      reportType: reportType,
-      images: images,
-      status: "pending",
-    });
-
-    await report.save();
-
-    return SuccessHandler(report, 201, res);
+    const payload = await addClientReportForOwner(
+      req.user,
+      req.params.clientId,
+      req.body
+    );
+    return SuccessHandler(payload, 201, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2506,87 +2297,10 @@ const getClientReports = async (req, res) => {
        #swagger.parameters['limit'] = { in: 'query', description: 'Number of items per page', type: 'integer' }
     */
   try {
-    const { status, page = 1, limit = 10 } = req.query;
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-    const skip = (pageNumber - 1) * limitNumber;
-    const normalizedStatus =
-      typeof status === "string" && ALLOWED_REPORT_STATUSES.has(status)
-        ? status
-        : null;
-
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    let query = {
-      business: business._id,
-      isActive: true,
-      "reports.0": { $exists: true }, // Has at least one report
-    };
-
-    // If status filter is provided, add it to the query
-    if (status && !normalizedStatus) {
-      return ErrorHandler("Invalid report status filter.", 400, req, res);
-    }
-
-    if (normalizedStatus) {
-      query["reports.status"] = normalizedStatus;
-    }
-
-    const galleryWithReports = await HaircutGallery.find(query)
-      .populate("client", "firstName lastName phone profileImage")
-      .populate("reports.createdBy", "firstName lastName")
-      .sort({ updatedAt: -1 });
-
-    const legacyReportQuery = {
-      businessId: business._id,
-      type: "report",
-    };
-    if (normalizedStatus) {
-      legacyReportQuery.status = normalizedStatus;
-    }
-
-    const legacyReports = await Note.find(legacyReportQuery)
-      .populate("clientId", "firstName lastName phone profileImage")
-      .populate("createdBy", "firstName lastName")
-      .sort({ createdAt: -1 });
-
-    const combinedReports = [];
-    galleryWithReports.forEach((gallery) => {
-      gallery.reports.forEach((report) => {
-        if (!normalizedStatus || report.status === normalizedStatus) {
-          combinedReports.push(normalizeGalleryReportItem(gallery, report));
-        }
-      });
-    });
-
-    legacyReports.forEach((note) => {
-      combinedReports.push(normalizeLegacyNoteItem(note));
-    });
-
-    combinedReports.sort(sortByCreatedAtDesc);
-
-    const total = combinedReports.length;
-    const reports = combinedReports.slice(skip, skip + limitNumber);
-
-    return SuccessHandler(
-      {
-        reports,
-        pagination: {
-          total,
-          page: pageNumber,
-          pages: Math.ceil(total / limitNumber),
-        },
-      },
-      200,
-      res
-    );
+    const payload = await getClientReportsForOwner(req.user, req.query);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2610,40 +2324,14 @@ const updateReportStatus = async (req, res) => {
        }
     */
   try {
-    const { reportId } = req.params;
-    const { status, reviewNote } = req.body;
-
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const Note = require("../models/note");
-    const report = await Note.findOne({
-      _id: reportId,
-      businessId: business._id,
-      type: "report",
-    });
-
-    if (!report) {
-      return ErrorHandler("Report not found.", 404, req, res);
-    }
-
-    const updateData = {};
-    if (status) updateData.status = status;
-    if (reviewNote) updateData.reviewNote = reviewNote;
-    updateData.reviewedBy = req.user.id;
-    updateData.reviewedAt = new Date();
-
-    const updatedReport = await Note.findByIdAndUpdate(reportId, updateData, {
-      new: true,
-    }).populate("clientId", "firstName lastName phone");
-
-    return SuccessHandler(updatedReport, 200, res);
+    const payload = await updateReportStatusForOwner(
+      req.user,
+      req.params.reportId,
+      req.body
+    );
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2671,130 +2359,14 @@ const respondToClientNote = async (req, res) => {
        }
     */
   try {
-    const { noteId } = req.params;
-    const { response, status } = req.body;
-
-    if (!response) {
-      return ErrorHandler("Response message is required.", 400, req, res);
-    }
-
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    // NOTE: The legacy implementation wrote to Note model. Now align to HaircutGallery.
-    // Try to update a suggestion first
-    const suggestionUpdate = await HaircutGallery.findOneAndUpdate(
-      {
-        business: business._id,
-        isActive: true,
-        "suggestions._id": noteId,
-      },
-      {
-        $set: {
-          "suggestions.$.response": response,
-          "suggestions.$.respondedBy": req.user.id,
-          "suggestions.$.respondedAt": new Date(),
-        },
-      },
-      { new: true }
-    )
-      .populate("client", "firstName lastName phone profileImage")
-      .populate("suggestions.createdBy", "firstName lastName");
-
-    if (suggestionUpdate) {
-      return SuccessHandler(
-        { message: "Response sent successfully", gallery: suggestionUpdate },
-        200,
-        res
-      );
-    }
-
-    // If not a suggestion, try to update a report's review note/status
-    const reportSet = {
-      "reports.$.reviewNote": response,
-      "reports.$.reviewedBy": req.user.id,
-      "reports.$.reviewedAt": new Date(),
-    };
-    if (status) {
-      reportSet["reports.$.status"] = status;
-    }
-
-    const reportUpdate = await HaircutGallery.findOneAndUpdate(
-      {
-        business: business._id,
-        isActive: true,
-        "reports._id": noteId,
-      },
-      { $set: reportSet },
-      { new: true }
-    )
-      .populate("client", "firstName lastName phone profileImage")
-      .populate("reports.createdBy", "firstName lastName");
-
-    if (reportUpdate) {
-      return SuccessHandler(
-        { message: "Response sent successfully", gallery: reportUpdate },
-        200,
-        res
-      );
-    }
-
-    const legacySuggestionUpdate = await Note.findOneAndUpdate(
-      {
-        _id: noteId,
-        businessId: business._id,
-        type: "suggestion",
-      },
-      {
-        $set: {
-          response,
-          respondedBy: req.user.id,
-          respondedAt: new Date(),
-        },
-      },
-      { new: true }
-    ).populate("clientId", "firstName lastName phone profileImage");
-
-    if (legacySuggestionUpdate) {
-      return SuccessHandler(
-        { message: "Response sent successfully", note: legacySuggestionUpdate },
-        200,
-        res
-      );
-    }
-
-    const legacyReportUpdate = await Note.findOneAndUpdate(
-      {
-        _id: noteId,
-        businessId: business._id,
-        type: "report",
-      },
-      {
-        $set: {
-          reviewNote: response,
-          reviewedBy: req.user.id,
-          reviewedAt: new Date(),
-          ...(status ? { status } : {}),
-        },
-      },
-      { new: true }
-    ).populate("clientId", "firstName lastName phone profileImage");
-
-    if (legacyReportUpdate) {
-      return SuccessHandler(
-        { message: "Response sent successfully", note: legacyReportUpdate },
-        200,
-        res
-      );
-    }
-
-    return ErrorHandler("Note not found.", 404, req, res);
+    const payload = await respondToClientNoteForOwner(
+      req.user,
+      req.params.noteId,
+      req.body
+    );
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2830,46 +2402,17 @@ const respondToClientNote = async (req, res) => {
  */
 const getClientNoteCounts = async (req, res) => {
   try {
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const galleryEntries = await HaircutGallery.find({
-      business: business._id,
-      isActive: true,
-      $or: [
-        { "suggestions.0": { $exists: true } },
-        { "reports.0": { $exists: true } },
-      ],
-    });
-
-    const [legacySuggestionsCount, legacyReportsCount] = await Promise.all([
-      Note.countDocuments({ businessId: business._id, type: "suggestion" }),
-      Note.countDocuments({ businessId: business._id, type: "report" }),
-    ]);
-
-    let suggestionsCount = legacySuggestionsCount;
-    let reportsCount = legacyReportsCount;
-
-    galleryEntries.forEach((gallery) => {
-      suggestionsCount += gallery.suggestions.length;
-      reportsCount += gallery.reports.length;
-    });
+    const counts = await getClientNoteCountsForOwner(req.user);
 
     res.status(200).json({
       success: true,
-      data: {
-        suggestions: suggestionsCount,
-        reports: reportsCount,
-      },
+      data: counts,
     });
   } catch (error) {
     console.error("Error getting client note counts:", error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: "Failed to get note counts",
+      message: error.message || "Failed to get note counts",
       error: error.message,
     });
   }

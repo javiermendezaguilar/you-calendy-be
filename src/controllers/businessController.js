@@ -36,6 +36,20 @@ const setPerfHeader = (res, timings) => {
   res.set("X-Groomnest-Perf", value);
 };
 
+const resolveBusinessForRequest = async (req) => {
+  if (req.business) {
+    return { business: req.business, lookupMs: 0 };
+  }
+
+  const businessLookupStart = Date.now();
+  const business = await Business.findOne({ owner: req.user.id });
+
+  return {
+    business,
+    lookupMs: Date.now() - businessLookupStart,
+  };
+};
+
 const VALID_TIME_FORMATS = ["12h", "24h"];
 
 /**
@@ -1252,9 +1266,8 @@ const startFreeTrial = async (req, res) => {
 const getSubscriptionStatus = async (req, res) => {
   try {
     const totalStart = Date.now();
-    const businessLookupStart = Date.now();
-    const business = await Business.findOne({ owner: req.user.id });
-    const businessLookupMs = Date.now() - businessLookupStart;
+    const { business, lookupMs: businessLookupMs } =
+      await resolveBusinessForRequest(req);
     if (!business) return ErrorHandler("Business not found", 404, req, res);
     let status = business.subscriptionStatus;
     let daysLeft = null;

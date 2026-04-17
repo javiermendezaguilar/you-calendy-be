@@ -231,6 +231,9 @@ clientSchema.index({ phoneComparable: 1, business: 1 });
 // Index for email lookups (for converting unregistered to registered)
 clientSchema.index({ email: 1, business: 1 });
 
+// Index for the default business-scoped client listing sorted by first name
+clientSchema.index({ business: 1, firstName: 1 });
+
 // Pre-save middleware to check if profile is complete and normalize phone
 clientSchema.pre("save", function (next) {
   // Profile is complete if firstName, lastName, and email are all present

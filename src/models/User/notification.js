@@ -33,5 +33,8 @@ const notificationSchema = new Schema(
   { timestamps: true }
 );
 
+notificationSchema.index({ user: 1, createdAt: -1 });
+notificationSchema.index({ client: 1, createdAt: -1 });
+
 const Notification = mongoose.model("Notification", notificationSchema);
 module.exports = Notification;

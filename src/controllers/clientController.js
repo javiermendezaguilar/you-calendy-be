@@ -397,7 +397,7 @@ const getClients = async (req, res) => {
 
     // If no search, use normal query
     const clients = await Client.find(baseQuery)
-      .populate("staff")
+      .populate({ path: "staff", select: "firstName lastName position" })
       .sort(sortObj)
       .skip(skip)
       .limit(parseInt(limit));

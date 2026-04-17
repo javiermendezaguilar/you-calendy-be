@@ -340,6 +340,8 @@ businessSchema.pre("save", function (next) {
   next();
 });
 
+businessSchema.index({ owner: 1 });
+
 // Index for geospatial queries
 businessSchema.index({ location: "2dsphere" });
 

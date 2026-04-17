@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Business = require("../../models/User/business");
 
 const buildServiceError = (message, statusCode) => {
@@ -7,6 +8,14 @@ const buildServiceError = (message, statusCode) => {
 };
 
 const getOwnerUserId = (user) => user?._id || user?.id;
+
+const ensureObjectIdString = (value, message) => {
+  if (typeof value !== "string" || !mongoose.Types.ObjectId.isValid(value)) {
+    throw buildServiceError(message, 400);
+  }
+
+  return value;
+};
 
 const findOwnedBusinessOrThrow = async (user) => {
   const business = await Business.findOne({ owner: getOwnerUserId(user) });
@@ -21,5 +30,6 @@ const findOwnedBusinessOrThrow = async (user) => {
 module.exports = {
   buildServiceError,
   getOwnerUserId,
+  ensureObjectIdString,
   findOwnedBusinessOrThrow,
 };

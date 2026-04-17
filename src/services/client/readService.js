@@ -1,5 +1,9 @@
 const Client = require("../../models/client");
-const { findOwnedBusinessOrThrow, buildServiceError } = require("./shared");
+const {
+  findOwnedBusinessOrThrow,
+  buildServiceError,
+  ensureObjectIdString,
+} = require("./shared");
 
 const getClientPhonesForOwner = async (user) => {
   const business = await findOwnedBusinessOrThrow(user);
@@ -20,8 +24,9 @@ const getClientPhonesForOwner = async (user) => {
 
 const getClientByIdForOwner = async (user, clientId) => {
   const business = await findOwnedBusinessOrThrow(user);
+  const safeClientId = ensureObjectIdString(clientId, "Invalid client ID.");
   const client = await Client.findOne({
-    _id: clientId,
+    _id: safeClientId,
     business: business._id,
   }).populate("staff", "firstName lastName");
 

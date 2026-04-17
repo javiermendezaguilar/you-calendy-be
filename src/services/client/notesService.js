@@ -5,6 +5,7 @@ const {
   findOwnedBusinessOrThrow,
   buildServiceError,
   getOwnerUserId,
+  ensureObjectIdString,
 } = require("./shared");
 
 const normalizeLegacyNoteItem = (note) => ({
@@ -75,8 +76,9 @@ const ALLOWED_REPORT_STATUSES = new Set([
 ]);
 
 const getOwnedClientOrThrow = async (businessId, clientId) => {
+  const safeClientId = ensureObjectIdString(clientId, "Invalid client ID.");
   const client = await Client.findOne({
-    _id: clientId,
+    _id: safeClientId,
     business: businessId,
   });
 
@@ -256,9 +258,10 @@ const getClientReportsForOwner = async (user, query) => {
 const updateReportStatusForOwner = async (user, reportId, payload) => {
   const { status, reviewNote } = payload;
   const business = await findOwnedBusinessOrThrow(user);
+  const safeReportId = ensureObjectIdString(reportId, "Invalid report ID.");
 
   const report = await Note.findOne({
-    _id: reportId,
+    _id: safeReportId,
     businessId: business._id,
     type: "report",
   });
@@ -274,9 +277,17 @@ const updateReportStatusForOwner = async (user, reportId, payload) => {
   if (status) updateData.status = status;
   if (reviewNote) updateData.reviewNote = reviewNote;
 
-  return Note.findByIdAndUpdate(reportId, updateData, {
-    new: true,
-  }).populate("clientId", "firstName lastName phone");
+  return Note.findOneAndUpdate(
+    {
+      _id: safeReportId,
+      businessId: business._id,
+      type: "report",
+    },
+    updateData,
+    {
+      new: true,
+    }
+  ).populate("clientId", "firstName lastName phone");
 };
 
 const respondToClientNoteForOwner = async (user, noteId, payload) => {
@@ -288,12 +299,13 @@ const respondToClientNoteForOwner = async (user, noteId, payload) => {
 
   const business = await findOwnedBusinessOrThrow(user);
   const ownerId = getOwnerUserId(user);
+  const safeNoteId = ensureObjectIdString(noteId, "Invalid note ID.");
 
   const suggestionUpdate = await HaircutGallery.findOneAndUpdate(
     {
       business: business._id,
       isActive: true,
-      "suggestions._id": noteId,
+      "suggestions._id": safeNoteId,
     },
     {
       $set: {
@@ -324,7 +336,7 @@ const respondToClientNoteForOwner = async (user, noteId, payload) => {
     {
       business: business._id,
       isActive: true,
-      "reports._id": noteId,
+      "reports._id": safeNoteId,
     },
     { $set: reportSet },
     { new: true }
@@ -338,7 +350,7 @@ const respondToClientNoteForOwner = async (user, noteId, payload) => {
 
   const legacySuggestionUpdate = await Note.findOneAndUpdate(
     {
-      _id: noteId,
+      _id: safeNoteId,
       businessId: business._id,
       type: "suggestion",
     },
@@ -358,7 +370,7 @@ const respondToClientNoteForOwner = async (user, noteId, payload) => {
 
   const legacyReportUpdate = await Note.findOneAndUpdate(
     {
-      _id: noteId,
+      _id: safeNoteId,
       businessId: business._id,
       type: "report",
     },

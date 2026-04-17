@@ -29,6 +29,13 @@ const { normalizePhone } = require("../utils/index");
 const Service = require("../models/service");
 const Staff = require("../models/staff");
 
+const setPerfHeader = (res, timings) => {
+  const value = Object.entries(timings)
+    .map(([key, ms]) => `${key}=${ms}`)
+    .join(";");
+  res.set("X-Groomnest-Perf", value);
+};
+
 const VALID_TIME_FORMATS = ["12h", "24h"];
 
 /**
@@ -1244,20 +1251,29 @@ const startFreeTrial = async (req, res) => {
  */
 const getSubscriptionStatus = async (req, res) => {
   try {
+    const totalStart = Date.now();
+    const businessLookupStart = Date.now();
     const business = await Business.findOne({ owner: req.user.id });
+    const businessLookupMs = Date.now() - businessLookupStart;
     if (!business) return ErrorHandler("Business not found", 404, req, res);
     let status = business.subscriptionStatus;
     let daysLeft = null;
+    let trialCalcMs = 0;
+    let saveMs = 0;
 
     // Calculate days left for trialing status
     if (status === "trialing" && business.trialEnd) {
+      const trialCalcStart = Date.now();
       daysLeft = Math.max(0, moment(business.trialEnd).diff(moment(), "days"));
+      trialCalcMs = Date.now() - trialCalcStart;
 
       // If trial has ended, update status to incomplete_expired
       if (daysLeft === 0) {
         status = "incomplete_expired";
         business.subscriptionStatus = "incomplete_expired";
+        const saveStart = Date.now();
         await business.save();
+        saveMs = Date.now() - saveStart;
       }
     }
 
@@ -1275,6 +1291,12 @@ const getSubscriptionStatus = async (req, res) => {
     } else {
       message = "Your trial has ended. Please upgrade to continue.";
     }
+    setPerfHeader(res, {
+      businessLookup: businessLookupMs,
+      trialCalc: trialCalcMs,
+      save: saveMs,
+      total: Date.now() - totalStart,
+    });
     return SuccessHandler({ status, daysLeft, message }, 200, res);
   } catch (err) {
     return ErrorHandler(err.message, 500, req, res);

@@ -125,6 +125,7 @@ router.get(
 // Client management routes
 router.post("/clients", isAuthenticated, clientController.addClient);
 router.get("/clients", isAuthenticated, clientController.getClients);
+router.get("/clients/count", isAuthenticated, clientController.getClientsCount);
 
 // Client phone and messaging routes (must be before parameterized routes)
 router.get(

@@ -46,6 +46,8 @@ const allowedOrigins = [
   ...parseAllowedOrigins(process.env.ADDITIONAL_ALLOWED_ORIGINS),
 ].filter(Boolean);
 
+const exposedHeaders = ["X-Groomnest-Perf"];
+
 const appLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
@@ -67,9 +69,13 @@ app.use(
   cors({
     origin: allowedOrigins,
     credentials: true,
+    exposedHeaders,
   })
 );
-app.options("*", cors({ origin: allowedOrigins, credentials: true }));
+app.options(
+  "*",
+  cors({ origin: allowedOrigins, credentials: true, exposedHeaders })
+);
 app.use(cookieParser()); // Parse cookies for authentication
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.use(loggerMiddleware);

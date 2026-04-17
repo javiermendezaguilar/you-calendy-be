@@ -283,24 +283,15 @@ const updateReportStatusForOwner = async (user, reportId, payload) => {
     throw buildServiceError("Report not found.", 404);
   }
 
-  const updateData = {
-    reviewedBy: getOwnerUserId(user),
-    reviewedAt: new Date(),
-  };
-  if (normalizedStatus) updateData.status = normalizedStatus;
-  if (reviewNote) updateData.reviewNote = reviewNote;
+  report.reviewedBy = getOwnerUserId(user);
+  report.reviewedAt = new Date();
+  if (normalizedStatus) report.status = normalizedStatus;
+  if (reviewNote) report.reviewNote = reviewNote;
 
-  return Note.findOneAndUpdate(
-    {
-      _id: safeReportId,
-      businessId: business._id,
-      type: "report",
-    },
-    updateData,
-    {
-      new: true,
-    }
-  ).populate("clientId", "firstName lastName phone");
+  await report.save();
+  await report.populate("clientId", "firstName lastName phone");
+
+  return report;
 };
 
 const respondToClientNoteForOwner = async (user, noteId, payload) => {

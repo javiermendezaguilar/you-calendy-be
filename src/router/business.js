@@ -1,5 +1,5 @@
 const express = require("express");
-const { isAuthenticated } = require("../middleware/auth");
+const { isAuthenticated, isBusinessOwner } = require("../middleware/auth");
 const router = express.Router();
 const multer = require("multer");
 const businessController = require("../controllers/businessController");
@@ -124,8 +124,18 @@ router.get(
 
 // Client management routes
 router.post("/clients", isAuthenticated, clientController.addClient);
-router.get("/clients", isAuthenticated, clientController.getClients);
-router.get("/clients/count", isAuthenticated, clientController.getClientsCount);
+router.get(
+  "/clients",
+  isAuthenticated,
+  isBusinessOwner,
+  clientController.getClients
+);
+router.get(
+  "/clients/count",
+  isAuthenticated,
+  isBusinessOwner,
+  clientController.getClientsCount
+);
 
 // Client phone and messaging routes (must be before parameterized routes)
 router.get(
@@ -300,6 +310,7 @@ router.post("/start-trial", isAuthenticated, businessController.startFreeTrial);
 router.get(
   "/subscription-status",
   isAuthenticated,
+  isBusinessOwner,
   businessController.getSubscriptionStatus
 );
 router.post(

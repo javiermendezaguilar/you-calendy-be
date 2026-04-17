@@ -31,6 +31,21 @@ const resolveBusinessForOwner = async (userId) => {
   return Business.findOne({ owner: userId });
 };
 
+const resolveBusinessForRequest = async (req) => {
+  if (req.business) {
+    return { business: req.business, lookupMs: 0 };
+  }
+
+  const userId = req.user._id || req.user.id;
+  const businessLookupStart = Date.now();
+  const business = await resolveBusinessForOwner(userId);
+
+  return {
+    business,
+    lookupMs: Date.now() - businessLookupStart,
+  };
+};
+
 const buildClientBaseQuery = ({
   businessId,
   isActive,
@@ -310,10 +325,8 @@ const getClients = async (req, res) => {
     */
   try {
     const totalStart = Date.now();
-    const userId = req.user._id || req.user.id;
-    const businessLookupStart = Date.now();
-    const business = await resolveBusinessForOwner(userId);
-    const businessLookupMs = Date.now() - businessLookupStart;
+    const { business, lookupMs: businessLookupMs } =
+      await resolveBusinessForRequest(req);
     if (!business) {
       return ErrorHandler("Business not found for this user.", 404, req, res);
     }
@@ -513,10 +526,8 @@ const getClients = async (req, res) => {
 const getClientsCount = async (req, res) => {
   try {
     const totalStart = Date.now();
-    const userId = req.user._id || req.user.id;
-    const businessLookupStart = Date.now();
-    const business = await resolveBusinessForOwner(userId);
-    const businessLookupMs = Date.now() - businessLookupStart;
+    const { business, lookupMs: businessLookupMs } =
+      await resolveBusinessForRequest(req);
 
     if (!business) {
       return ErrorHandler("Business not found for this user.", 404, req, res);

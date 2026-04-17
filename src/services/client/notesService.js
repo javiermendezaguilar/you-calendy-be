@@ -75,6 +75,18 @@ const ALLOWED_REPORT_STATUSES = new Set([
   "dismissed",
 ]);
 
+const normalizeAllowedReportStatus = (status) => {
+  if (typeof status === "undefined") {
+    return null;
+  }
+
+  if (typeof status !== "string" || !ALLOWED_REPORT_STATUSES.has(status)) {
+    throw buildServiceError("Invalid report status.", 400);
+  }
+
+  return status;
+};
+
 const getOwnedClientOrThrow = async (businessId, clientId) => {
   const safeClientId = ensureObjectIdString(clientId, "Invalid client ID.");
   const client = await Client.findOne({
@@ -259,6 +271,7 @@ const updateReportStatusForOwner = async (user, reportId, payload) => {
   const { status, reviewNote } = payload;
   const business = await findOwnedBusinessOrThrow(user);
   const safeReportId = ensureObjectIdString(reportId, "Invalid report ID.");
+  const normalizedStatus = normalizeAllowedReportStatus(status);
 
   const report = await Note.findOne({
     _id: safeReportId,
@@ -274,7 +287,7 @@ const updateReportStatusForOwner = async (user, reportId, payload) => {
     reviewedBy: getOwnerUserId(user),
     reviewedAt: new Date(),
   };
-  if (status) updateData.status = status;
+  if (normalizedStatus) updateData.status = normalizedStatus;
   if (reviewNote) updateData.reviewNote = reviewNote;
 
   return Note.findOneAndUpdate(
@@ -300,6 +313,7 @@ const respondToClientNoteForOwner = async (user, noteId, payload) => {
   const business = await findOwnedBusinessOrThrow(user);
   const ownerId = getOwnerUserId(user);
   const safeNoteId = ensureObjectIdString(noteId, "Invalid note ID.");
+  const normalizedStatus = normalizeAllowedReportStatus(status);
 
   const suggestionUpdate = await HaircutGallery.findOneAndUpdate(
     {
@@ -328,8 +342,8 @@ const respondToClientNoteForOwner = async (user, noteId, payload) => {
     "reports.$.reviewedBy": ownerId,
     "reports.$.reviewedAt": new Date(),
   };
-  if (status) {
-    reportSet["reports.$.status"] = status;
+  if (normalizedStatus) {
+    reportSet["reports.$.status"] = normalizedStatus;
   }
 
   const reportUpdate = await HaircutGallery.findOneAndUpdate(
@@ -379,7 +393,7 @@ const respondToClientNoteForOwner = async (user, noteId, payload) => {
         reviewNote: response,
         reviewedBy: ownerId,
         reviewedAt: new Date(),
-        ...(status ? { status } : {}),
+        ...(normalizedStatus ? { status: normalizedStatus } : {}),
       },
     },
     { new: true }

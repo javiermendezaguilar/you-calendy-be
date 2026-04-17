@@ -20,6 +20,13 @@ const Auditing = require("../models/auditing");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
 const { getComparablePhone } = require("../utils/index");
 
+const setPerfHeader = (res, timings) => {
+  const value = Object.entries(timings)
+    .map(([key, ms]) => `${key}=${ms}`)
+    .join(";");
+  res.set("X-Groomnest-Perf", value);
+};
+
 const resolveAuthenticatedClientId = (req) => {
   return (
     req.headers["x-client-id"] ||
@@ -251,8 +258,11 @@ const getClients = async (req, res) => {
        #swagger.parameters['limit'] = { in: 'query', description: 'Number of items per page', type: 'integer' }
     */
   try {
+    const totalStart = Date.now();
     const userId = req.user._id || req.user.id;
+    const businessLookupStart = Date.now();
     const business = await Business.findOne({ owner: userId });
+    const businessLookupMs = Date.now() - businessLookupStart;
     if (!business) {
       return ErrorHandler("Business not found for this user.", 404, req, res);
     }
@@ -293,6 +303,7 @@ const getClients = async (req, res) => {
 
     // If search is provided, use aggregation for search
     if (search) {
+      const clientsAggStart = Date.now();
       const matchStage = [
         { $match: baseQuery },
         {
@@ -337,8 +348,10 @@ const getClients = async (req, res) => {
         { $limit: parseInt(limit) },
       ];
       const clients = await Client.aggregate(matchStage);
+      const clientsAggMs = Date.now() - clientsAggStart;
 
       // For total count
+      const totalAggStart = Date.now();
       const totalAgg = await Client.aggregate([
         { $match: baseQuery },
         {
@@ -380,7 +393,14 @@ const getClients = async (req, res) => {
         },
         { $count: "total" },
       ]);
+      const totalAggMs = Date.now() - totalAggStart;
       const total = totalAgg[0] ? totalAgg[0].total : 0;
+      setPerfHeader(res, {
+        businessLookup: businessLookupMs,
+        clientsAgg: clientsAggMs,
+        totalAgg: totalAggMs,
+        total: Date.now() - totalStart,
+      });
       return SuccessHandler(
         {
           clients,
@@ -396,12 +416,22 @@ const getClients = async (req, res) => {
     }
 
     // If no search, use normal query
+    const clientsQueryStart = Date.now();
     const clients = await Client.find(baseQuery)
       .populate({ path: "staff", select: "firstName lastName position" })
       .sort(sortObj)
       .skip(skip)
       .limit(parseInt(limit));
+    const clientsQueryMs = Date.now() - clientsQueryStart;
+    const countQueryStart = Date.now();
     const total = await Client.countDocuments(baseQuery);
+    const countQueryMs = Date.now() - countQueryStart;
+    setPerfHeader(res, {
+      businessLookup: businessLookupMs,
+      clientsQuery: clientsQueryMs,
+      countQuery: countQueryMs,
+      total: Date.now() - totalStart,
+    });
     return SuccessHandler(
       {
         clients,

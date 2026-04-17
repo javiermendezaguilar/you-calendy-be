@@ -27,6 +27,57 @@ const setPerfHeader = (res, timings) => {
   res.set("X-Groomnest-Perf", value);
 };
 
+const resolveBusinessForOwner = async (userId) => {
+  return Business.findOne({ owner: userId });
+};
+
+const buildClientBaseQuery = ({
+  businessId,
+  isActive,
+  isProfileComplete,
+}) => {
+  const baseQuery = { business: businessId };
+
+  if (isActive !== undefined) {
+    baseQuery.isActive = isActive === "true";
+  }
+
+  if (isProfileComplete !== undefined) {
+    baseQuery.isProfileComplete = isProfileComplete === "true";
+  }
+
+  return baseQuery;
+};
+
+const buildClientSort = (sort) => {
+  const sortObj = {};
+
+  if (sort) {
+    const [field, direction] = sort.split(":");
+    if (
+      ["firstName", "lastName", "email", "phone", "createdAt"].includes(field)
+    ) {
+      sortObj[field] = direction === "desc" ? -1 : 1;
+    }
+  }
+
+  if (!Object.keys(sortObj).length) {
+    sortObj.firstName = 1;
+  }
+
+  return sortObj;
+};
+
+const buildClientSearchMatch = (search) => ({
+  $or: [
+    { firstName: { $regex: search, $options: "i" } },
+    { lastName: { $regex: search, $options: "i" } },
+    { searchFullName: { $regex: search, $options: "i" } },
+    { email: { $regex: search, $options: "i" } },
+    { phone: { $regex: search, $options: "i" } },
+  ],
+});
+
 const resolveAuthenticatedClientId = (req) => {
   return (
     req.headers["x-client-id"] ||
@@ -261,7 +312,7 @@ const getClients = async (req, res) => {
     const totalStart = Date.now();
     const userId = req.user._id || req.user.id;
     const businessLookupStart = Date.now();
-    const business = await Business.findOne({ owner: userId });
+    const business = await resolveBusinessForOwner(userId);
     const businessLookupMs = Date.now() - businessLookupStart;
     if (!business) {
       return ErrorHandler("Business not found for this user.", 404, req, res);
@@ -274,32 +325,16 @@ const getClients = async (req, res) => {
       isProfileComplete,
       page = 1,
       limit = 10,
+      includeCount = "true",
     } = req.query;
+    const shouldIncludeCount = includeCount !== "false";
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    let baseQuery = { business: business._id };
-
-    // Filter by active status
-    if (isActive !== undefined) {
-      baseQuery.isActive = isActive === "true";
-    }
-
-    // Filter by profile completion status
-    if (isProfileComplete !== undefined) {
-      baseQuery.isProfileComplete = isProfileComplete === "true";
-    }
-
-    // Sorting
-    let sortObj = {};
-    if (sort) {
-      const [field, direction] = sort.split(":");
-      if (
-        ["firstName", "lastName", "email", "phone", "createdAt"].includes(field)
-      ) {
-        sortObj[field] = direction === "desc" ? -1 : 1;
-      }
-    } else {
-      sortObj["firstName"] = 1; // Default sort by firstName ascending
-    }
+    const baseQuery = buildClientBaseQuery({
+      businessId: business._id,
+      isActive,
+      isProfileComplete,
+    });
+    const sortObj = buildClientSort(sort);
 
     // If search is provided, use aggregation for search
     if (search) {
@@ -333,15 +368,7 @@ const getClients = async (req, res) => {
           }
         },
         {
-          $match: {
-            $or: [
-              { firstName: { $regex: search, $options: "i" } },
-              { lastName: { $regex: search, $options: "i" } },
-              { searchFullName: { $regex: search, $options: "i" } },
-              { email: { $regex: search, $options: "i" } },
-              { phone: { $regex: search, $options: "i" } },
-            ],
-          },
+          $match: buildClientSearchMatch(search),
         },
         { $sort: sortObj },
         { $skip: skip },
@@ -350,7 +377,27 @@ const getClients = async (req, res) => {
       const clients = await Client.aggregate(matchStage);
       const clientsAggMs = Date.now() - clientsAggStart;
 
-      // For total count
+      if (!shouldIncludeCount) {
+        setPerfHeader(res, {
+          businessLookup: businessLookupMs,
+          clientsAgg: clientsAggMs,
+          total: Date.now() - totalStart,
+        });
+        return SuccessHandler(
+          {
+            clients,
+            pagination: {
+              total: null,
+              page: parseInt(page),
+              pages: null,
+              hasMore: clients.length === parseInt(limit),
+            },
+          },
+          200,
+          res
+        );
+      }
+
       const totalAggStart = Date.now();
       const totalAgg = await Client.aggregate([
         { $match: baseQuery },
@@ -381,15 +428,7 @@ const getClients = async (req, res) => {
           }
         },
         {
-          $match: {
-            $or: [
-              { firstName: { $regex: search, $options: "i" } },
-              { lastName: { $regex: search, $options: "i" } },
-              { searchFullName: { $regex: search, $options: "i" } },
-              { email: { $regex: search, $options: "i" } },
-              { phone: { $regex: search, $options: "i" } },
-            ],
-          },
+          $match: buildClientSearchMatch(search),
         },
         { $count: "total" },
       ]);
@@ -423,6 +462,28 @@ const getClients = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
     const clientsQueryMs = Date.now() - clientsQueryStart;
+
+    if (!shouldIncludeCount) {
+      setPerfHeader(res, {
+        businessLookup: businessLookupMs,
+        clientsQuery: clientsQueryMs,
+        total: Date.now() - totalStart,
+      });
+      return SuccessHandler(
+        {
+          clients,
+          pagination: {
+            total: null,
+            page: parseInt(page),
+            pages: null,
+            hasMore: clients.length === parseInt(limit),
+          },
+        },
+        200,
+        res
+      );
+    }
+
     const countQueryStart = Date.now();
     const total = await Client.countDocuments(baseQuery);
     const countQueryMs = Date.now() - countQueryStart;
@@ -439,6 +500,115 @@ const getClients = async (req, res) => {
           total,
           page: parseInt(page),
           pages: Math.ceil(total / parseInt(limit)),
+        },
+      },
+      200,
+      res
+    );
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
+const getClientsCount = async (req, res) => {
+  try {
+    const totalStart = Date.now();
+    const userId = req.user._id || req.user.id;
+    const businessLookupStart = Date.now();
+    const business = await resolveBusinessForOwner(userId);
+    const businessLookupMs = Date.now() - businessLookupStart;
+
+    if (!business) {
+      return ErrorHandler("Business not found for this user.", 404, req, res);
+    }
+
+    const {
+      search,
+      isActive,
+      isProfileComplete,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const baseQuery = buildClientBaseQuery({
+      businessId: business._id,
+      isActive,
+      isProfileComplete,
+    });
+
+    if (search) {
+      const totalAggStart = Date.now();
+      const totalAgg = await Client.aggregate([
+        { $match: baseQuery },
+        {
+          $lookup: {
+            from: "users",
+            localField: "staff",
+            foreignField: "_id",
+            as: "staff",
+            pipeline: [{ $project: { firstName: 1, lastName: 1 } }],
+          },
+        },
+        {
+          $unwind: {
+            path: "$staff",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $addFields: {
+            searchFullName: {
+              $concat: [
+                { $ifNull: ["$firstName", ""] },
+                " ",
+                { $ifNull: ["$lastName", ""] },
+              ],
+            },
+          },
+        },
+        {
+          $match: buildClientSearchMatch(search),
+        },
+        { $count: "total" },
+      ]);
+      const totalAggMs = Date.now() - totalAggStart;
+      const total = totalAgg[0] ? totalAgg[0].total : 0;
+
+      setPerfHeader(res, {
+        businessLookup: businessLookupMs,
+        totalAgg: totalAggMs,
+        total: Date.now() - totalStart,
+      });
+
+      return SuccessHandler(
+        {
+          pagination: {
+            total,
+            page: parseInt(page),
+            pages: Math.max(1, Math.ceil(total / parseInt(limit))),
+          },
+        },
+        200,
+        res
+      );
+    }
+
+    const countQueryStart = Date.now();
+    const total = await Client.countDocuments(baseQuery);
+    const countQueryMs = Date.now() - countQueryStart;
+
+    setPerfHeader(res, {
+      businessLookup: businessLookupMs,
+      countQuery: countQueryMs,
+      total: Date.now() - totalStart,
+    });
+
+    return SuccessHandler(
+      {
+        pagination: {
+          total,
+          page: parseInt(page),
+          pages: Math.max(1, Math.ceil(total / parseInt(limit))),
         },
       },
       200,
@@ -3324,6 +3494,7 @@ module.exports = {
   unblockClient,
   addClient,
   getClients,
+  getClientsCount,
   getClientById,
   updateClient,
   updatePrivateNotes,

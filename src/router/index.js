@@ -18,6 +18,7 @@ const creditsRoutes = require("./credits");
 const barberRoutes = require("./barber");
 const checkoutRoutes = require("./checkout");
 const paymentRoutes = require("./payment");
+const cashSessionRoutes = require("./cashSession");
 const Auditing = require("./auditing");
 
 router.use("/auth", authRoutes);
@@ -39,5 +40,6 @@ router.use("/credits", creditsRoutes);
 router.use("/barber", barberRoutes);
 router.use("/checkout", checkoutRoutes);
 router.use("/payment", paymentRoutes);
+router.use("/cash-sessions", cashSessionRoutes);
 
 module.exports = router;

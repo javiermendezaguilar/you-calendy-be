@@ -1,12 +1,12 @@
 const request = require("supertest");
 const app = require("../app");
 const Appointment = require("../models/appointment");
-const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
   createCommerceFixture,
+  createClosedCheckoutForFixture,
 } = require("./helpers/commerceFixture");
 
 beforeAll(async () => {
@@ -18,12 +18,13 @@ afterAll(async () => {
 });
 
 describe("Payment v1", () => {
+  let fixture;
   let appointment;
   let checkout;
   let token;
 
   beforeEach(async () => {
-    const fixture = await createCommerceFixture({
+    fixture = await createCommerceFixture({
       ownerName: "Payment Owner",
       ownerEmail: "payment-owner@example.com",
       businessName: "Payment Shop",
@@ -43,38 +44,12 @@ describe("Payment v1", () => {
     });
 
     appointment = fixture.appointment;
-    checkout = await Checkout.create({
-      appointment: appointment._id,
-      business: fixture.business._id,
-      client: fixture.client._id,
-      staff: fixture.staff._id,
-      status: "closed",
-      currency: "EUR",
+    checkout = await createClosedCheckoutForFixture(fixture, {
       subtotal: 35,
       discountTotal: 0,
       tip: 5,
       total: 40,
       sourcePrice: 35,
-      snapshot: {
-        appointmentStatus: "Completed",
-        bookingStatus: "confirmed",
-        visitStatus: "completed",
-        service: {
-          id: fixture.service._id,
-          name: fixture.service.name,
-        },
-        client: {
-          id: fixture.client._id,
-          firstName: fixture.client.firstName,
-          lastName: fixture.client.lastName,
-        },
-        discounts: {
-          promotion: { applied: false, id: null, amount: 0 },
-          flashSale: { applied: false, id: null, amount: 0 },
-        },
-      },
-      closedAt: new Date(),
-      closedBy: fixture.owner._id,
     });
 
     token = fixture.token;

@@ -27,9 +27,6 @@ const adminNotification = require("./utils/adminNotification");
 // dotenv.config({ path: "./config/config.env" });
 // Comment out Stripe to avoid dependency on STRIPE_SECRET
 const stripe = require("stripe")(process.env.STRIPE_SECRET);
-const moment = require("moment");
-
-console.log(moment().endOf("day").toDate());
 
 const parseAllowedOrigins = (value) =>
   (value || "")

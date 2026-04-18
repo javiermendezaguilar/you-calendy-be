@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+mongoose.set("strictQuery", true);
 // No need to load dotenv here as it's already loaded in index.js
 // const dotenv = require("dotenv");
 // dotenv.config({

@@ -51,6 +51,39 @@ const appointmentSchema = new Schema(
       ],
       default: "Pending",
     },
+    bookingStatus: {
+      type: String,
+      enum: ["booked", "confirmed", "rescheduled", "cancelled"],
+      default: "booked",
+    },
+    visitStatus: {
+      type: String,
+      enum: [
+        "not_started",
+        "checked_in",
+        "in_service",
+        "completed",
+        "no_show",
+        "cancelled",
+      ],
+      default: "not_started",
+    },
+    visitType: {
+      type: String,
+      enum: ["appointment", "walk_in"],
+      default: "appointment",
+    },
+    policySnapshot: {
+      noShowPenaltyEnabled: {
+        type: Boolean,
+        default: false,
+      },
+      noShowPenaltyAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+    },
     notes: {
       type: String,
       default: "",
@@ -262,5 +295,53 @@ appointmentSchema.virtual("dateTime").get(function () {
 // appointmentSchema.index({ business: 1, date: 1 });
 // appointmentSchema.index({ client: 1, date: 1 });
 // appointmentSchema.index({ status: 1 });
+
+appointmentSchema.statics.getSemanticStateFromLegacyStatus = function (
+  status,
+  overrides = {}
+) {
+  const semanticState = {
+    bookingStatus: "booked",
+    visitStatus: "not_started",
+    ...overrides,
+  };
+
+  switch (status) {
+    case "Confirmed":
+      semanticState.bookingStatus = "confirmed";
+      semanticState.visitStatus = "not_started";
+      break;
+    case "Canceled":
+      semanticState.bookingStatus = "cancelled";
+      semanticState.visitStatus = "cancelled";
+      break;
+    case "Completed":
+      semanticState.bookingStatus = "confirmed";
+      semanticState.visitStatus = "completed";
+      break;
+    case "No-Show":
+    case "Missed":
+      semanticState.bookingStatus = "confirmed";
+      semanticState.visitStatus = "no_show";
+      break;
+    case "Pending":
+    default:
+      semanticState.bookingStatus =
+        semanticState.bookingStatus || "booked";
+      semanticState.visitStatus = semanticState.visitStatus || "not_started";
+      break;
+  }
+
+  return semanticState;
+};
+
+appointmentSchema.statics.buildPolicySnapshot = function (business) {
+  return {
+    noShowPenaltyEnabled:
+      business?.penaltySettings?.noShowPenalty === true,
+    noShowPenaltyAmount:
+      Number(business?.penaltySettings?.noShowPenaltyAmount) || 0,
+  };
+};
 
 module.exports = mongoose.model("Appointment", appointmentSchema);

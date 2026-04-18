@@ -1,8 +1,10 @@
 const Appointment = require("../models/appointment");
 const Business = require("../models/User/business");
 const Checkout = require("../models/checkout");
+const Service = require("../models/service");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
+const moment = require("moment");
 
 const getBusinessForOwner = async (ownerId) => {
   return Business.findOne({ owner: ownerId });
@@ -80,6 +82,18 @@ const buildCheckoutPayload = (appointment) => {
   };
 };
 
+const buildRebookingDateTime = (date, startTime) => {
+  const appointmentDateTime = new Date(date);
+  appointmentDateTime.setHours(parseInt(startTime.split(":")[0], 10));
+  appointmentDateTime.setMinutes(parseInt(startTime.split(":")[1], 10));
+  appointmentDateTime.setSeconds(0, 0);
+  return appointmentDateTime;
+};
+
+const getRebookingEndTime = (startTime, duration) => {
+  return moment(startTime, "HH:mm").add(duration, "minutes").format("HH:mm");
+};
+
 const openCheckout = async (req, res) => {
   try {
     const business = await getBusinessForOwner(req.user.id);
@@ -136,6 +150,7 @@ const getCheckoutById = async (req, res) => {
       business: business._id,
     })
       .populate("appointment")
+      .populate("rebooking.appointment")
       .populate("client", "firstName lastName phone")
       .populate("staff", "firstName lastName")
       .populate("closedBy", "name email");
@@ -163,6 +178,7 @@ const getCheckoutByAppointment = async (req, res) => {
     })
       .sort({ createdAt: -1 })
       .populate("appointment")
+      .populate("rebooking.appointment")
       .populate("client", "firstName lastName phone")
       .populate("staff", "firstName lastName")
       .populate("closedBy", "name email");
@@ -222,9 +238,181 @@ const closeCheckout = async (req, res) => {
   }
 };
 
+const createRebooking = async (req, res) => {
+  try {
+    const business = await getBusinessForOwner(req.user.id);
+    if (!business) {
+      return ErrorHandler("Business not found", 404, req, res);
+    }
+
+    const { date, startTime } = req.body;
+    if (!date || !startTime) {
+      return ErrorHandler("Date and startTime are required", 400, req, res);
+    }
+
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(startTime)) {
+      return ErrorHandler(
+        "Invalid start time format. Use HH:MM format",
+        400,
+        req,
+        res
+      );
+    }
+
+    const checkout = await Checkout.findOne({
+      _id: req.params.id,
+      business: business._id,
+    }).populate("appointment");
+
+    if (!checkout) {
+      return ErrorHandler("Checkout not found", 404, req, res);
+    }
+
+    if (checkout.status !== "paid") {
+      return ErrorHandler(
+        "Checkout must be paid before creating a rebooking",
+        409,
+        req,
+        res
+      );
+    }
+
+    if (checkout.rebooking?.status === "booked" && checkout.rebooking?.appointment) {
+      return ErrorHandler(
+        "A rebooking already exists for this checkout",
+        409,
+        req,
+        res
+      );
+    }
+
+    const sourceAppointment = checkout.appointment;
+    if (!sourceAppointment) {
+      return ErrorHandler("Source appointment not found", 404, req, res);
+    }
+
+    const service = await Service.findOne({
+      _id: sourceAppointment.service,
+      business: business._id,
+    });
+    if (!service) {
+      return ErrorHandler("Service not found for rebooking", 404, req, res);
+    }
+
+    if (!sourceAppointment.staff) {
+      return ErrorHandler(
+        "Rebooking requires a staff member on the source appointment",
+        400,
+        req,
+        res
+      );
+    }
+
+    const duration = Number(sourceAppointment.duration) || Number(service.duration) || 0;
+    if (duration <= 0) {
+      return ErrorHandler(
+        "Rebooking requires a valid appointment duration",
+        400,
+        req,
+        res
+      );
+    }
+
+    const appointmentDateTime = buildRebookingDateTime(date, startTime);
+    const now = new Date();
+    now.setSeconds(0, 0);
+    if (appointmentDateTime <= now) {
+      return ErrorHandler(
+        "Cannot create a rebooking in the past",
+        400,
+        req,
+        res
+      );
+    }
+
+    const endTime = getRebookingEndTime(startTime, duration);
+    const conflictingAppointment = await Appointment.findOne({
+      business: business._id,
+      staff: sourceAppointment.staff,
+      date: { $eq: moment(date, "YYYY-MM-DD").startOf("day").toDate() },
+      status: { $nin: ["Canceled", "No-Show"] },
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    });
+
+    if (conflictingAppointment) {
+      return ErrorHandler(
+        "This staff member is not available at the selected time",
+        409,
+        req,
+        res
+      );
+    }
+
+    const rebookedAppointment = await Appointment.create({
+      client: sourceAppointment.client,
+      business: sourceAppointment.business,
+      service: sourceAppointment.service,
+      staff: sourceAppointment.staff,
+      date: moment(date, "YYYY-MM-DD").startOf("day").toDate(),
+      startTime,
+      endTime,
+      duration,
+      status: "Confirmed",
+      bookingStatus: "booked",
+      visitStatus: "not_started",
+      visitType: "appointment",
+      paymentStatus: "Pending",
+      price: Number(service.price) || 0,
+      notes: sourceAppointment.notes || "",
+      clientNotes: sourceAppointment.clientNotes || "",
+      promotion: {
+        applied: false,
+        promotionId: null,
+        originalPrice: 0,
+        discountAmount: 0,
+        discountPercentage: 0,
+      },
+      flashSale: {
+        applied: false,
+        flashSaleId: null,
+        originalPrice: 0,
+        discountAmount: 0,
+        discountPercentage: 0,
+      },
+      rebookingOrigin: {
+        checkout: checkout._id,
+        appointment: sourceAppointment._id,
+        createdAt: new Date(),
+        createdBy: req.user._id,
+      },
+      policySnapshot: sourceAppointment.policySnapshot || undefined,
+    });
+
+    checkout.rebooking = {
+      status: "booked",
+      appointment: rebookedAppointment._id,
+      createdAt: new Date(),
+      createdBy: req.user._id,
+    };
+    await checkout.save();
+
+    const hydratedAppointment = await Appointment.findById(rebookedAppointment._id)
+      .populate("service", "name price currency")
+      .populate("client", "firstName lastName phone")
+      .populate("staff", "firstName lastName");
+
+    return SuccessHandler(hydratedAppointment, 201, res);
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
 module.exports = {
   openCheckout,
   getCheckoutById,
   getCheckoutByAppointment,
   closeCheckout,
+  createRebooking,
 };

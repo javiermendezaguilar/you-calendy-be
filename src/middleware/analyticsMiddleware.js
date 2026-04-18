@@ -1,10 +1,17 @@
 const googleAnalytics = require("../utils/googleAnalytics");
 
+const shouldSkipAnalytics = () =>
+  process.env.NODE_ENV === "test" || Boolean(process.env.JEST_WORKER_ID);
+
 /**
  * Middleware to track API requests with Google Analytics
  * Uses dynamic API key management from database
  */
 const analyticsMiddleware = async (req, res, next) => {
+  if (shouldSkipAnalytics()) {
+    return next();
+  }
+
   // Skip analytics for certain paths
   const skipPaths = ["/health", "/metrics", "/favicon.ico"];
   if (skipPaths.some((path) => req.path.includes(path))) {
@@ -54,6 +61,10 @@ const analyticsMiddleware = async (req, res, next) => {
  */
 const trackEvent = (eventName, getParameters = () => ({})) => {
   return async (req, res, next) => {
+    if (shouldSkipAnalytics()) {
+      return next();
+    }
+
     const originalSend = res.send;
 
     res.send = function (data) {

@@ -27,18 +27,29 @@ const { getComparablePhone } = require("../utils/index");
 const buildAppointmentSemanticState = (status, overrides = {}) =>
   Appointment.getSemanticStateFromLegacyStatus(status, overrides);
 
+const getAppointmentBusinessContext = async (appointment, userId) => {
+  const business = await Business.findById(appointment.business);
+  const isBusinessOwner =
+    business && business.owner.toString() === String(userId);
+
+  return {
+    business,
+    isBusinessOwner,
+  };
+};
+
 const getOperationalAppointmentForUser = async (appointmentId, userId) => {
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) {
     return { error: { message: "Appointment not found", status: 404 } };
   }
 
-  const business = await Business.findById(appointment.business);
-  const isBusinessOwner =
-    business && business.owner.toString() === String(userId);
-  const isStaffMember = true;
+  const { isBusinessOwner } = await getAppointmentBusinessContext(
+    appointment,
+    userId
+  );
 
-  if (!isBusinessOwner && !isStaffMember) {
+  if (!isBusinessOwner) {
     return {
       error: {
         message: "Not authorized to manage this appointment operationally",
@@ -1135,22 +1146,18 @@ const updateAppointmentStatus = async (req, res) => {
     }
 
     // Check authorization
-    const business = await Business.findById(appointment.business);
-    const userIdObj = req.user._id || userId; // userId is req.user.id (string)
-    const isBusinessOwner = business && business.owner.toString() === userId;
+    const { business, isBusinessOwner } = await getAppointmentBusinessContext(
+      appointment,
+      userId
+    );
     const isClient = appointment.client.toString() === userId;
-    
-    // Check if the user is a staff member of this business
-    // This allows barbers who are not the owner to also manage appointment statuses
-    const isStaffMember = req.user.role === "barber" || req.user.type === "barber";
-    
-    // Only authorized users (owner or staff) can mark as Completed, No-Show, or Missed
+
     if (
       (status === "Completed" || status === "No-Show" || status === "Missed") &&
-      !isBusinessOwner && !isStaffMember
+      !isBusinessOwner
     ) {
       return ErrorHandler(
-        "Only business owners or staff can mark appointments as Completed, No-Show, or Missed",
+        "Only the business owner can mark appointments as Completed, No-Show, or Missed",
         403,
         req,
         res
@@ -1169,13 +1176,13 @@ const updateAppointmentStatus = async (req, res) => {
 
     // Use transaction for no-show/missed status changes to ensure blocking and audit trail are consistent
     let session = null;
-    if ((status === "No-Show" || status === "Missed") && (isBusinessOwner || isStaffMember)) {
+    if ((status === "No-Show" || status === "Missed") && isBusinessOwner) {
       session = await mongoose.startSession();
       session.startTransaction();
     }
 
     try {
-      if ((status === "No-Show" || status === "Missed") && (isBusinessOwner || isStaffMember)) {
+      if ((status === "No-Show" || status === "Missed") && isBusinessOwner) {
         // Check if business has penalty settings (autapplied for No-Show)
         if (
           status === "No-Show" &&

@@ -24,6 +24,9 @@ const ClientModel = require("../models/client");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
 const { getComparablePhone } = require("../utils/index");
 
+const buildAppointmentSemanticState = (status, overrides = {}) =>
+  Appointment.getSemanticStateFromLegacyStatus(status, overrides);
+
 /**
  * @desc Create a new appointment
  * @route POST /api/appointments
@@ -426,6 +429,9 @@ const createAppointment = async (req, res) => {
       // clientNotes,
       referencePhotos,
       status: "Pending",
+      ...buildAppointmentSemanticState("Pending"),
+      visitType: "appointment",
+      policySnapshot: Appointment.buildPolicySnapshot(business),
       // Apply default reminder settings if they exist
       appointmentReminder: defaultReminderSettings.appointmentReminder || false,
       reminderTime: defaultReminderSettings.reminderTime || null,
@@ -1233,6 +1239,7 @@ const updateAppointmentStatus = async (req, res) => {
 
         // Update appointment status within transaction
         appointment.status = status;
+        Object.assign(appointment, buildAppointmentSemanticState(status));
         appointment.updatedAt = new Date();
         await appointment.save({ session });
 
@@ -1240,6 +1247,7 @@ const updateAppointmentStatus = async (req, res) => {
       } else {
         // For non-no-show/missed statuses, perform standard update
         appointment.status = status;
+        Object.assign(appointment, buildAppointmentSemanticState(status));
         appointment.updatedAt = new Date();
         await appointment.save();
       }
@@ -1693,6 +1701,8 @@ const updateAppointment = async (req, res) => {
       if (isClient && !isBusinessOwner) {
         updates.status = "Pending";
       }
+      updates.bookingStatus = "rescheduled";
+      updates.visitStatus = "not_started";
     }
 
     // Update appointment
@@ -3002,6 +3012,9 @@ const createAppointmentByBarber = async (req, res) => {
       // clientNotes: clientNotes || "",
       // referencePhotos,
       status: "Confirmed", // Barber-created appointments are typically confirmed
+      ...buildAppointmentSemanticState("Confirmed"),
+      visitType: "appointment",
+      policySnapshot: Appointment.buildPolicySnapshot(business),
       paymentStatus: "Pending",
       // Apply default reminder settings if they exist
       appointmentReminder: defaultReminderSettings.appointmentReminder || false,

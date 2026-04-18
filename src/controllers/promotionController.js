@@ -2,6 +2,7 @@ const Promotion = require("../models/promotion");
 const FlashSale = require("../models/flashSale");
 const Business = require("../models/User/business");
 const Appointment = require("../models/appointment");
+const Service = require("../models/service");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const moment = require("moment");
@@ -114,10 +115,9 @@ const createPromotion = async (req, res) => {
       return ErrorHandler("Business not found", 404, req, res);
     }
 
-    // Validate services belong to the business (using embedded services)
-    const validServiceIds = business.services.map((service) =>
-      service._id.toString()
-    );
+    const validServiceIds = (
+      await Service.find({ business: business._id }).select("_id")
+    ).map((service) => service._id.toString());
     const invalidServices = services.filter(
       (serviceId) => !validServiceIds.includes(serviceId)
     );
@@ -392,9 +392,9 @@ const updatePromotion = async (req, res) => {
         );
       }
       
-      const validServiceIds = business.services.map((service) =>
-        service._id.toString()
-      );
+      const validServiceIds = (
+        await Service.find({ business: business._id }).select("_id")
+      ).map((service) => service._id.toString());
       const invalidServices = updateData.services.filter(
         (serviceId) => !validServiceIds.includes(serviceId)
       );

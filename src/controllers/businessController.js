@@ -36,6 +36,12 @@ const {
   updateBusinessLocationForOwner,
   updateBusinessHoursForOwner,
 } = require("../services/business/coreService");
+const {
+  getBusinessServicesForOwner,
+  addBusinessServiceForOwner,
+  updateBusinessServiceForOwner,
+  deleteBusinessServiceForOwner,
+} = require("../services/business/serviceService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -297,16 +303,11 @@ const getBusinessServices = async (req, res) => {
      }
   */
   try {
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    return SuccessHandler(business.services, 200, res);
+    const payload = await getBusinessServicesForOwner(req.user.id);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Get services error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -342,40 +343,11 @@ const addBusinessService = async (req, res) => {
      }
   */
   try {
-    const { name, type, price, currency, category, isFromEnabled } = req.body;
-
-    if (!name) {
-      return ErrorHandler("Service name is required", 400, req, res);
-    }
-
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    // Create new service object (NO DURATION - per new architecture)
-    const newService = {
-      name,
-      type: type || "",
-      price: parseFloat(price) || 0,
-      currency: currency || "USD",
-      category: category || "General",
-      isFromEnabled: isFromEnabled || false,
-    };
-
-    // Add to services array
-    business.services.push(newService);
-
-    const updatedBusiness = await business.save();
-
-    // Return the newly created service
-    const createdService = updatedBusiness.services[updatedBusiness.services.length - 1];
-
-    return SuccessHandler(createdService, 201, res);
+    const payload = await addBusinessServiceForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 201, res);
   } catch (error) {
     console.error("Add service error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -415,66 +387,15 @@ const updateBusinessService = async (req, res) => {
      }
   */
   try {
-    const serviceId = req.params.serviceId;
-    const { name, type, price, currency, category, isFromEnabled, isActive } = req.body;
-
-
-
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    // Find service index
-    const serviceIndex = business.services.findIndex(
-      (service) => service._id.toString() === serviceId
+    const payload = await updateBusinessServiceForOwner(
+      req.user.id,
+      req.params.serviceId,
+      req.body
     );
-
-    if (serviceIndex === -1) {
-      return ErrorHandler("Service not found", 404, req, res);
-    }
-
-    // Update service - create updated service object (NO DURATION - per new architecture)
-    const currentService = business.services[serviceIndex];
-    const updatedServiceData = {
-      name: name || currentService.name,
-      type: type !== undefined ? type : currentService.type,
-      price: price !== undefined ? parseFloat(price) : currentService.price,
-      currency: currency !== undefined ? currency : currentService.currency,
-      category: category !== undefined ? category : currentService.category,
-      isFromEnabled:
-        isFromEnabled !== undefined
-          ? isFromEnabled
-          : currentService.isFromEnabled,
-      isActive:
-        isActive !== undefined
-          ? isActive
-          : currentService.isActive,
-      _id: currentService._id,
-    };
-
-    // Replace the service in the array
-    business.services[serviceIndex] = updatedServiceData;
-
-    // Mark the services array as modified for Mongoose
-    business.markModified("services");
-
-
-
-    const updatedBusiness = await business.save();
-
-    // Get the updated service from the saved business
-    const updatedService = updatedBusiness.services[serviceIndex];
-
-
-    // Convert to plain object to ensure all fields are included
-    const serviceResponse = updatedService.toObject();
-
-    return SuccessHandler(serviceResponse, 200, res);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Update service error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -501,24 +422,14 @@ const deleteBusinessService = async (req, res) => {
      }
   */
   try {
-    const serviceId = req.params.serviceId;
-
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    // Filter out the service to delete
-    business.services = business.services.filter(
-      (service) => service._id.toString() !== serviceId
+    const payload = await deleteBusinessServiceForOwner(
+      req.user.id,
+      req.params.serviceId
     );
-
-    await business.save();
-    return SuccessHandler({ message: "Service deleted" }, 200, res);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Delete service error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

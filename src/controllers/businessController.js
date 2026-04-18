@@ -42,6 +42,9 @@ const {
   updateBusinessServiceForOwner,
   deleteBusinessServiceForOwner,
 } = require("../services/business/serviceService");
+const {
+  createWalkInForOwner,
+} = require("../services/business/walkInService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -2985,6 +2988,21 @@ const createUnregisteredClient = async (req, res) => {
 };
 
 /**
+ * @desc Create a walk-in appointment
+ * @route POST /api/business/walk-ins
+ * @access Private
+ */
+const createWalkIn = async (req, res) => {
+  try {
+    const payload = await createWalkInForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 201, res);
+  } catch (error) {
+    console.error("Create walk-in error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
+/**
  * @desc Convert unregistered client to registered
  * @route POST /api/business/client/:clientId/convert-to-registered
  * @access Private
@@ -3599,6 +3617,7 @@ module.exports = {
   regenerateBarberLink,
   checkClientExists,
   createClientProfile,
+  createWalkIn,
   createUnregisteredClient,
   convertClientToRegistered,
   // getClientProfiles,

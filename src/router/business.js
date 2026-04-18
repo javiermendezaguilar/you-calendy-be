@@ -60,6 +60,21 @@ router.delete(
   isAuthenticated,
   businessController.deleteBusinessService
 );
+router.post(
+  "/waitlist",
+  isAuthenticated,
+  businessController.createWaitlistEntry
+);
+router.get(
+  "/waitlist",
+  isAuthenticated,
+  businessController.getWaitlistEntries
+);
+router.post(
+  "/waitlist/find-match",
+  isAuthenticated,
+  businessController.findWaitlistMatches
+);
 
 // Business settings routes (logo, workplace photos, gallery images)
 router.get(

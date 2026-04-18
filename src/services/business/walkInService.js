@@ -5,6 +5,10 @@ const Client = require("../../models/client");
 const Service = require("../../models/service");
 const Staff = require("../../models/staff");
 const { normalizePhone, getCountryCode } = require("../../utils/index");
+const {
+  buildServiceError,
+  ensureObjectIdString,
+} = require("./coreService");
 
 const buildCheckedInTimestamps = (userId) => ({
   checkedInAt: new Date(),
@@ -28,9 +32,10 @@ const resolveWalkInClient = async (business, payload) => {
   const { clientId, firstName = "", lastName = "", phone, email, staffId } = payload;
 
   if (clientId) {
+    const validClientId = ensureObjectIdString(clientId, "Client ID is invalid");
     const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
+      _id: { $eq: validClientId },
+      business: { $eq: business._id },
     });
 
     if (!client) {
@@ -59,7 +64,7 @@ const resolveWalkInClient = async (business, payload) => {
   });
 
   if (staffId) {
-    client.staff = staffId;
+    client.staff = ensureObjectIdString(staffId, "Staff ID is invalid");
     await client.save();
   }
 
@@ -82,9 +87,12 @@ const resolveWalkInSchedule = async ({ businessId, serviceId, staffId, date, sta
     throw error;
   }
 
+  const validServiceId = ensureObjectIdString(serviceId, "Service ID is invalid");
+  const validStaffId = ensureObjectIdString(staffId, "Staff ID is invalid");
+
   const service = await Service.findOne({
-    _id: serviceId,
-    business: businessId,
+    _id: { $eq: validServiceId },
+    business: { $eq: businessId },
   });
   if (!service) {
     const error = new Error("Service not found");
@@ -93,8 +101,8 @@ const resolveWalkInSchedule = async ({ businessId, serviceId, staffId, date, sta
   }
 
   const staff = await Staff.findOne({
-    _id: staffId,
-    business: businessId,
+    _id: { $eq: validStaffId },
+    business: { $eq: businessId },
   });
   if (!staff) {
     const error = new Error("Staff member not found");
@@ -103,7 +111,7 @@ const resolveWalkInSchedule = async ({ businessId, serviceId, staffId, date, sta
   }
 
   const serviceItem = staff.services.find(
-    (item) => item.service.toString() === String(serviceId)
+    (item) => item.service.toString() === validServiceId
   );
   if (!serviceItem) {
     const error = new Error(
@@ -138,8 +146,8 @@ const resolveWalkInSchedule = async ({ businessId, serviceId, staffId, date, sta
   const dayEnd = moment(date, "YYYY-MM-DD").endOf("day").toDate();
 
   const conflictingAppointment = await Appointment.findOne({
-    business: businessId,
-    staff: staffId,
+    business: { $eq: businessId },
+    staff: { $eq: validStaffId },
     date: { $gte: dayStart, $lte: dayEnd },
     status: { $nin: ["Canceled", "No-Show"] },
     startTime: { $lt: endTime },
@@ -172,6 +180,10 @@ const createWalkInForOwner = async (ownerId, payload) => {
       date: payload.date,
       startTime: payload.startTime,
     });
+
+  if (typeof payload.startTime !== "string") {
+    throw buildServiceError("Start time is invalid", 400);
+  }
 
   const appointment = await Appointment.create({
     client: client._id,

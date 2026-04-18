@@ -27,6 +27,32 @@ const { getComparablePhone } = require("../utils/index");
 const buildAppointmentSemanticState = (status, overrides = {}) =>
   Appointment.getSemanticStateFromLegacyStatus(status, overrides);
 
+const getOperationalAppointmentForUser = async (appointmentId, userId) => {
+  const appointment = await Appointment.findById(appointmentId);
+  if (!appointment) {
+    return { error: { message: "Appointment not found", status: 404 } };
+  }
+
+  const business = await Business.findById(appointment.business);
+  const isBusinessOwner =
+    business && business.owner.toString() === String(userId);
+  const isStaffMember = true;
+
+  if (!isBusinessOwner && !isStaffMember) {
+    return {
+      error: {
+        message: "Not authorized to manage this appointment operationally",
+        status: 403,
+      },
+    };
+  }
+
+  return { appointment };
+};
+
+const isFinalAppointmentStatus = (status) =>
+  ["Canceled", "Completed", "No-Show", "Missed"].includes(status);
+
 /**
  * @desc Create a new appointment
  * @route POST /api/appointments
@@ -1548,6 +1574,110 @@ const updateAppointmentStatus = async (req, res) => {
     return SuccessHandler(appointment, 200, res);
   } catch (error) {
     console.error("Update appointment status error:", error.message);
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
+const checkInAppointment = async (req, res) => {
+  try {
+    const { appointment, error } = await getOperationalAppointmentForUser(
+      req.params.id,
+      req.user.id
+    );
+
+    if (error) {
+      return ErrorHandler(error.message, error.status, req, res);
+    }
+
+    if (isFinalAppointmentStatus(appointment.status)) {
+      return ErrorHandler(
+        "Cannot check in an appointment in a final state",
+        409,
+        req,
+        res
+      );
+    }
+
+    if (appointment.visitStatus === "checked_in") {
+      return SuccessHandler(appointment, 200, res);
+    }
+
+    if (appointment.visitStatus === "in_service") {
+      return ErrorHandler(
+        "Appointment has already started service",
+        409,
+        req,
+        res
+      );
+    }
+
+    appointment.visitStatus = "checked_in";
+    appointment.operationalTimestamps = {
+      ...appointment.operationalTimestamps,
+      checkedInAt: new Date(),
+      checkedInBy: req.user._id,
+    };
+    await appointment.save();
+
+    const hydratedAppointment = await Appointment.findById(appointment._id)
+      .populate("client", "firstName lastName phone")
+      .populate("staff", "firstName lastName")
+      .populate("service", "name price currency");
+
+    return SuccessHandler(hydratedAppointment, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
+const startAppointmentService = async (req, res) => {
+  try {
+    const { appointment, error } = await getOperationalAppointmentForUser(
+      req.params.id,
+      req.user.id
+    );
+
+    if (error) {
+      return ErrorHandler(error.message, error.status, req, res);
+    }
+
+    if (isFinalAppointmentStatus(appointment.status)) {
+      return ErrorHandler(
+        "Cannot start service for an appointment in a final state",
+        409,
+        req,
+        res
+      );
+    }
+
+    if (appointment.visitStatus === "in_service") {
+      return SuccessHandler(appointment, 200, res);
+    }
+
+    if (appointment.visitStatus !== "checked_in") {
+      return ErrorHandler(
+        "Appointment must be checked in before starting service",
+        409,
+        req,
+        res
+      );
+    }
+
+    appointment.visitStatus = "in_service";
+    appointment.operationalTimestamps = {
+      ...appointment.operationalTimestamps,
+      serviceStartedAt: new Date(),
+      serviceStartedBy: req.user._id,
+    };
+    await appointment.save();
+
+    const hydratedAppointment = await Appointment.findById(appointment._id)
+      .populate("client", "firstName lastName phone")
+      .populate("staff", "firstName lastName")
+      .populate("service", "name price currency");
+
+    return SuccessHandler(hydratedAppointment, 200, res);
+  } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
 };
@@ -5521,6 +5651,8 @@ module.exports = {
   getBusinessAppointments,
   getAppointmentHistory,
   createAppointmentByBarber,
+  checkInAppointment,
+  startAppointmentService,
   getAppointmentStats,
   getDashboardStats,
   getRevenueProjection,

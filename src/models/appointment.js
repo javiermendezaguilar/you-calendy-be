@@ -220,6 +220,27 @@ const appointmentSchema = new Schema(
         default: 0,
       },
     },
+    rebookingOrigin: {
+      checkout: {
+        type: Schema.Types.ObjectId,
+        ref: "Checkout",
+        default: null,
+      },
+      appointment: {
+        type: Schema.Types.ObjectId,
+        ref: "Appointment",
+        default: null,
+      },
+      createdAt: {
+        type: Date,
+        default: null,
+      },
+      createdBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+    },
     reminderTime: {
       type: String,
       enum: [

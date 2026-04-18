@@ -177,6 +177,27 @@ const checkoutSchema = new Schema(
       ref: "User",
       default: null,
     },
+    rebooking: {
+      status: {
+        type: String,
+        enum: ["none", "booked"],
+        default: "none",
+      },
+      appointment: {
+        type: Schema.Types.ObjectId,
+        ref: "Appointment",
+        default: null,
+      },
+      createdAt: {
+        type: Date,
+        default: null,
+      },
+      createdBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+    },
   },
   { timestamps: true }
 );

@@ -6,6 +6,7 @@ const Staff = require("../models/staff");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const moment = require("moment");
+const mongoose = require("mongoose");
 
 const getBusinessForOwner = async (ownerId) => {
   return Business.findOne({ owner: ownerId });
@@ -104,6 +105,13 @@ const staffSupportsService = (staffDoc, serviceId) => {
     if (!service) return false;
     return service.toString() === serviceId.toString();
   });
+};
+
+const toValidatedObjectId = (value) => {
+  if (!value) return null;
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  if (!mongoose.Types.ObjectId.isValid(value)) return null;
+  return new mongoose.Types.ObjectId(value);
 };
 
 const openCheckout = async (req, res) => {
@@ -304,20 +312,30 @@ const createRebooking = async (req, res) => {
       return ErrorHandler("Source appointment not found", 404, req, res);
     }
 
-    const targetServiceId = serviceId || sourceAppointment.service;
+    const targetServiceId = serviceId
+      ? toValidatedObjectId(serviceId)
+      : toValidatedObjectId(sourceAppointment.service);
+    if (!targetServiceId) {
+      return ErrorHandler("Invalid serviceId", 400, req, res);
+    }
+
     const service = await Service.findOne({
-      _id: targetServiceId,
-      business: business._id,
-      isActive: true,
+      _id: { $eq: targetServiceId },
+      business: { $eq: business._id },
+      isActive: { $eq: true },
     });
     if (!service) {
       return ErrorHandler("Service not found for rebooking", 404, req, res);
     }
 
-    const targetStaffId = staffId || sourceAppointment.staff;
+    const targetStaffId = staffId
+      ? toValidatedObjectId(staffId)
+      : toValidatedObjectId(sourceAppointment.staff);
     if (!targetStaffId) {
       return ErrorHandler(
-        "Rebooking requires a staff member on the source appointment",
+        staffId
+          ? "Invalid staffId"
+          : "Rebooking requires a staff member on the source appointment",
         400,
         req,
         res
@@ -325,8 +343,8 @@ const createRebooking = async (req, res) => {
     }
 
     const staff = await Staff.findOne({
-      _id: targetStaffId,
-      business: business._id,
+      _id: { $eq: targetStaffId },
+      business: { $eq: business._id },
     });
     if (!staff) {
       return ErrorHandler("Staff not found for rebooking", 404, req, res);

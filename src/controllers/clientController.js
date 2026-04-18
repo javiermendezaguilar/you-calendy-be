@@ -40,6 +40,13 @@ const {
   getClientOwnNotificationPreferencesById,
   toggleClientOwnNotificationsById,
 } = require("../services/client/profileService");
+const {
+  getClientByInvitationTokenValue,
+  getInvitationLinkForOwner,
+  updateClientInvitationTokenForOwner,
+  getBusinessDetailsById,
+  getBusinessGalleryById,
+} = require("../services/client/invitationService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -930,61 +937,10 @@ const getClientByInvitationToken = async (req, res) => {
        #swagger.parameters['token'] = { in: 'path', description: 'Invitation token', required: true, type: 'string' }
     */
   try {
-    const { token } = req.params;
-
-    const client = await Client.findOne({
-      invitationToken: token,
-      isActive: true,
-    })
-      .populate({
-        path: "business",
-        populate: {
-          path: "owner",
-        },
-      })
-      .populate("staff", "_id firstName lastName email phone services");
-
-    if (!client) {
-      return ErrorHandler("Invalid or expired invitation link.", 404, req, res);
-    }
-
-    // Return comprehensive client and business information for frontend display
-    // const publicClientData = {
-    //   _id: client._id,
-    //   firstName: client.firstName,
-    //   lastName: client.lastName,
-    //   email: client.email,
-    //   phone: client.phone,
-    //   notes: client.notes,
-    //   preferences: client.preferences,
-    //   isProfileComplete: client.isProfileComplete,
-    //   createdAt: client.createdAt,
-    //   business: {
-    //     _id: client.business._id,
-    //     name: client.business.name,
-    //     businessName: client.business.businessName,
-    //     personalName: client.business.personalName,
-    //     surname: client.business.surname,
-    //     contactInfo: client.business.contactInfo,
-    //     address: client.business.address,
-    //     location: client.business.location,
-    //     businessHours: client.business.businessHours,
-    //     services: client.business.services,
-    //     profileImages: client.business.profileImages,
-    //     socialMedia: client.business.socialMedia,
-    //     owner: {
-    //       _id: client.business.owner._id,
-    //       name: client.business.owner.name,
-    //       email: client.business.owner.email,
-    //       phone: client.business.owner.phone,
-    //       profileImage: client.business.owner.profileImage,
-    //     },
-    //   },
-    // };
-
-    return SuccessHandler(client, 200, res);
+    const payload = await getClientByInvitationTokenValue(req.params.token);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -999,45 +955,10 @@ const getInvitationLink = async (req, res) => {
        #swagger.security = [{ "Bearer": [] }]
     */
   try {
-    const { clientId } = req.params;
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    if (!client.invitationToken) {
-      return ErrorHandler(
-        "No invitation link found for this client.",
-        404,
-        req,
-        res
-      );
-    }
-
-    // Generate the invitation link with business information
-    const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const invitationLink = `${baseUrl}/client/invitation/${client.invitationToken}?business=${business._id}`;
-
-    return SuccessHandler(
-      {
-        invitationLink,
-        invitationToken: client.invitationToken,
-      },
-      200,
-      res
-    );
+    const payload = await getInvitationLinkForOwner(req.user, req.params.clientId);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -1052,48 +973,13 @@ const updateClientInvitationToken = async (req, res) => {
        #swagger.security = [{ "Bearer": [] }]
     */
   try {
-    const { clientId } = req.params;
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Generate new invitation token
-    const newInvitationToken = generateInvitationToken();
-
-    // Update client with new token
-    const updatedClient = await Client.findByIdAndUpdate(
-      clientId,
-      { invitationToken: newInvitationToken },
-      { new: true, runValidators: true }
+    const payload = await updateClientInvitationTokenForOwner(
+      req.user,
+      req.params.clientId
     );
-
-    // Generate the invitation link with business information
-    const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const invitationLink = `${baseUrl}/client/invitation/${newInvitationToken}?business=${business._id}`;
-
-    return SuccessHandler(
-      {
-        message: "Invitation token generated successfully",
-        client: updatedClient,
-        invitationLink,
-        invitationToken: newInvitationToken,
-      },
-      200,
-      res
-    );
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2130,44 +2016,10 @@ const getBusinessDetails = async (req, res) => {
        #swagger.parameters['businessId'] = { in: 'path', description: 'Business ID', required: true, type: 'string' }
     */
   try {
-    const { businessId } = req.params;
-
-    const business = await Business.findById(businessId).populate("owner");
-
-    if (!business) {
-      return ErrorHandler("Business not found.", 404, req, res);
-    }
-
-    if (!business.isActive) {
-      return ErrorHandler("Business is not active.", 404, req, res);
-    }
-
-    // Return comprehensive business information for frontend display
-    // const publicBusinessData = {
-    //   _id: business._id,
-    //   name: business.name,
-    //   businessName: business.businessName,
-    //   personalName: business.personalName,
-    //   surname: business.surname,
-    //   contactInfo: business.contactInfo,
-    //   address: business.address,
-    //   location: business.location,
-    //   businessHours: business.businessHours,
-    //   services: business.services,
-    //   profileImages: business.profileImages,
-    //   socialMedia: business.socialMedia,
-    //   owner: {
-    //     _id: business.owner._id,
-    //     name: business.owner.name,
-    //     email: business.owner.email,
-    //     phone: business.owner.phone,
-    //     profileImage: business.owner.profileImage,
-    //   },
-    // };
-
-    return SuccessHandler(business, 200, res);
+    const payload = await getBusinessDetailsById(req.params.businessId);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2182,29 +2034,10 @@ const getBusinessGallery = async (req, res) => {
        #swagger.parameters['businessId'] = { in: 'path', description: 'Business ID', required: true, type: 'string' }
     */
   try {
-    const { businessId } = req.params;
-
-    const business = await Business.findById(businessId);
-    if (!business) {
-      return ErrorHandler("Business not found.", 404, req, res);
-    }
-
-    if (!business.isActive) {
-      return ErrorHandler("Business is not active.", 404, req, res);
-    }
-
-    // Get all gallery images for this business
-    const galleryImages = await HaircutGallery.find({
-      business: businessId,
-      isActive: true,
-    })
-      .populate("client", "firstName lastName")
-      .populate("staff", "firstName lastName")
-      .sort({ createdAt: -1 });
-
-    return SuccessHandler(galleryImages, 200, res);
+    const payload = await getBusinessGalleryById(req.params.businessId);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

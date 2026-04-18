@@ -161,4 +161,6 @@ module.exports = {
   updateBusinessLocationForOwner,
   updateBusinessHoursForOwner,
   buildServiceError,
+  ensureObjectIdString,
+  findOwnedBusinessOrThrow,
 };

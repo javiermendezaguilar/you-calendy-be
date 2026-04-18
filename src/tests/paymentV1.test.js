@@ -56,6 +56,11 @@ describe("Payment v1", () => {
   });
 
   test("captures a payment from a closed checkout and updates legacy appointment payment status", async () => {
+    await request(app)
+      .post("/cash-sessions/open")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ openingFloat: 50, currency: "EUR" });
+
     const captureRes = await request(app)
       .post(`/payment/checkout/${checkout._id}/capture`)
       .set("Authorization", `Bearer ${token}`)
@@ -83,6 +88,20 @@ describe("Payment v1", () => {
     expect(storedPayment.snapshot.service.name).toBe("Signature Cut");
   });
 
+  test("rejects cash payments when there is no active cash session", async () => {
+    const captureRes = await request(app)
+      .post(`/payment/checkout/${checkout._id}/capture`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        method: "cash",
+        amount: 40,
+        reference: "cash-register-missing-session",
+      });
+
+    expect(captureRes.status).toBe(409);
+    expect(captureRes.body.message).toMatch(/active cash session is required/i);
+  });
+
   test("rejects duplicate captured payments for the same checkout", async () => {
     const firstCapture = await request(app)
       .post(`/payment/checkout/${checkout._id}/capture`)
@@ -101,6 +120,11 @@ describe("Payment v1", () => {
   });
 
   test("reads payment by checkout and by id", async () => {
+    await request(app)
+      .post("/cash-sessions/open")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ openingFloat: 50, currency: "EUR" });
+
     const captureRes = await request(app)
       .post(`/payment/checkout/${checkout._id}/capture`)
       .set("Authorization", `Bearer ${token}`)

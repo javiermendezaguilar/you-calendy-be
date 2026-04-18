@@ -155,16 +155,31 @@ const closeCashSession = async (req, res) => {
       method: "cash",
     }).sort({ capturedAt: 1 });
 
-    const closingExpected = payments.reduce(
+    const cashSalesTotal = payments.reduce(
       (sum, payment) => sum + (Number(payment.amount) || 0),
       0
     );
+    const tipsTotal = payments.reduce(
+      (sum, payment) => sum + (Number(payment.tip) || 0),
+      0
+    );
+    const transactionCount = payments.length;
+    const expectedDrawerTotal =
+      (Number(cashSession.openingFloat) || 0) + cashSalesTotal;
+    const variance = closingDeclared - expectedDrawerTotal;
 
     cashSession.status = "closed";
     cashSession.closedAt = new Date();
     cashSession.closedBy = req.user._id || req.user.id;
-    cashSession.closingExpected = closingExpected;
+    cashSession.closingExpected = expectedDrawerTotal;
     cashSession.closingDeclared = closingDeclared;
+    cashSession.summary = {
+      cashSalesTotal,
+      tipsTotal,
+      transactionCount,
+      expectedDrawerTotal,
+    };
+    cashSession.variance = variance;
     cashSession.payments = payments.map((payment) => payment._id);
     await cashSession.save();
 

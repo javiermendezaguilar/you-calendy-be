@@ -98,7 +98,7 @@ describe("CashSession v1", () => {
     expect(storedPayment.cashSession.toString()).toBe(openRes.body.data._id);
   });
 
-  test("closes a cash session and computes expected closing from captured cash payments", async () => {
+  test("closes a cash session and persists summary plus variance", async () => {
     const openRes = await request(app)
       .post("/cash-sessions/open")
       .set("Authorization", `Bearer ${token}`)
@@ -120,13 +120,23 @@ describe("CashSession v1", () => {
 
     expect(closeRes.status).toBe(200);
     expect(closeRes.body.data.status).toBe("closed");
-    expect(closeRes.body.data.closingExpected).toBe(40);
+    expect(closeRes.body.data.closingExpected).toBe(90);
     expect(closeRes.body.data.closingDeclared).toBe(90);
+    expect(closeRes.body.data.summary.cashSalesTotal).toBe(40);
+    expect(closeRes.body.data.summary.tipsTotal).toBe(5);
+    expect(closeRes.body.data.summary.transactionCount).toBe(1);
+    expect(closeRes.body.data.summary.expectedDrawerTotal).toBe(90);
+    expect(closeRes.body.data.variance).toBe(0);
     expect(closeRes.body.data.payments).toHaveLength(1);
 
     const storedSession = await CashSession.findById(openRes.body.data._id).lean();
     expect(storedSession.status).toBe("closed");
-    expect(storedSession.closingExpected).toBe(40);
+    expect(storedSession.closingExpected).toBe(90);
+    expect(storedSession.summary.cashSalesTotal).toBe(40);
+    expect(storedSession.summary.tipsTotal).toBe(5);
+    expect(storedSession.summary.transactionCount).toBe(1);
+    expect(storedSession.summary.expectedDrawerTotal).toBe(90);
+    expect(storedSession.variance).toBe(0);
 
     const duplicateClose = await request(app)
       .post(`/cash-sessions/${openRes.body.data._id}/close`)

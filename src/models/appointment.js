@@ -74,6 +74,19 @@ const appointmentSchema = new Schema(
       default: "appointment",
     },
     policySnapshot: {
+      version: {
+        type: Number,
+        default: 1,
+      },
+      capturedAt: {
+        type: Date,
+        default: null,
+      },
+      bookingBufferMinutes: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
       noShowPenaltyEnabled: {
         type: Boolean,
         default: false,
@@ -378,6 +391,9 @@ appointmentSchema.statics.getSemanticStateFromLegacyStatus = function (
 
 appointmentSchema.statics.buildPolicySnapshot = function (business) {
   return {
+    version: 2,
+    capturedAt: new Date(),
+    bookingBufferMinutes: Number(business?.bookingBuffer) || 0,
     noShowPenaltyEnabled:
       business?.penaltySettings?.noShowPenalty === true,
     noShowPenaltyAmount:

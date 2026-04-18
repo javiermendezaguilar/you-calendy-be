@@ -119,6 +119,26 @@ const appointmentSchema = new Schema(
       enum: ["Pending", "Paid", "Refunded", "Failed"],
       default: "Pending",
     },
+    operationalTimestamps: {
+      checkedInAt: {
+        type: Date,
+        default: null,
+      },
+      checkedInBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      serviceStartedAt: {
+        type: Date,
+        default: null,
+      },
+      serviceStartedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+    },
     price: {
       type: Number,
       required: true,

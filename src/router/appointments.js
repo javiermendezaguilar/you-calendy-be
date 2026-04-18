@@ -90,6 +90,16 @@ router.put(
   isAuthenticated,
   appointmentController.updateAppointmentStatus
 );
+router.post(
+  "/:id/check-in",
+  isAuthenticated,
+  appointmentController.checkInAppointment
+);
+router.post(
+  "/:id/start-service",
+  isAuthenticated,
+  appointmentController.startAppointmentService
+);
 
 // Penalty management routes
 router.post(

@@ -23,6 +23,10 @@ const { sendSMS } = require("../utils/twilio");
 const ClientModel = require("../models/client");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
 const { getComparablePhone } = require("../utils/index");
+const {
+  getEffectivePolicySnapshot,
+  buildNoShowPenaltyFromPolicy,
+} = require("../services/appointment/policyService");
 
 const buildAppointmentSemanticState = (status, overrides = {}) =>
   Appointment.getSemanticStateFromLegacyStatus(status, overrides);
@@ -1183,18 +1187,18 @@ const updateAppointmentStatus = async (req, res) => {
 
     try {
       if ((status === "No-Show" || status === "Missed") && isBusinessOwner) {
-        // Check if business has penalty settings (autapplied for No-Show)
-        if (
-          status === "No-Show" &&
-          business.penaltySettings &&
-          business.penaltySettings.noShowPenalty &&
-          business.penaltySettings.noShowPenaltyAmount > 0
-        ) {
-          appointment.penalty = {
-            applied: true,
-            amount: business.penaltySettings.noShowPenaltyAmount,
-            paid: false,
-          };
+        const effectivePolicy = getEffectivePolicySnapshot(
+          appointment,
+          business
+        );
+
+        // Apply frozen no-show rules first; fallback to current business config
+        // only for older appointments without a sufficient snapshot.
+        if (status === "No-Show") {
+          const noShowPenalty = buildNoShowPenaltyFromPolicy(effectivePolicy);
+          if (noShowPenalty) {
+            appointment.penalty = noShowPenalty;
+          }
         }
 
         // Handle client blocking and incident notes

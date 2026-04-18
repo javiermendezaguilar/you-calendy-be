@@ -68,6 +68,11 @@ const createCommerceFixture = async (overrides = {}) => {
     owner: owner._id,
     name: overrides.businessName || "Commerce Shop",
     contactInfo: { phone: "+34111111111" },
+    bookingBuffer: overrides.bookingBuffer ?? 30,
+    penaltySettings: overrides.penaltySettings || {
+      noShowPenalty: false,
+      noShowPenaltyAmount: 0,
+    },
   });
 
   const service = await Service.create({
@@ -106,6 +111,8 @@ const createCommerceFixture = async (overrides = {}) => {
     visitType: "appointment",
     paymentStatus: overrides.paymentStatus || "Pending",
     price: overrides.appointmentPrice ?? 35,
+    policySnapshot:
+      overrides.policySnapshot || Appointment.buildPolicySnapshot(business),
     promotion: overrides.promotion || {
       applied: true,
       discountAmount: 10,

@@ -32,6 +32,14 @@ const {
   respondToClientNoteForOwner,
   getClientNoteCountsForOwner,
 } = require("../services/client/notesService");
+const {
+  getClientNotificationPreferencesForOwner,
+  toggleClientNotificationsForOwner,
+  getPublicClientProfileById,
+  getClientProfileById,
+  getClientOwnNotificationPreferencesById,
+  toggleClientOwnNotificationsById,
+} = require("../services/client/profileService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -2429,38 +2437,13 @@ const getClientNotificationPreferences = async (req, res) => {
        #swagger.security = [{ "Bearer": [] }]
     */
   try {
-    const { clientId } = req.params;
-
-    // Check if business exists
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    // Check if client exists and belongs to this business
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Get notification preferences (default to enabled if not set)
-    const notificationPrefs = {
-      enabled:
-        client.notificationsEnabled !== undefined
-          ? client.notificationsEnabled
-          : true,
-      clientId: client._id,
-      updatedAt: client.updatedAt,
-    };
-
-    return SuccessHandler(notificationPrefs, 200, res);
+    const payload = await getClientNotificationPreferencesForOwner(
+      req.user,
+      req.params.clientId
+    );
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2483,48 +2466,14 @@ const toggleClientNotifications = async (req, res) => {
        }
     */
   try {
-    const { clientId } = req.params;
-    const { enabled } = req.body;
-
-    if (typeof enabled !== "boolean") {
-      return ErrorHandler(
-        "Enabled field must be a boolean value.",
-        400,
-        req,
-        res
-      );
-    }
-
-    // Check if business exists
-    // Use _id directly for ObjectId queries (more reliable than string conversion)
-    const userId = req.user._id || req.user.id;
-    const business = await Business.findOne({ owner: userId });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
-    }
-
-    // Check if client exists and belongs to this business
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Update notification preferences
-    client.notificationsEnabled = enabled;
-    await client.save();
-
-    const notificationPrefs = {
-      enabled: client.notificationsEnabled,
-      clientId: client._id,
-      updatedAt: client.updatedAt,
-    };
-
-    return SuccessHandler(notificationPrefs, 200, res);
+    const payload = await toggleClientNotificationsForOwner(
+      req.user,
+      req.params.clientId,
+      req.body.enabled
+    );
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2538,22 +2487,10 @@ const getPublicClientProfile = async (req, res) => {
   /* #swagger.description = 'Get public client profile information.'
    */
   try {
-    const { clientId } = req.params;
-
-    const client = await Client.findById(clientId)
-      .select(
-        "firstName lastName email profileImage staff business isProfileComplete"
-      )
-      .populate("staff", "_id firstName lastName email phone")
-      .populate("business", "_id name businessName");
-
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    return SuccessHandler(client, 200, res);
+    const payload = await getPublicClientProfileById(req.params.clientId);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2574,16 +2511,10 @@ const getClientProfile = async (req, res) => {
       return ErrorHandler("Client ID is required.", 400, req, res);
     }
 
-    const client = await Client.findById(clientId).select(
-      "firstName lastName email profileImage phone preferences isProfileComplete notificationsEnabled internalNotes haircutPhotos"
-    );
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    return SuccessHandler(client, 200, res);
+    const payload = await getClientProfileById(clientId);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2869,24 +2800,10 @@ const getClientOwnNotificationPreferences = async (req, res) => {
       return ErrorHandler("Client ID is required.", 400, req, res);
     }
 
-    const client = await Client.findById(clientId);
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Get notification preferences (default to enabled if not set)
-    const notificationPrefs = {
-      enabled:
-        client.notificationsEnabled !== undefined
-          ? client.notificationsEnabled
-          : true,
-      clientId: client._id,
-      updatedAt: client.updatedAt,
-    };
-
-    return SuccessHandler(notificationPrefs, 200, res);
+    const payload = await getClientOwnNotificationPreferencesById(clientId);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2909,39 +2826,18 @@ const toggleClientOwnNotifications = async (req, res) => {
     */
   try {
     const clientId = resolveAuthenticatedClientId(req);
-    const { enabled } = req.body;
 
     if (!clientId) {
       return ErrorHandler("Client ID is required.", 400, req, res);
     }
 
-    if (typeof enabled !== "boolean") {
-      return ErrorHandler(
-        "Enabled field must be a boolean value.",
-        400,
-        req,
-        res
-      );
-    }
-
-    const client = await Client.findById(clientId);
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Update notification preferences
-    client.notificationsEnabled = enabled;
-    await client.save();
-
-    const notificationPrefs = {
-      enabled: client.notificationsEnabled,
-      clientId: client._id,
-      updatedAt: client.updatedAt,
-    };
-
-    return SuccessHandler(notificationPrefs, 200, res);
+    const payload = await toggleClientOwnNotificationsById(
+      clientId,
+      req.body.enabled
+    );
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

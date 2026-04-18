@@ -179,9 +179,39 @@ const createClosedCheckoutForFixture = async (fixture, overrides = {}) => {
   });
 };
 
+const openCashSessionForToken = async (app, token, overrides = {}) => {
+  return app
+    ? require("supertest")(app)
+        .post("/cash-sessions/open")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          openingFloat: overrides.openingFloat ?? 50,
+          currency: overrides.currency || "EUR",
+        })
+    : null;
+};
+
+const captureCheckoutPaymentForToken = async (
+  app,
+  token,
+  checkoutId,
+  payload = {}
+) => {
+  return require("supertest")(app)
+    .post(`/payment/checkout/${checkoutId}/capture`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      method: payload.method || "cash",
+      amount: payload.amount ?? 40,
+      reference: payload.reference || "",
+    });
+};
+
 module.exports = {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
   createCommerceFixture,
   createClosedCheckoutForFixture,
+  openCashSessionForToken,
+  captureCheckoutPaymentForToken,
 };

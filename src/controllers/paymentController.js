@@ -86,6 +86,15 @@ const capturePayment = async (req, res) => {
         business: business._id,
         status: "open",
       });
+
+      if (!activeCashSession) {
+        return ErrorHandler(
+          "An active cash session is required to capture cash payments",
+          409,
+          req,
+          res
+        );
+      }
     }
 
     const payment = await Payment.create({

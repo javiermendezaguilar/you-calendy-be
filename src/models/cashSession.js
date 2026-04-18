@@ -46,6 +46,32 @@ const cashSessionSchema = new Schema(
       default: 0,
       min: 0,
     },
+    summary: {
+      cashSalesTotal: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      tipsTotal: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      transactionCount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      expectedDrawerTotal: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+    },
+    variance: {
+      type: Number,
+      default: 0,
+    },
     payments: [
       {
         type: Schema.Types.ObjectId,

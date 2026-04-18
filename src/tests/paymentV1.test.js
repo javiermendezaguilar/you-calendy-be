@@ -7,6 +7,8 @@ const {
   disconnectCommerceTestDatabase,
   createCommerceFixture,
   createClosedCheckoutForFixture,
+  openCashSessionForToken,
+  captureCheckoutPaymentForToken,
 } = require("./helpers/commerceFixture");
 
 beforeAll(async () => {
@@ -56,14 +58,18 @@ describe("Payment v1", () => {
   });
 
   test("captures a payment from a closed checkout and updates legacy appointment payment status", async () => {
-    const captureRes = await request(app)
-      .post(`/payment/checkout/${checkout._id}/capture`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
+    await openCashSessionForToken(app, token);
+
+    const captureRes = await captureCheckoutPaymentForToken(
+      app,
+      token,
+      checkout._id,
+      {
         method: "cash",
         amount: 40,
         reference: "cash-register-001",
-      });
+      }
+    );
 
     expect(captureRes.status).toBe(201);
     expect(captureRes.body.data.status).toBe("captured");
@@ -81,6 +87,22 @@ describe("Payment v1", () => {
     expect(storedPayment).not.toBeNull();
     expect(storedPayment.snapshot.total).toBe(40);
     expect(storedPayment.snapshot.service.name).toBe("Signature Cut");
+  });
+
+  test("rejects cash payments when there is no active cash session", async () => {
+    const captureRes = await captureCheckoutPaymentForToken(
+      app,
+      token,
+      checkout._id,
+      {
+        method: "cash",
+        amount: 40,
+        reference: "cash-register-missing-session",
+      }
+    );
+
+    expect(captureRes.status).toBe(409);
+    expect(captureRes.body.message).toMatch(/active cash session is required/i);
   });
 
   test("rejects duplicate captured payments for the same checkout", async () => {
@@ -101,10 +123,14 @@ describe("Payment v1", () => {
   });
 
   test("reads payment by checkout and by id", async () => {
-    const captureRes = await request(app)
-      .post(`/payment/checkout/${checkout._id}/capture`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ method: "other", amount: 40, reference: "terminal-xyz" });
+    await openCashSessionForToken(app, token);
+
+    const captureRes = await captureCheckoutPaymentForToken(
+      app,
+      token,
+      checkout._id,
+      { method: "other", amount: 40, reference: "terminal-xyz" }
+    );
 
     const paymentId = captureRes.body.data._id;
 

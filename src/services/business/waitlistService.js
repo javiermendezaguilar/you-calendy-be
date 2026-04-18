@@ -1,24 +1,17 @@
 const moment = require("moment");
-const Business = require("../../models/User/business");
-const Client = require("../../models/client");
 const Service = require("../../models/service");
 const Staff = require("../../models/staff");
 const WaitlistEntry = require("../../models/waitlistEntry");
-const { normalizePhone, getCountryCode } = require("../../utils/index");
 const {
   buildServiceError,
   ensureObjectIdString,
 } = require("./coreService");
+const {
+  getBusinessForOwner,
+  resolveBusinessClient,
+} = require("./shared");
 
 const VALID_SOURCES = ["manual", "walk_in_overflow", "booking_overflow"];
-
-const getBusinessForOwner = async (ownerId) => {
-  const business = await Business.findOne({ owner: ownerId });
-  if (!business) {
-    throw buildServiceError("Business not found", 404);
-  }
-  return business;
-};
 
 const ensureTimeWindow = (start, end) => {
   const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
@@ -35,47 +28,6 @@ const ensureTimeWindow = (start, end) => {
       400
     );
   }
-};
-
-const resolveWaitlistClient = async (business, payload) => {
-  const { clientId, firstName = "", lastName = "", phone, email, staffId } = payload;
-
-  if (clientId) {
-    const validClientId = ensureObjectIdString(clientId, "Client ID is invalid");
-    const client = await Client.findOne({
-      _id: { $eq: validClientId },
-      business: { $eq: business._id },
-    });
-
-    if (!client) {
-      throw buildServiceError("Client not found", 404);
-    }
-
-    return client;
-  }
-
-  if (!phone) {
-    throw buildServiceError(
-      "Phone is required when clientId is not provided",
-      400
-    );
-  }
-
-  const countryHint = getCountryCode(business.contactInfo?.phone);
-  const normalizedPhone = normalizePhone(phone, countryHint);
-  const { client } = await Client.findOrCreateUnregistered(business._id, {
-    firstName,
-    lastName,
-    phone: normalizedPhone,
-    email: email || undefined,
-  });
-
-  if (staffId) {
-    client.staff = ensureObjectIdString(staffId, "Staff ID is invalid");
-    await client.save();
-  }
-
-  return client;
 };
 
 const resolveWaitlistScope = async (businessId, payload) => {
@@ -156,7 +108,7 @@ const createWaitlistEntryForOwner = async (ownerId, payload) => {
   }
 
   const business = await getBusinessForOwner(ownerId);
-  const client = await resolveWaitlistClient(business, payload);
+  const client = await resolveBusinessClient(business, payload);
   const { validServiceId, validStaffId } = await resolveWaitlistScope(
     business._id,
     payload
@@ -183,21 +135,30 @@ const createWaitlistEntryForOwner = async (ownerId, payload) => {
 
 const getWaitlistEntriesForOwner = async (ownerId, query = {}) => {
   const business = await getBusinessForOwner(ownerId);
+  const status = query.status || "active";
+  if (!["active", "matched", "cancelled", "expired"].includes(status)) {
+    throw buildServiceError("Invalid waitlist status", 400);
+  }
+
   const filters = {
-    business: business._id,
-    status: query.status || "active",
+    business: { $eq: business._id },
+    status: { $eq: status },
   };
 
   if (query.serviceId) {
-    filters.service = ensureObjectIdString(query.serviceId, "Service ID is invalid");
+    filters.service = {
+      $eq: ensureObjectIdString(query.serviceId, "Service ID is invalid"),
+    };
   }
 
   if (query.staffId) {
-    filters.staff = ensureObjectIdString(query.staffId, "Staff ID is invalid");
+    filters.staff = {
+      $eq: ensureObjectIdString(query.staffId, "Staff ID is invalid"),
+    };
   }
 
   if (query.date) {
-    filters.date = normalizeWaitlistDate(query.date);
+    filters.date = { $eq: normalizeWaitlistDate(query.date) };
   }
 
   return WaitlistEntry.find(filters)
@@ -226,11 +187,13 @@ const findWaitlistMatchesForOwner = async (ownerId, payload) => {
   const normalizedDate = normalizeWaitlistDate(date);
 
   const activeEntries = await WaitlistEntry.find({
-    business: business._id,
-    service: validServiceId,
-    date: normalizedDate,
-    status: "active",
-    $or: [{ staff: null }, { staff: validStaffId || null }, ...(validStaffId ? [{ staff: validStaffId }] : [])],
+    business: { $eq: business._id },
+    service: { $eq: validServiceId },
+    date: { $eq: normalizedDate },
+    status: { $eq: "active" },
+    $or: validStaffId
+      ? [{ staff: null }, { staff: { $eq: validStaffId } }]
+      : [{ staff: null }],
   })
     .sort({ createdAt: 1 })
     .populate("client", "firstName lastName email phone registrationStatus")

@@ -13,9 +13,19 @@ const serviceSchema = new Schema(
       required: true,
       trim: true,
     },
+    type: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     description: {
       type: String,
       trim: true,
+    },
+    duration: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     price: {
       type: Number,
@@ -49,6 +59,10 @@ const serviceSchema = new Schema(
     category: {
       type: String,
       default: "General",
+    },
+    isFromEnabled: {
+      type: Boolean,
+      default: false,
     },
     availableStaff: [
       {

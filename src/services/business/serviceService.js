@@ -3,34 +3,123 @@ const {
   ensureObjectIdString,
   findOwnedBusinessOrThrow,
 } = require("./coreService");
+const Service = require("../../models/service");
+
+const toFiniteNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeServicePayload = (payload = {}) => ({
+  name: payload.name,
+  type: payload.type || "",
+  description: payload.description || "",
+  duration: toFiniteNumber(payload.duration, 0),
+  price: toFiniteNumber(payload.price, 0),
+  currency: payload.currency || "USD",
+  category: payload.category || "General",
+  isFromEnabled: payload.isFromEnabled === true,
+  isActive: payload.isActive !== undefined ? payload.isActive : true,
+});
+
+const toLegacyBusinessService = (serviceDoc) => ({
+  _id: serviceDoc._id,
+  name: serviceDoc.name,
+  type: serviceDoc.type || "",
+  price: serviceDoc.price,
+  currency: serviceDoc.currency || "USD",
+  category: serviceDoc.category || "General",
+  isFromEnabled: serviceDoc.isFromEnabled === true,
+  isActive: serviceDoc.isActive !== false,
+});
+
+const syncBusinessServicesShadow = async (businessId) => {
+  const business = await findOwnedBusinessOrThrowById(businessId);
+  const services = await Service.find({ business: business._id }).sort({
+    createdAt: 1,
+  });
+  business.services = services.map(toLegacyBusinessService);
+  business.markModified("services");
+  await business.save();
+  return services;
+};
+
+const findOwnedBusinessOrThrowById = async (businessId) => {
+  const business = await require("../../models/User/business").findById(
+    businessId
+  );
+
+  if (!business) {
+    throw buildServiceError("Business not found", 404);
+  }
+
+  return business;
+};
+
+const bootstrapServicesFromBusinessShadow = async (business) => {
+  const existingCount = await Service.countDocuments({ business: business._id });
+  if (existingCount > 0) {
+    return Service.find({ business: business._id }).sort({ createdAt: 1 });
+  }
+
+  if (!business.services || business.services.length === 0) {
+    return [];
+  }
+
+  const bootstrapDocs = business.services.map((service) => ({
+    _id: service._id,
+    business: business._id,
+    name: service.name,
+    type: service.type || "",
+    description: service.description || "",
+    duration: toFiniteNumber(service.duration, 0),
+    price: toFiniteNumber(service.price, 0),
+    currency: service.currency || "USD",
+    category: service.category || "General",
+    isFromEnabled: service.isFromEnabled === true,
+    isActive: service.isActive !== false,
+  }));
+
+  if (bootstrapDocs.length > 0) {
+    await Service.insertMany(bootstrapDocs, { ordered: true });
+  }
+
+  return Service.find({ business: business._id }).sort({ createdAt: 1 });
+};
+
+const getCanonicalBusinessServices = async (business) => {
+  let services = await Service.find({ business: business._id }).sort({
+    createdAt: 1,
+  });
+
+  if (services.length === 0) {
+    services = await bootstrapServicesFromBusinessShadow(business);
+  }
+
+  return services;
+};
 
 const getBusinessServicesForOwner = async (userId) => {
   const business = await findOwnedBusinessOrThrow(userId);
-  return business.services;
+  return getCanonicalBusinessServices(business);
 };
 
 const addBusinessServiceForOwner = async (userId, payload) => {
-  const { name, type, price, currency, category, isFromEnabled } = payload;
+  const normalized = normalizeServicePayload(payload);
+  const { name } = normalized;
 
   if (!name) {
     throw buildServiceError("Service name is required", 400);
   }
 
   const business = await findOwnedBusinessOrThrow(userId);
+  const createdService = await Service.create({
+    business: business._id,
+    ...normalized,
+  });
 
-  const newService = {
-    name,
-    type: type || "",
-    price: parseFloat(price) || 0,
-    currency: currency || "USD",
-    category: category || "General",
-    isFromEnabled: isFromEnabled || false,
-  };
-
-  business.services.push(newService);
-  const updatedBusiness = await business.save();
-
-  return updatedBusiness.services[updatedBusiness.services.length - 1];
+  await syncBusinessServicesShadow(business._id);
+  return createdService;
 };
 
 const updateBusinessServiceForOwner = async (userId, serviceId, payload) => {
@@ -38,39 +127,26 @@ const updateBusinessServiceForOwner = async (userId, serviceId, payload) => {
     serviceId,
     "Service ID is required"
   );
-  const { name, type, price, currency, category, isFromEnabled, isActive } =
-    payload;
 
   const business = await findOwnedBusinessOrThrow(userId);
+  const service = await Service.findOne({
+    _id: validServiceId,
+    business: business._id,
+  });
 
-  const serviceIndex = business.services.findIndex(
-    (service) => service._id.toString() === validServiceId
-  );
-
-  if (serviceIndex === -1) {
+  if (!service) {
     throw buildServiceError("Service not found", 404);
   }
 
-  const currentService = business.services[serviceIndex];
-  const updatedServiceData = {
-    name: name || currentService.name,
-    type: type !== undefined ? type : currentService.type,
-    price: price !== undefined ? parseFloat(price) : currentService.price,
-    currency: currency !== undefined ? currency : currentService.currency,
-    category: category !== undefined ? category : currentService.category,
-    isFromEnabled:
-      isFromEnabled !== undefined
-        ? isFromEnabled
-        : currentService.isFromEnabled,
-    isActive: isActive !== undefined ? isActive : currentService.isActive,
-    _id: currentService._id,
-  };
+  const normalized = normalizeServicePayload({
+    ...service.toObject(),
+    ...payload,
+  });
 
-  business.services[serviceIndex] = updatedServiceData;
-  business.markModified("services");
-
-  const updatedBusiness = await business.save();
-  return updatedBusiness.services[serviceIndex].toObject();
+  Object.assign(service, normalized);
+  const updatedService = await service.save();
+  await syncBusinessServicesShadow(business._id);
+  return updatedService;
 };
 
 const deleteBusinessServiceForOwner = async (userId, serviceId) => {
@@ -79,12 +155,16 @@ const deleteBusinessServiceForOwner = async (userId, serviceId) => {
     "Service ID is required"
   );
   const business = await findOwnedBusinessOrThrow(userId);
+  const deleted = await Service.findOneAndDelete({
+    _id: validServiceId,
+    business: business._id,
+  });
 
-  business.services = business.services.filter(
-    (service) => service._id.toString() !== validServiceId
-  );
+  if (!deleted) {
+    throw buildServiceError("Service not found", 404);
+  }
 
-  await business.save();
+  await syncBusinessServicesShadow(business._id);
   return { message: "Service deleted" };
 };
 

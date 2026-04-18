@@ -1017,12 +1017,9 @@ const startFreeTrial = async (req, res) => {
     if (!business) return ErrorHandler("Business not found", 404, req, res);
     if (business.trialUsed)
       return ErrorHandler("Trial already used", 400, req, res);
+    const services = await getBusinessServicesForOwner(req.user.id);
     // Check if business and at least one service are set up
-    if (
-      !business.name ||
-      !business.services ||
-      business.services.length === 0
-    ) {
+    if (!business.name || services.length === 0) {
       return ErrorHandler(
         "Complete business and service setup first",
         400,
@@ -2327,13 +2324,16 @@ const getBarberProfileByLink = async (req, res) => {
       return ErrorHandler("Business not found", 404, req, res);
     }
 
-    // Get services (both from business.services and separate Service model)
-    const businessServices = business.services || [];
-    const separateServices = await Service.find({
+    // Prefer canonical services collection. Keep legacy fallback only while
+    // the rest of the domain still reads embedded business services.
+    let allServices = await Service.find({
       business: business._id,
       isActive: true,
     });
-    const allServices = [...businessServices, ...separateServices];
+
+    if (allServices.length === 0) {
+      allServices = business.services || [];
+    }
 
     // Get staff members
     const staff = await Staff.find({

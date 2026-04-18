@@ -1,125 +1,34 @@
 const request = require("supertest");
-const mongoose = require("mongoose");
-const { MongoMemoryReplSet } = require("mongodb-memory-server");
-const jwt = require("jsonwebtoken");
-
-process.env.JWT_SECRET = "mysecretcalendy";
-process.env.MONGO_URI = "mock-uri";
-process.env.FRONTEND_URL = "https://groomnest.com";
-process.env.ADDITIONAL_ALLOWED_ORIGINS = "https://staging.groomnest.com";
-
 const app = require("../app");
-const User = require("../models/User/user");
-const Business = require("../models/User/business");
-const Client = require("../models/client");
-const Service = require("../models/service");
-const Staff = require("../models/staff");
-const Appointment = require("../models/appointment");
 const Checkout = require("../models/checkout");
-
-let mongoServer;
+const {
+  connectCommerceTestDatabase,
+  disconnectCommerceTestDatabase,
+  createCommerceFixture,
+} = require("./helpers/commerceFixture");
 
 beforeAll(async () => {
-  mongoose.set("strictQuery", true);
-  mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
-  const uri = mongoServer.getUri();
-  if (mongoose.connection.readyState !== 0) {
-    await mongoose.disconnect();
-  }
-  await mongoose.connect(uri);
+  await connectCommerceTestDatabase();
 });
 
 afterAll(async () => {
-  await mongoose.disconnect();
-  if (mongoServer) {
-    await mongoServer.stop();
-  }
+  await disconnectCommerceTestDatabase();
 });
 
 describe("Checkout v1", () => {
-  let owner;
-  let business;
-  let client;
-  let service;
-  let staff;
   let appointment;
   let token;
 
   beforeEach(async () => {
-    await Promise.all([
-      User.deleteMany({}),
-      Business.deleteMany({}),
-      Client.deleteMany({}),
-      Service.deleteMany({}),
-      Staff.deleteMany({}),
-      Appointment.deleteMany({}),
-      Checkout.deleteMany({}),
-    ]);
-
-    owner = await User.create({
-      name: "Checkout Owner",
-      email: "checkout-owner@example.com",
-      password: "password123",
-      role: "barber",
-      isActive: true,
+    const fixture = await createCommerceFixture({
+      ownerName: "Checkout Owner",
+      ownerEmail: "checkout-owner@example.com",
+      businessName: "Checkout Shop",
+      appointmentStatus: "Confirmed",
     });
 
-    business = await Business.create({
-      owner: owner._id,
-      name: "Checkout Shop",
-      contactInfo: { phone: "+34111111111" },
-    });
-
-    service = await Service.create({
-      business: business._id,
-      name: "Signature Cut",
-      price: 50,
-      currency: "EUR",
-      duration: 45,
-    });
-
-    staff = await Staff.create({
-      business: business._id,
-      firstName: "Alex",
-      lastName: "Fade",
-    });
-
-    client = await Client.create({
-      business: business._id,
-      firstName: "John",
-      lastName: "Doe",
-      phone: "+34666666666",
-    });
-
-    appointment = await Appointment.create({
-      client: client._id,
-      business: business._id,
-      service: service._id,
-      staff: staff._id,
-      date: new Date("2026-04-18T10:00:00.000Z"),
-      startTime: "10:00",
-      endTime: "10:45",
-      duration: 45,
-      status: "Confirmed",
-      bookingStatus: "confirmed",
-      visitStatus: "completed",
-      visitType: "appointment",
-      price: 35,
-      promotion: {
-        applied: true,
-        discountAmount: 10,
-        discountPercentage: 20,
-        originalPrice: 50,
-      },
-      flashSale: {
-        applied: true,
-        discountAmount: 5,
-        discountPercentage: 12,
-        originalPrice: 40,
-      },
-    });
-
-    token = jwt.sign({ id: owner._id, role: "barber" }, process.env.JWT_SECRET);
+    appointment = fixture.appointment;
+    token = fixture.token;
   });
 
   test("opens a checkout from an appointment and persists audited amounts", async () => {

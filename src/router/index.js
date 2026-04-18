@@ -17,6 +17,7 @@ const translateRoutes = require("./translate");
 const creditsRoutes = require("./credits");
 const barberRoutes = require("./barber");
 const checkoutRoutes = require("./checkout");
+const paymentRoutes = require("./payment");
 const Auditing = require("./auditing");
 
 router.use("/auth", authRoutes);
@@ -37,5 +38,6 @@ router.use("/translate", translateRoutes);
 router.use("/credits", creditsRoutes);
 router.use("/barber", barberRoutes);
 router.use("/checkout", checkoutRoutes);
+router.use("/payment", paymentRoutes);
 
 module.exports = router;

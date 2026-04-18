@@ -198,8 +198,8 @@ const closeCheckout = async (req, res) => {
       return ErrorHandler("Checkout not found", 404, req, res);
     }
 
-    if (checkout.status === "closed") {
-      return ErrorHandler("Checkout is already closed", 409, req, res);
+    if (checkout.status !== "open") {
+      return ErrorHandler("Checkout is already finalized", 409, req, res);
     }
 
     checkout.tip = tip;

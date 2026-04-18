@@ -38,7 +38,7 @@ const checkoutSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["open", "closed"],
+      enum: ["open", "closed", "paid"],
       default: "open",
     },
     currency: {

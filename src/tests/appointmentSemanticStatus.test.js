@@ -39,22 +39,34 @@ describe("Appointment semantic status helpers", () => {
     });
   });
 
-  test("builds a minimal policy snapshot from the business penalty settings", () => {
-    expect(
-      Appointment.buildPolicySnapshot({
-        penaltySettings: {
-          noShowPenalty: true,
-          noShowPenaltyAmount: 15,
-        },
-      })
-    ).toEqual({
-      noShowPenaltyEnabled: true,
-      noShowPenaltyAmount: 15,
+  test("builds an expanded policy snapshot from the business settings", () => {
+    const withPenalty = Appointment.buildPolicySnapshot({
+      bookingBuffer: 20,
+      penaltySettings: {
+        noShowPenalty: true,
+        noShowPenaltyAmount: 15,
+      },
     });
 
-    expect(Appointment.buildPolicySnapshot({})).toEqual({
-      noShowPenaltyEnabled: false,
-      noShowPenaltyAmount: 0,
-    });
+    expect(withPenalty).toEqual(
+      expect.objectContaining({
+        version: 2,
+        bookingBufferMinutes: 20,
+        noShowPenaltyEnabled: true,
+        noShowPenaltyAmount: 15,
+      })
+    );
+    expect(withPenalty.capturedAt).toBeInstanceOf(Date);
+
+    const withoutPenalty = Appointment.buildPolicySnapshot({});
+    expect(withoutPenalty).toEqual(
+      expect.objectContaining({
+        version: 2,
+        bookingBufferMinutes: 0,
+        noShowPenaltyEnabled: false,
+        noShowPenaltyAmount: 0,
+      })
+    );
+    expect(withoutPenalty.capturedAt).toBeInstanceOf(Date);
   });
 });

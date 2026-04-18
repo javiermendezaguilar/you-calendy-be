@@ -1,5 +1,6 @@
 const Appointment = require("../models/appointment");
 const Business = require("../models/User/business");
+const CashSession = require("../models/cashSession");
 const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
 const SuccessHandler = require("../utils/SuccessHandler");
@@ -85,12 +86,21 @@ const capturePayment = async (req, res) => {
       );
     }
 
+    let activeCashSession = null;
+    if (method === "cash") {
+      activeCashSession = await CashSession.findOne({
+        business: business._id,
+        status: "open",
+      });
+    }
+
     const payment = await Payment.create({
       checkout: checkout._id,
       appointment: checkout.appointment,
       business: checkout.business,
       client: checkout.client,
       staff: checkout.staff,
+      cashSession: activeCashSession?._id || null,
       status: "captured",
       method,
       currency: checkout.currency,
@@ -110,6 +120,7 @@ const capturePayment = async (req, res) => {
     });
 
     const hydratedPayment = await Payment.findById(payment._id)
+      .populate("cashSession")
       .populate("checkout")
       .populate("appointment")
       .populate("client", "firstName lastName phone")
@@ -142,6 +153,7 @@ const getPaymentById = async (req, res) => {
       _id: req.params.id,
       business: business._id,
     })
+      .populate("cashSession")
       .populate("checkout")
       .populate("appointment")
       .populate("client", "firstName lastName phone")
@@ -170,6 +182,7 @@ const getPaymentByCheckout = async (req, res) => {
       business: business._id,
     })
       .sort({ createdAt: -1 })
+      .populate("cashSession")
       .populate("checkout")
       .populate("appointment")
       .populate("client", "firstName lastName phone")

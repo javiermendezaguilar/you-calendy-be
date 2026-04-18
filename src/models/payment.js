@@ -28,6 +28,11 @@ const paymentSchema = new Schema(
       ref: "Staff",
       default: null,
     },
+    cashSession: {
+      type: Schema.Types.ObjectId,
+      ref: "CashSession",
+      default: null,
+    },
     status: {
       type: String,
       enum: ["captured", "voided"],
@@ -146,5 +151,6 @@ paymentSchema.index(
 
 paymentSchema.index({ business: 1, capturedAt: -1 });
 paymentSchema.index({ appointment: 1, capturedAt: -1 });
+paymentSchema.index({ cashSession: 1, capturedAt: -1 });
 
 module.exports = mongoose.model("Payment", paymentSchema);

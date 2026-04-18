@@ -16,6 +16,7 @@ const Appointment = require("../../models/appointment");
 const Checkout = require("../../models/checkout");
 const Payment = require("../../models/payment");
 const WaitlistEntry = require("../../models/waitlistEntry");
+const CashSession = require("../../models/cashSession");
 
 let mongoServer;
 
@@ -48,6 +49,7 @@ const resetCommerceCollections = async () => {
     Checkout.deleteMany({}),
     Payment.deleteMany({}),
     WaitlistEntry.deleteMany({}),
+    CashSession.deleteMany({}),
   ]);
 };
 
@@ -134,8 +136,45 @@ const createCommerceFixture = async (overrides = {}) => {
   };
 };
 
+const createClosedCheckoutForFixture = async (fixture, overrides = {}) => {
+  return Checkout.create({
+    appointment: fixture.appointment._id,
+    business: fixture.business._id,
+    client: fixture.client._id,
+    staff: fixture.staff._id,
+    status: "closed",
+    currency: overrides.currency || "EUR",
+    subtotal: overrides.subtotal ?? 35,
+    discountTotal: overrides.discountTotal ?? 0,
+    tip: overrides.tip ?? 5,
+    total: overrides.total ?? 40,
+    sourcePrice: overrides.sourcePrice ?? 35,
+    snapshot: overrides.snapshot || {
+      appointmentStatus: fixture.appointment.status,
+      bookingStatus: fixture.appointment.bookingStatus,
+      visitStatus: fixture.appointment.visitStatus,
+      service: {
+        id: fixture.service._id,
+        name: fixture.service.name,
+      },
+      client: {
+        id: fixture.client._id,
+        firstName: fixture.client.firstName,
+        lastName: fixture.client.lastName,
+      },
+      discounts: {
+        promotion: { applied: false, id: null, amount: 0 },
+        flashSale: { applied: false, id: null, amount: 0 },
+      },
+    },
+    closedAt: overrides.closedAt || new Date(),
+    closedBy: overrides.closedBy || fixture.owner._id,
+  });
+};
+
 module.exports = {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
   createCommerceFixture,
+  createClosedCheckoutForFixture,
 };

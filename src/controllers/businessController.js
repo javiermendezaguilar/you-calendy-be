@@ -28,6 +28,14 @@ const BarberLink = require("../models/barberLink");
 const { normalizePhone } = require("../utils/index");
 const Service = require("../models/service");
 const Staff = require("../models/staff");
+const {
+  getUserBusinessForOwner,
+  getBusinessByIdPublic,
+  updateBusinessInfoForOwner,
+  updateBusinessAddressForOwner,
+  updateBusinessLocationForOwner,
+  updateBusinessHoursForOwner,
+} = require("../services/business/coreService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -50,8 +58,6 @@ const resolveBusinessForRequest = async (req) => {
   };
 };
 
-const VALID_TIME_FORMATS = ["12h", "24h"];
-
 /**
  * @desc Get user's business
  * @route GET /api/business
@@ -70,16 +76,11 @@ const getUserBusiness = async (req, res) => {
      }
   */
   try {
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    return SuccessHandler(business, 200, res);
+    const payload = await getUserBusinessForOwner(req.user.id);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Get business error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -106,19 +107,11 @@ const getBusinessById = async (req, res) => {
      }
   */
   try {
-    const business = await Business.findById(req.params.id).populate(
-      "owner",
-      "name email"
-    );
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    return SuccessHandler(business, 200, res);
+    const payload = await getBusinessByIdPublic(req.params.id);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Get business by ID error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -153,61 +146,11 @@ const updateBusinessInfo = async (req, res) => {
      }
   */
   try {
-    const {
-      name,
-      email,
-      phone,
-      facebook,
-      instagram,
-      twitter,
-      website,
-      onlineShop,
-      publicUrl,
-      description,
-      personalName,
-      surname,
-      googlePlaceId,
-      googleReviewUrl,
-    } = req.body;
-
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    // Update basic info
-    if (personalName !== undefined) business.personalName = personalName;
-    if (surname !== undefined) business.surname = surname;
-    business.name = name || business.name;
-    business.contactInfo.email = email || business.contactInfo.email;
-    business.contactInfo.phone = phone || business.contactInfo.phone;
-    business.contactInfo.publicUrl =
-      publicUrl || business.contactInfo.publicUrl;
-    business.contactInfo.description =
-      description || business.contactInfo.description;
-    business.socialMedia.website = website || business.socialMedia.website;
-    business.socialMedia.onlineShop =
-      onlineShop || business.socialMedia.onlineShop;
-
-    // Update social media links
-    business.socialMedia.facebook = facebook || business.socialMedia.facebook;
-    business.socialMedia.instagram =
-      instagram || business.socialMedia.instagram;
-    business.socialMedia.twitter = twitter || business.socialMedia.twitter;
-    business.socialMedia.website = website || business.socialMedia.website;
-    business.socialMedia.onlineShop =
-      onlineShop || business.socialMedia.onlineShop;
-
-    // Update Google review settings
-    if (googlePlaceId !== undefined) business.googlePlaceId = googlePlaceId;
-    if (googleReviewUrl !== undefined) business.googleReviewUrl = googleReviewUrl;
-
-    const updatedBusiness = await business.save();
-    return SuccessHandler(updatedBusiness, 200, res);
+    const payload = await updateBusinessInfoForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Update business info error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -240,25 +183,11 @@ const updateBusinessAddress = async (req, res) => {
      }
   */
   try {
-    const { streetName, houseNumber, city, postalCode } = req.body;
-
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    // Update address fields
-    business.address.streetName = streetName || business.address.streetName;
-    business.address.houseNumber = houseNumber || business.address.houseNumber;
-    business.address.city = city || business.address.city;
-    business.address.postalCode = postalCode || business.address.postalCode;
-
-    const updatedBusiness = await business.save();
-    return SuccessHandler(updatedBusiness, 200, res);
+    const payload = await updateBusinessAddressForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Update business address error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -293,36 +222,11 @@ const updateBusinessLocation = async (req, res) => {
      }
   */
   try {
-    const { longitude, latitude, address } = req.body;
-
-    if (!longitude || !latitude) {
-      return ErrorHandler("Longitude and latitude are required", 400, req, res);
-    }
-
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    // Update location data
-    business.location.coordinates = [
-      parseFloat(longitude),
-      parseFloat(latitude),
-    ];
-    business.location.address = address || business.location.address;
-
-    // Update Google Place ID if provided (from LocationPage)
-    const { googlePlaceId } = req.body;
-    if (googlePlaceId !== undefined) {
-      business.googlePlaceId = googlePlaceId;
-    }
-
-    const updatedBusiness = await business.save();
-    return SuccessHandler(updatedBusiness, 200, res);
+    const payload = await updateBusinessLocationForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Update business location error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -364,37 +268,11 @@ const updateBusinessHours = async (req, res) => {
      }
   */
   try {
-    const { businessHours, timeFormatPreference } = req.body;
-
-    if (!businessHours) {
-      return ErrorHandler("Business hours data is required", 400, req, res);
-    }
-
-    const business = await Business.findOne({ owner: req.user.id });
-
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
-
-    // Update business hours
-    for (const day in businessHours) {
-      if (business.businessHours[day]) {
-        business.businessHours[day] = businessHours[day];
-      }
-    }
-
-    if (timeFormatPreference) {
-      if (!VALID_TIME_FORMATS.includes(timeFormatPreference)) {
-        return ErrorHandler("Invalid time format preference", 400, req, res);
-      }
-      business.timeFormatPreference = timeFormatPreference;
-    }
-
-    const updatedBusiness = await business.save();
-    return SuccessHandler(updatedBusiness, 200, res);
+    const payload = await updateBusinessHoursForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 200, res);
   } catch (error) {
     console.error("Update business hours error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

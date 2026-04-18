@@ -43,6 +43,11 @@ const {
   deleteBusinessServiceForOwner,
 } = require("../services/business/serviceService");
 const {
+  createWaitlistEntryForOwner,
+  getWaitlistEntriesForOwner,
+  findWaitlistMatchesForOwner,
+} = require("../services/business/waitlistService");
+const {
   createWalkInForOwner,
 } = require("../services/business/walkInService");
 
@@ -2987,6 +2992,36 @@ const createUnregisteredClient = async (req, res) => {
   }
 };
 
+const createWaitlistEntry = async (req, res) => {
+  try {
+    const payload = await createWaitlistEntryForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 201, res);
+  } catch (error) {
+    console.error("Create waitlist entry error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
+const getWaitlistEntries = async (req, res) => {
+  try {
+    const payload = await getWaitlistEntriesForOwner(req.user.id, req.query);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Get waitlist entries error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
+const findWaitlistMatches = async (req, res) => {
+  try {
+    const payload = await findWaitlistMatchesForOwner(req.user.id, req.body);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Find waitlist matches error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 /**
  * @desc Create a walk-in appointment
  * @route POST /api/business/walk-ins
@@ -3591,6 +3626,9 @@ module.exports = {
   addBusinessService,
   updateBusinessService,
   deleteBusinessService,
+  createWaitlistEntry,
+  getWaitlistEntries,
+  findWaitlistMatches,
   updateBusinessProfile,
   getBusinessClients,
   addClient,

@@ -15,6 +15,7 @@ const Staff = require("../../models/staff");
 const Appointment = require("../../models/appointment");
 const Checkout = require("../../models/checkout");
 const Payment = require("../../models/payment");
+const WaitlistEntry = require("../../models/waitlistEntry");
 
 let mongoServer;
 
@@ -46,6 +47,7 @@ const resetCommerceCollections = async () => {
     Appointment.deleteMany({}),
     Checkout.deleteMany({}),
     Payment.deleteMany({}),
+    WaitlistEntry.deleteMany({}),
   ]);
 };
 

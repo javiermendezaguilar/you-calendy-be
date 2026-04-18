@@ -1,12 +1,8 @@
-const Business = require("../models/User/business");
 const CashSession = require("../models/cashSession");
 const Payment = require("../models/payment");
+const { resolveBusinessOrReply } = require("./commerceShared");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
-
-const getBusinessForOwner = async (ownerId) => {
-  return Business.findOne({ owner: ownerId });
-};
 
 const hydrateCashSession = async (cashSessionId) => {
   return CashSession.findById(cashSessionId)
@@ -20,10 +16,8 @@ const hydrateCashSession = async (cashSessionId) => {
 
 const openCashSession = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
 
     const existingSession = await CashSession.findOne({
       business: business._id,
@@ -76,10 +70,8 @@ const openCashSession = async (req, res) => {
 
 const getActiveCashSession = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
 
     const cashSession = await CashSession.findOne({
       business: business._id,
@@ -104,10 +96,8 @@ const getActiveCashSession = async (req, res) => {
 
 const getCashSessionById = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
 
     const cashSession = await CashSession.findOne({
       _id: req.params.id,
@@ -132,10 +122,8 @@ const getCashSessionById = async (req, res) => {
 
 const closeCashSession = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
 
     const cashSession = await CashSession.findOne({
       _id: req.params.id,

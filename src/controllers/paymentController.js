@@ -1,14 +1,10 @@
 const Appointment = require("../models/appointment");
-const Business = require("../models/User/business");
 const CashSession = require("../models/cashSession");
 const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
+const { resolveBusinessOrReply } = require("./commerceShared");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
-
-const getBusinessForOwner = async (ownerId) => {
-  return Business.findOne({ owner: ownerId });
-};
 
 const buildPaymentSnapshot = (checkout) => ({
   subtotal: Number(checkout.subtotal) || 0,
@@ -34,10 +30,8 @@ const buildPaymentSnapshot = (checkout) => ({
 
 const capturePayment = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
 
     const { method, amount, reference = "" } = req.body;
     const checkout = await Checkout.findOne({
@@ -144,10 +138,8 @@ const capturePayment = async (req, res) => {
 
 const getPaymentById = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
 
     const payment = await Payment.findOne({
       _id: req.params.id,
@@ -172,10 +164,8 @@ const getPaymentById = async (req, res) => {
 
 const getPaymentByCheckout = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
 
     const payment = await Payment.findOne({
       checkout: req.params.checkoutId,

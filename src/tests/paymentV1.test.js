@@ -1,7 +1,6 @@
 const request = require("supertest");
 const app = require("../app");
 const Appointment = require("../models/appointment");
-const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
 const {
   connectCommerceTestDatabase,
@@ -46,24 +45,11 @@ describe("Payment v1", () => {
 
     appointment = fixture.appointment;
     checkout = await createClosedCheckoutForFixture(fixture, {
-      snapshot: {
-        appointmentStatus: "Completed",
-        bookingStatus: "confirmed",
-        visitStatus: "completed",
-        service: {
-          id: fixture.service._id,
-          name: fixture.service.name,
-        },
-        client: {
-          id: fixture.client._id,
-          firstName: fixture.client.firstName,
-          lastName: fixture.client.lastName,
-        },
-        discounts: {
-          promotion: { applied: false, id: null, amount: 0 },
-          flashSale: { applied: false, id: null, amount: 0 },
-        },
-      },
+      subtotal: 35,
+      discountTotal: 0,
+      tip: 5,
+      total: 40,
+      sourcePrice: 35,
     });
 
     token = fixture.token;

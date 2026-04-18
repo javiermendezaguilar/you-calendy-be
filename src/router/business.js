@@ -396,6 +396,11 @@ router.post(
 
 // Unregistered client routes (for walk-ins, phone bookings)
 router.post(
+  "/walk-ins",
+  isAuthenticated,
+  businessController.createWalkIn
+);
+router.post(
   "/unregistered-client",
   isAuthenticated,
   upload.array("haircutPhotos"),

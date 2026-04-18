@@ -14,6 +14,25 @@ const hydrateCashSession = async (cashSessionId) => {
     });
 };
 
+const getOwnedCashSession = async (businessId, cashSessionId, hydrated = false) => {
+  const query = CashSession.findOne({
+    _id: cashSessionId,
+    business: businessId,
+  });
+
+  if (!hydrated) {
+    return query;
+  }
+
+  return query
+    .populate("openedBy", "name email")
+    .populate("closedBy", "name email")
+    .populate({
+      path: "payments",
+      select: "amount tip method status reference capturedAt",
+    });
+};
+
 const openCashSession = async (req, res) => {
   try {
     const business = await resolveBusinessOrReply(req, res);
@@ -99,16 +118,11 @@ const getCashSessionById = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const cashSession = await CashSession.findOne({
-      _id: req.params.id,
-      business: business._id,
-    })
-      .populate("openedBy", "name email")
-      .populate("closedBy", "name email")
-      .populate({
-        path: "payments",
-        select: "amount tip method status reference capturedAt",
-      });
+    const cashSession = await getOwnedCashSession(
+      business._id,
+      req.params.id,
+      true
+    );
 
     if (!cashSession) {
       return ErrorHandler("Cash session not found", 404, req, res);
@@ -125,10 +139,7 @@ const closeCashSession = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const cashSession = await CashSession.findOne({
-      _id: req.params.id,
-      business: business._id,
-    });
+    const cashSession = await getOwnedCashSession(business._id, req.params.id);
 
     if (!cashSession) {
       return ErrorHandler("Cash session not found", 404, req, res);

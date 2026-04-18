@@ -7,6 +7,8 @@ const {
   disconnectCommerceTestDatabase,
   createCommerceFixture,
   createClosedCheckoutForFixture,
+  openCashSessionForToken,
+  captureCheckoutPaymentForToken,
 } = require("./helpers/commerceFixture");
 
 beforeAll(async () => {
@@ -51,10 +53,7 @@ describe("CashSession v1", () => {
   });
 
   test("opens a cash session, reads the active one, and blocks duplicates", async () => {
-    const openRes = await request(app)
-      .post("/cash-sessions/open")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ openingFloat: 50, currency: "EUR" });
+    const openRes = await openCashSessionForToken(app, token);
 
     expect(openRes.status).toBe(201);
     expect(openRes.body.data.status).toBe("open");
@@ -67,29 +66,22 @@ describe("CashSession v1", () => {
     expect(activeRes.status).toBe(200);
     expect(activeRes.body.data._id).toBe(openRes.body.data._id);
 
-    const duplicateOpen = await request(app)
-      .post("/cash-sessions/open")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ openingFloat: 20, currency: "EUR" });
+    const duplicateOpen = await openCashSessionForToken(app, token, {
+      openingFloat: 20,
+    });
 
     expect(duplicateOpen.status).toBe(409);
     expect(duplicateOpen.body.message).toMatch(/active cash session already exists/i);
   });
 
   test("associates captured cash payments to the active session", async () => {
-    const openRes = await request(app)
-      .post("/cash-sessions/open")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ openingFloat: 50, currency: "EUR" });
+    const openRes = await openCashSessionForToken(app, token);
 
-    const captureRes = await request(app)
-      .post(`/payment/checkout/${checkout._id}/capture`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        method: "cash",
-        amount: 40,
-        reference: "cash-register-002",
-      });
+    const captureRes = await captureCheckoutPaymentForToken(app, token, checkout._id, {
+      method: "cash",
+      amount: 40,
+      reference: "cash-register-002",
+    });
 
     expect(captureRes.status).toBe(201);
     expect(captureRes.body.data.cashSession._id).toBe(openRes.body.data._id);
@@ -99,19 +91,13 @@ describe("CashSession v1", () => {
   });
 
   test("closes a cash session and persists summary plus variance", async () => {
-    const openRes = await request(app)
-      .post("/cash-sessions/open")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ openingFloat: 50, currency: "EUR" });
+    const openRes = await openCashSessionForToken(app, token);
 
-    await request(app)
-      .post(`/payment/checkout/${checkout._id}/capture`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        method: "cash",
-        amount: 40,
-        reference: "cash-register-003",
-      });
+    await captureCheckoutPaymentForToken(app, token, checkout._id, {
+      method: "cash",
+      amount: 40,
+      reference: "cash-register-003",
+    });
 
     const closeRes = await request(app)
       .post(`/cash-sessions/${openRes.body.data._id}/close`)

@@ -52,6 +52,9 @@ const {
   createWalkInForOwner,
   getWalkInQueueForOwner,
 } = require("../services/business/walkInService");
+const {
+  getOperationalDashboardForOwner,
+} = require("../services/business/operationalDashboardService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -3064,6 +3067,16 @@ const getWalkInQueue = async (req, res) => {
   }
 };
 
+const getOperationalDashboard = async (req, res) => {
+  try {
+    const payload = await getOperationalDashboardForOwner(req.user.id, req.query);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Get operational dashboard error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 /**
  * @desc Convert unregistered client to registered
  * @route POST /api/business/client/:clientId/convert-to-registered
@@ -3685,6 +3698,7 @@ module.exports = {
   createClientProfile,
   createWalkIn,
   getWalkInQueue,
+  getOperationalDashboard,
   createUnregisteredClient,
   convertClientToRegistered,
   // getClientProfiles,

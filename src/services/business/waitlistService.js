@@ -17,6 +17,12 @@ const {
 
 const VALID_SOURCES = ["manual", "walk_in_overflow", "booking_overflow"];
 
+const waitlistPopulate = (query) =>
+  query
+    .populate("client", "firstName lastName email phone registrationStatus")
+    .populate("service", "name price currency")
+    .populate("staff", "firstName lastName");
+
 const ensureTimeWindow = (start, end) => {
   const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
   if (!timeRegex.test(start) || !timeRegex.test(end)) {
@@ -163,6 +169,42 @@ const buildCandidateSlots = async (businessId, { serviceId, staffId, date, fromT
   });
 };
 
+const buildActiveWaitlistQuery = ({
+  businessId,
+  serviceId,
+  date,
+  staffId = null,
+  includeAnyStaff = false,
+}) => ({
+  business: { $eq: businessId },
+  service: { $eq: serviceId },
+  date: { $eq: date },
+  status: { $eq: "active" },
+  $or: staffId
+    ? [{ staff: null }, { staff: { $eq: staffId } }]
+    : includeAnyStaff
+      ? [{ staff: null }, { staff: { $ne: null } }]
+      : [{ staff: null }],
+});
+
+const getActiveWaitlistEntries = (filters) =>
+  waitlistPopulate(WaitlistEntry.find(buildActiveWaitlistQuery(filters)).sort({ createdAt: 1 }));
+
+const isEntryCompatibleWithSlot = (entry, slot) => {
+  const entryStart = moment(entry.timeWindowStart, "HH:mm");
+  const entryEnd = moment(entry.timeWindowEnd, "HH:mm");
+  const slotStart = moment(slot.slotStart, "HH:mm");
+  const slotEnd = moment(slot.slotEnd, "HH:mm");
+  const staffCompatible =
+    !entry.staff || entry.staff._id.toString() === slot.staff._id.toString();
+
+  return (
+    staffCompatible &&
+    slotStart.isSameOrAfter(entryStart) &&
+    slotEnd.isSameOrBefore(entryEnd)
+  );
+};
+
 const createWaitlistEntryForOwner = async (ownerId, payload) => {
   const {
     date,
@@ -239,11 +281,7 @@ const getWaitlistEntriesForOwner = async (ownerId, query = {}) => {
     filters.date = { $eq: normalizeWaitlistDate(query.date) };
   }
 
-  return WaitlistEntry.find(filters)
-    .sort({ createdAt: 1 })
-    .populate("client", "firstName lastName email phone registrationStatus")
-    .populate("service", "name price currency")
-    .populate("staff", "firstName lastName");
+  return waitlistPopulate(WaitlistEntry.find(filters).sort({ createdAt: 1 }));
 };
 
 const findWaitlistMatchesForOwner = async (ownerId, payload) => {
@@ -264,19 +302,12 @@ const findWaitlistMatchesForOwner = async (ownerId, payload) => {
   );
   const normalizedDate = normalizeWaitlistDate(date);
 
-  const activeEntries = await WaitlistEntry.find({
-    business: { $eq: business._id },
-    service: { $eq: validServiceId },
-    date: { $eq: normalizedDate },
-    status: { $eq: "active" },
-    $or: validStaffId
-      ? [{ staff: null }, { staff: { $eq: validStaffId } }]
-      : [{ staff: null }],
-  })
-    .sort({ createdAt: 1 })
-    .populate("client", "firstName lastName email phone registrationStatus")
-    .populate("service", "name price currency")
-    .populate("staff", "firstName lastName");
+  const activeEntries = await getActiveWaitlistEntries({
+    businessId: business._id,
+    serviceId: validServiceId,
+    date: normalizedDate,
+    staffId: validStaffId,
+  });
 
   const slotStart = moment(startTime, "HH:mm");
   const slotEnd = moment(endTime, "HH:mm");
@@ -313,35 +344,18 @@ const getFillGapCandidatesForOwner = async (ownerId, query = {}) => {
     fromTime,
   });
 
-  const entries = await WaitlistEntry.find({
-    business: { $eq: business._id },
-    service: { $eq: validServiceId },
-    date: { $eq: normalizedDate },
-    status: { $eq: "active" },
-    $or: validStaffId
-      ? [{ staff: null }, { staff: { $eq: validStaffId } }]
-      : [{ staff: null }, { staff: { $ne: null } }],
-  })
-    .sort({ createdAt: 1 })
-    .populate("client", "firstName lastName email phone registrationStatus")
-    .populate("service", "name price currency")
-    .populate("staff", "firstName lastName");
+  const entries = await getActiveWaitlistEntries({
+    businessId: business._id,
+    serviceId: validServiceId,
+    date: normalizedDate,
+    staffId: validStaffId,
+    includeAnyStaff: !validStaffId,
+  });
 
   return candidateSlots.map((slot) => {
-    const compatibleEntries = entries.filter((entry) => {
-      const entryStart = moment(entry.timeWindowStart, "HH:mm");
-      const entryEnd = moment(entry.timeWindowEnd, "HH:mm");
-      const slotStart = moment(slot.slotStart, "HH:mm");
-      const slotEnd = moment(slot.slotEnd, "HH:mm");
-      const staffCompatible =
-        !entry.staff || entry.staff._id.toString() === slot.staff._id.toString();
-
-      return (
-        staffCompatible &&
-        slotStart.isSameOrAfter(entryStart) &&
-        slotEnd.isSameOrBefore(entryEnd)
-      );
-    });
+    const compatibleEntries = entries.filter((entry) =>
+      isEntryCompatibleWithSlot(entry, slot)
+    );
 
     return {
       staff: {

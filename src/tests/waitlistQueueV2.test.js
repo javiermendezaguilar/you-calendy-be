@@ -17,7 +17,6 @@ afterAll(async () => {
 });
 
 describe("Waitlist v2 queue-linked", () => {
-  let business;
   let client;
   let service;
   let staff;
@@ -46,7 +45,6 @@ describe("Waitlist v2 queue-linked", () => {
       },
     });
 
-    business = fixture.business;
     client = fixture.client;
     service = fixture.service;
     staff = fixture.staff;
@@ -57,6 +55,12 @@ describe("Waitlist v2 queue-linked", () => {
     await Appointment.deleteMany({});
     await WaitlistEntry.deleteMany({});
   });
+
+  const createWaitlistEntry = (payload) =>
+    request(app)
+      .post("/business/waitlist")
+      .set("Authorization", `Bearer ${token}`)
+      .send(payload);
 
   test("returns fill-gap candidates based on the live queue", async () => {
     await request(app)
@@ -70,31 +74,25 @@ describe("Waitlist v2 queue-linked", () => {
         startTime: "10:00",
       });
 
-    await request(app)
-      .post("/business/waitlist")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        clientId: client._id,
-        serviceId: service._id,
-        staffId: staff._id,
-        date: "2026-05-14",
-        timeWindowStart: "10:30",
-        timeWindowEnd: "12:00",
-        notes: "Fits after queue",
-      });
+    await createWaitlistEntry({
+      clientId: client._id,
+      serviceId: service._id,
+      staffId: staff._id,
+      date: "2026-05-14",
+      timeWindowStart: "10:30",
+      timeWindowEnd: "12:00",
+      notes: "Fits after queue",
+    });
 
-    await request(app)
-      .post("/business/waitlist")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        clientId: client._id,
-        serviceId: service._id,
-        staffId: staff._id,
-        date: "2026-05-14",
-        timeWindowStart: "08:00",
-        timeWindowEnd: "09:30",
-        notes: "Too early",
-      });
+    await createWaitlistEntry({
+      clientId: client._id,
+      serviceId: service._id,
+      staffId: staff._id,
+      date: "2026-05-14",
+      timeWindowStart: "08:00",
+      timeWindowEnd: "09:30",
+      notes: "Too early",
+    });
 
     const res = await request(app)
       .get("/business/waitlist/fill-gaps")

@@ -62,6 +62,125 @@ const buildPaymentSummary = async (businessId, bounds) => {
   };
 };
 
+const buildQueueStaffBreakdown = (queue) => {
+  const breakdown = new Map();
+
+  queue.forEach((entry) => {
+    if (!entry.staff?._id) {
+      return;
+    }
+
+    const staffId = entry.staff._id.toString();
+    const current = breakdown.get(staffId) || {
+      staff: {
+        _id: entry.staff._id,
+        firstName: entry.staff.firstName,
+        lastName: entry.staff.lastName,
+      },
+      activeCount: 0,
+      estimatedWaitMinutes: 0,
+    };
+
+    current.activeCount += 1;
+    current.estimatedWaitMinutes = Math.max(
+      current.estimatedWaitMinutes,
+      Number(entry.estimatedWaitMinutes) || 0
+    );
+
+    breakdown.set(staffId, current);
+  });
+
+  return [...breakdown.values()].sort((left, right) => {
+    if (right.estimatedWaitMinutes !== left.estimatedWaitMinutes) {
+      return right.estimatedWaitMinutes - left.estimatedWaitMinutes;
+    }
+
+    return right.activeCount - left.activeCount;
+  });
+};
+
+const buildNextActions = ({ queue, fillGapOpportunities, activeCashSession }) => {
+  const actions = [];
+
+  if (!activeCashSession) {
+    actions.push({
+      type: "open_cash_session",
+      priority: "high",
+      label: "Open cash session before taking cash payments",
+      meta: {},
+    });
+  }
+
+  if (queue.length > 0) {
+    const nextEntry = queue[0];
+    actions.push({
+      type: "serve_next_walk_in",
+      priority: "high",
+      label: "Next walk-in is ready to be served",
+      meta: {
+        appointmentId: nextEntry._id,
+        queuePosition: nextEntry.queuePosition,
+        estimatedWaitMinutes: nextEntry.estimatedWaitMinutes,
+      },
+    });
+  }
+
+  if (fillGapOpportunities.length > 0) {
+    actions.push({
+      type: "review_fill_gaps",
+      priority: "medium",
+      label: "Review waitlist entries that can fill current gaps",
+      meta: {
+        compatibleCount: fillGapOpportunities.length,
+      },
+    });
+  }
+
+  return actions;
+};
+
+const buildAlerts = ({ queue, fillGapOpportunities, activeCashSession }) => {
+  const alerts = [];
+
+  if (queue.length >= 3) {
+    const maxWaitMinutes = Math.max(
+      ...queue.map((entry) => Number(entry.estimatedWaitMinutes) || 0)
+    );
+
+    alerts.push({
+      type: "queue_backlog",
+      severity: "warning",
+      label: "Walk-in queue is building up",
+      meta: {
+        activeCount: queue.length,
+        maxWaitMinutes,
+      },
+    });
+  }
+
+  if (!activeCashSession) {
+    alerts.push({
+      type: "no_cash_session",
+      severity: "info",
+      label: "No active cash session is open",
+      meta: {},
+    });
+  }
+
+  if (fillGapOpportunities.length > 0) {
+    alerts.push({
+      type: "waitlist_opportunity",
+      severity: "info",
+      label: "There are waitlist entries compatible with current gaps",
+      meta: {
+        compatibleCount: fillGapOpportunities.length,
+      },
+    });
+  }
+
+  return alerts;
+};
+
 const getOperationalDashboardForOwner = async (ownerId, query = {}) => {
   const business = await getBusinessForOwner(ownerId);
   const bounds = buildDayBounds(query.date);
@@ -121,12 +240,24 @@ const getOperationalDashboardForOwner = async (ownerId, query = {}) => {
     business: business._id,
     status: "open",
   }).lean();
+  const queueStaffBreakdown = buildQueueStaffBreakdown(queue);
+  const nextActions = buildNextActions({
+    queue,
+    fillGapOpportunities,
+    activeCashSession,
+  });
+  const alerts = buildAlerts({
+    queue,
+    fillGapOpportunities,
+    activeCashSession,
+  });
 
   return {
     date: bounds.dateLabel,
     queue: {
       activeCount: queue.length,
       nextUp: queue.slice(0, 3),
+      staffBreakdown: queueStaffBreakdown,
     },
     waitlist: {
       activeCount: activeWaitlistEntries.length,
@@ -145,6 +276,8 @@ const getOperationalDashboardForOwner = async (ownerId, query = {}) => {
           active: false,
         },
     commerceToday: await buildPaymentSummary(business._id, bounds),
+    nextActions,
+    alerts,
   };
 };
 

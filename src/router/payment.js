@@ -8,14 +8,15 @@ router.post(
   isAuthenticated,
   paymentController.capturePayment
 );
-router.post("/:id/void", isAuthenticated, paymentController.voidPayment);
-router.post("/:id/refund", isAuthenticated, paymentController.refundPayment);
-router.get("/:id/refunds", isAuthenticated, paymentController.getRefundsByPayment);
+router.get("/summary", isAuthenticated, paymentController.getPaymentSummary);
 router.get(
   "/checkout/:checkoutId",
   isAuthenticated,
   paymentController.getPaymentByCheckout
 );
+router.post("/:id/void", isAuthenticated, paymentController.voidPayment);
+router.post("/:id/refund", isAuthenticated, paymentController.refundPayment);
+router.get("/:id/refunds", isAuthenticated, paymentController.getRefundsByPayment);
 router.get("/:id", isAuthenticated, paymentController.getPaymentById);
 
 module.exports = router;

@@ -101,6 +101,18 @@ const getBusinessAndOwnedPayment = async (
 const getRefundStatus = (paymentAmount, refundedTotal) =>
   refundedTotal === paymentAmount ? "full" : "partial";
 
+const buildDateRangeFilter = (fieldName, startDate, endDate) => {
+  const range = {};
+  if (startDate) {
+    range.$gte = new Date(startDate);
+  }
+  if (endDate) {
+    range.$lte = new Date(endDate);
+  }
+
+  return Object.keys(range).length > 0 ? { [fieldName]: range } : {};
+};
+
 const recalculateCashSessionSummary = async (cashSessionId) => {
   const cashSession = await CashSession.findById(cashSessionId);
   if (!cashSession || cashSession.status !== "open") {
@@ -441,6 +453,84 @@ const getRefundsByPayment = async (req, res) => {
   }
 };
 
+const getPaymentSummary = async (req, res) => {
+  try {
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
+
+    const { startDate, endDate } = req.query;
+    const paymentDateFilter = buildDateRangeFilter("capturedAt", startDate, endDate);
+    const refundDateFilter = buildDateRangeFilter("refundedAt", startDate, endDate);
+    const checkoutDateFilter = buildDateRangeFilter("openedAt", startDate, endDate);
+
+    const capturedStatuses = ["captured", "refunded_partial", "refunded_full"];
+
+    const [payments, refunds, rebookingCount] = await Promise.all([
+      Payment.find({
+        business: business._id,
+        ...paymentDateFilter,
+      }).lean(),
+      Refund.find({
+        business: business._id,
+        ...refundDateFilter,
+      }).lean(),
+      Checkout.countDocuments({
+        business: business._id,
+        "rebooking.status": "booked",
+        ...checkoutDateFilter,
+      }),
+    ]);
+
+    const grossCaptured = payments
+      .filter((payment) => capturedStatuses.includes(payment.status))
+      .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+
+    const voidedTotal = payments
+      .filter((payment) => payment.status === "voided")
+      .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+
+    const refundedTotal = refunds.reduce(
+      (sum, refund) => sum + (Number(refund.amount) || 0),
+      0
+    );
+
+    const methodBreakdown = payments
+      .filter((payment) => capturedStatuses.includes(payment.status))
+      .reduce(
+        (acc, payment) => {
+          const method = payment.method || "other";
+          acc[method] = (acc[method] || 0) + (Number(payment.amount) || 0);
+          return acc;
+        },
+        { cash: 0, card_manual: 0, other: 0 }
+      );
+
+    const summary = {
+      grossCaptured,
+      refundedTotal,
+      netCaptured: grossCaptured - refundedTotal,
+      voidedTotal,
+      transactionCount: payments.length,
+      capturedCount: payments.filter((payment) => payment.status === "captured").length,
+      refundedPartialCount: payments.filter(
+        (payment) => payment.status === "refunded_partial"
+      ).length,
+      refundedFullCount: payments.filter(
+        (payment) => payment.status === "refunded_full"
+      ).length,
+      voidedCount: payments.filter((payment) => payment.status === "voided").length,
+      methodBreakdown,
+      rebooking: {
+        count: rebookingCount,
+      },
+    };
+
+    return SuccessHandler(summary, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
 module.exports = {
   capturePayment,
   getPaymentById,
@@ -448,4 +538,5 @@ module.exports = {
   refundPayment,
   voidPayment,
   getRefundsByPayment,
+  getPaymentSummary,
 };

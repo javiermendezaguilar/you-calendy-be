@@ -70,6 +70,11 @@ router.get(
   isAuthenticated,
   businessController.getWaitlistEntries
 );
+router.get(
+  "/waitlist/fill-gaps",
+  isAuthenticated,
+  businessController.getWaitlistFillGaps
+);
 router.post(
   "/waitlist/find-match",
   isAuthenticated,

@@ -10,6 +10,10 @@ const {
   getBusinessForOwner,
   resolveBusinessClient,
 } = require("./shared");
+const {
+  getOrderedActiveWalkIns,
+  normalizeQueueDate,
+} = require("./queueService");
 
 const VALID_SOURCES = ["manual", "walk_in_overflow", "booking_overflow"];
 
@@ -77,12 +81,86 @@ const resolveWaitlistScope = async (businessId, payload) => {
 };
 
 const normalizeWaitlistDate = (date) => {
-  const parsed = moment(date, "YYYY-MM-DD", true);
-  if (!parsed.isValid()) {
-    throw buildServiceError("Date must use YYYY-MM-DD format", 400);
+  try {
+    return normalizeQueueDate(date);
+  } catch (error) {
+    throw buildServiceError(error.message, error.statusCode || 400);
+  }
+};
+
+const ensureFromTime = (fromTime) => {
+  const normalized = fromTime || moment().format("HH:mm");
+  const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+
+  if (!timeRegex.test(normalized)) {
+    throw buildServiceError("Invalid fromTime format. Use HH:MM format", 400);
   }
 
-  return parsed.startOf("day").toDate();
+  return normalized;
+};
+
+const computeQueueWaitByStaff = (appointments) => {
+  const waitByStaff = new Map();
+
+  appointments.forEach((appointment) => {
+    if (!appointment.staff?._id) {
+      return;
+    }
+
+    const staffId = appointment.staff._id.toString();
+    const duration = Math.max(
+      Number(appointment.duration) || Number(appointment.service?.duration) || 0,
+      0
+    );
+    waitByStaff.set(staffId, (waitByStaff.get(staffId) || 0) + duration);
+  });
+
+  return waitByStaff;
+};
+
+const buildCandidateSlots = async (businessId, { serviceId, staffId, date, fromTime }) => {
+  const normalizedDate = normalizeWaitlistDate(date);
+  const activeWalkIns = await getOrderedActiveWalkIns(businessId, { date });
+  const waitByStaff = computeQueueWaitByStaff(activeWalkIns);
+  const query = {
+    business: { $eq: businessId },
+    services: {
+      $elemMatch: {
+        service: {
+          $eq: ensureObjectIdString(serviceId, "Service ID is invalid"),
+        },
+      },
+    },
+  };
+
+  if (staffId) {
+    query._id = { $eq: ensureObjectIdString(staffId, "Staff ID is invalid") };
+  }
+
+  const staffs = await Staff.find(query);
+  const baseMoment = moment(fromTime, "HH:mm");
+
+  return staffs.map((staff) => {
+    const serviceConfig = staff.services.find(
+      (item) => item.service.toString() === serviceId.toString()
+    );
+    const duration = Math.max(
+      Number(serviceConfig?.timeInterval) || 0,
+      0
+    );
+    const estimatedWaitMinutes = waitByStaff.get(staff._id.toString()) || 0;
+    const slotStart = baseMoment.clone().add(estimatedWaitMinutes, "minutes");
+    const slotEnd = slotStart.clone().add(duration, "minutes");
+
+    return {
+      staff,
+      date: normalizedDate,
+      estimatedWaitMinutes,
+      duration,
+      slotStart: slotStart.format("HH:mm"),
+      slotEnd: slotEnd.format("HH:mm"),
+    };
+  });
 };
 
 const createWaitlistEntryForOwner = async (ownerId, payload) => {
@@ -213,8 +291,77 @@ const findWaitlistMatchesForOwner = async (ownerId, payload) => {
   });
 };
 
+const getFillGapCandidatesForOwner = async (ownerId, query = {}) => {
+  const { serviceId, date, staffId } = query;
+
+  if (!serviceId || !date) {
+    throw buildServiceError("serviceId and date are required", 400);
+  }
+
+  const fromTime = ensureFromTime(query.fromTime);
+  const business = await getBusinessForOwner(ownerId);
+  const { validServiceId, validStaffId } = await resolveWaitlistScope(
+    business._id,
+    { serviceId, staffId }
+  );
+  const normalizedDate = normalizeWaitlistDate(date);
+
+  const candidateSlots = await buildCandidateSlots(business._id, {
+    serviceId: validServiceId,
+    staffId: validStaffId,
+    date,
+    fromTime,
+  });
+
+  const entries = await WaitlistEntry.find({
+    business: { $eq: business._id },
+    service: { $eq: validServiceId },
+    date: { $eq: normalizedDate },
+    status: { $eq: "active" },
+    $or: validStaffId
+      ? [{ staff: null }, { staff: { $eq: validStaffId } }]
+      : [{ staff: null }, { staff: { $ne: null } }],
+  })
+    .sort({ createdAt: 1 })
+    .populate("client", "firstName lastName email phone registrationStatus")
+    .populate("service", "name price currency")
+    .populate("staff", "firstName lastName");
+
+  return candidateSlots.map((slot) => {
+    const compatibleEntries = entries.filter((entry) => {
+      const entryStart = moment(entry.timeWindowStart, "HH:mm");
+      const entryEnd = moment(entry.timeWindowEnd, "HH:mm");
+      const slotStart = moment(slot.slotStart, "HH:mm");
+      const slotEnd = moment(slot.slotEnd, "HH:mm");
+      const staffCompatible =
+        !entry.staff || entry.staff._id.toString() === slot.staff._id.toString();
+
+      return (
+        staffCompatible &&
+        slotStart.isSameOrAfter(entryStart) &&
+        slotEnd.isSameOrBefore(entryEnd)
+      );
+    });
+
+    return {
+      staff: {
+        _id: slot.staff._id,
+        firstName: slot.staff.firstName,
+        lastName: slot.staff.lastName,
+      },
+      date: slot.date,
+      slotStart: slot.slotStart,
+      slotEnd: slot.slotEnd,
+      estimatedWaitMinutes: slot.estimatedWaitMinutes,
+      duration: slot.duration,
+      compatibleEntries,
+    };
+  });
+};
+
 module.exports = {
   createWaitlistEntryForOwner,
   getWaitlistEntriesForOwner,
   findWaitlistMatchesForOwner,
+  getFillGapCandidatesForOwner,
 };

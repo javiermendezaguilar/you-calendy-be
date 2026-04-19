@@ -3,19 +3,12 @@ const app = require("../app");
 const Checkout = require("../models/checkout");
 const Refund = require("../models/refund");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
   createPaymentCommerceFixture,
   createCapturedPaymentForFixture,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Payment summary v1", () => {
   let fixture;

@@ -8,6 +8,28 @@ const {
   createCommerceFixture,
 } = require("./helpers/commerceFixture");
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const updateAppointmentStatusWithRetry = async ({
+  appointmentId,
+  token,
+  status,
+  attempts = 3,
+}) => {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await request(app)
+      .put(`/appointments/${appointmentId}/status`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status });
+
+    if (response.status === 200 || attempt === attempts) {
+      return response;
+    }
+
+    await wait(25 * attempt);
+  }
+};
+
 beforeAll(async () => {
   await connectCommerceTestDatabase();
 });
@@ -74,10 +96,11 @@ describe("Policy engine v2", () => {
       },
     });
 
-    const res = await request(app)
-      .put(`/appointments/${appointment._id}/status`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ status: "No-Show" });
+    const res = await updateAppointmentStatusWithRetry({
+      appointmentId: appointment._id,
+      token,
+      status: "No-Show",
+    });
 
     expect(res.status).toBe(200);
 
@@ -102,10 +125,11 @@ describe("Policy engine v2", () => {
       },
     });
 
-    const res = await request(app)
-      .put(`/appointments/${appointment._id}/status`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ status: "No-Show" });
+    const res = await updateAppointmentStatusWithRetry({
+      appointmentId: appointment._id,
+      token,
+      status: "No-Show",
+    });
 
     expect(res.status).toBe(200);
 

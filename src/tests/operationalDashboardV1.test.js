@@ -4,19 +4,12 @@ const app = require("../app");
 const CashSession = require("../models/cashSession");
 const WaitlistEntry = require("../models/waitlistEntry");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
   createPaymentCommerceFixture,
   createCapturedPaymentForFixture,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Operational dashboard v1", () => {
   let fixture;

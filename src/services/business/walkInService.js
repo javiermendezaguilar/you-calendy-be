@@ -18,6 +18,84 @@ const buildCheckedInTimestamps = (userId) => ({
   serviceStartedBy: null,
 });
 
+const ACTIVE_WALK_IN_VISIT_STATUSES = ["checked_in", "in_service", "not_started"];
+
+const queueSort = {
+  "operationalTimestamps.checkedInAt": 1,
+  createdAt: 1,
+};
+
+const buildActiveWalkInQuery = (businessId) => ({
+  business: businessId,
+  visitType: "walk_in",
+  visitStatus: { $in: ACTIVE_WALK_IN_VISIT_STATUSES },
+  status: { $nin: ["Canceled", "Completed", "No-Show", "Missed"] },
+});
+
+const populateWalkInQuery = (query) =>
+  query
+    .populate("client", "firstName lastName email phone registrationStatus")
+    .populate("service", "name price currency duration")
+    .populate("staff", "firstName lastName");
+
+const computeQueueMetrics = (appointments) => {
+  const waitByStaff = new Map();
+
+  return appointments.map((appointment, index) => {
+    const staffId = appointment.staff?._id?.toString() || "unassigned";
+    const estimatedWaitMinutes = waitByStaff.get(staffId) || 0;
+    const duration = Math.max(
+      Number(appointment.duration) || Number(appointment.service?.duration) || 0,
+      0
+    );
+
+    waitByStaff.set(staffId, estimatedWaitMinutes + duration);
+
+    return {
+      appointment,
+      queuePosition: index + 1,
+      estimatedWaitMinutes,
+    };
+  });
+};
+
+const syncQueueMetrics = async (appointments) => {
+  const metrics = computeQueueMetrics(appointments);
+
+  await Promise.all(
+    metrics.map(({ appointment, queuePosition, estimatedWaitMinutes }) => {
+      if (
+        appointment.queuePosition === queuePosition &&
+        appointment.estimatedWaitMinutes === estimatedWaitMinutes
+      ) {
+        return null;
+      }
+
+      appointment.queuePosition = queuePosition;
+      appointment.estimatedWaitMinutes = estimatedWaitMinutes;
+      return appointment.save();
+    })
+  );
+
+  return metrics;
+};
+
+const getOrderedActiveWalkIns = (businessId) =>
+  populateWalkInQuery(
+    Appointment.find(buildActiveWalkInQuery(businessId)).sort(queueSort)
+  );
+
+const getQueueResponseForBusiness = async (businessId) => {
+  const appointments = await getOrderedActiveWalkIns(businessId);
+  const metrics = await syncQueueMetrics(appointments);
+
+  return metrics.map(({ appointment, queuePosition, estimatedWaitMinutes }) => ({
+    ...appointment.toObject(),
+    queuePosition,
+    estimatedWaitMinutes,
+  }));
+};
+
 const resolveWalkInSchedule = async ({ businessId, serviceId, staffId, date, startTime }) => {
   if (!serviceId || !staffId || !date || !startTime) {
     const error = new Error(
@@ -132,6 +210,21 @@ const createWalkInForOwner = async (ownerId, payload) => {
     throw buildServiceError("Start time is invalid", 400);
   }
 
+  const activeWalkIns = await getOrderedActiveWalkIns(business._id);
+  const estimatedWaitMinutes = computeQueueMetrics(activeWalkIns)
+    .filter(
+      ({ appointment }) =>
+        appointment.staff && appointment.staff._id.toString() === staff._id.toString()
+    )
+    .slice(-1)
+    .map(({ estimatedWaitMinutes: currentWait, appointment }) => {
+      const duration = Math.max(
+        Number(appointment.duration) || Number(appointment.service?.duration) || 0,
+        0
+      );
+      return currentWait + duration;
+    })[0] || 0;
+
   const appointment = await Appointment.create({
     client: client._id,
     business: business._id,
@@ -145,6 +238,8 @@ const createWalkInForOwner = async (ownerId, payload) => {
     bookingStatus: "confirmed",
     visitStatus: "checked_in",
     visitType: "walk_in",
+    queuePosition: activeWalkIns.length + 1,
+    estimatedWaitMinutes,
     paymentStatus: "Pending",
     price: Number(service.price) || 0,
     notes: payload.notes || "",
@@ -167,12 +262,15 @@ const createWalkInForOwner = async (ownerId, payload) => {
     policySnapshot: Appointment.buildPolicySnapshot(business),
   });
 
-  return Appointment.findById(appointment._id)
-    .populate("client", "firstName lastName email phone registrationStatus")
-    .populate("service", "name price currency")
-    .populate("staff", "firstName lastName");
+  return populateWalkInQuery(Appointment.findById(appointment._id));
+};
+
+const getWalkInQueueForOwner = async (ownerId) => {
+  const business = await getBusinessForOwner(ownerId);
+  return getQueueResponseForBusiness(business._id);
 };
 
 module.exports = {
   createWalkInForOwner,
+  getWalkInQueueForOwner,
 };

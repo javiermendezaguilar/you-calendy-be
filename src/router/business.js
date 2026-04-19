@@ -415,6 +415,11 @@ router.post(
   isAuthenticated,
   businessController.createWalkIn
 );
+router.get(
+  "/walk-ins/queue",
+  isAuthenticated,
+  businessController.getWalkInQueue
+);
 router.post(
   "/unregistered-client",
   isAuthenticated,

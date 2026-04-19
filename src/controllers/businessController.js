@@ -49,6 +49,7 @@ const {
 } = require("../services/business/waitlistService");
 const {
   createWalkInForOwner,
+  getWalkInQueueForOwner,
 } = require("../services/business/walkInService");
 
 const setPerfHeader = (res, timings) => {
@@ -3038,6 +3039,21 @@ const createWalkIn = async (req, res) => {
 };
 
 /**
+ * @desc Get active walk-in queue
+ * @route GET /api/business/walk-ins/queue
+ * @access Private
+ */
+const getWalkInQueue = async (req, res) => {
+  try {
+    const payload = await getWalkInQueueForOwner(req.user.id);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Get walk-in queue error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
+/**
  * @desc Convert unregistered client to registered
  * @route POST /api/business/client/:clientId/convert-to-registered
  * @access Private
@@ -3656,6 +3672,7 @@ module.exports = {
   checkClientExists,
   createClientProfile,
   createWalkIn,
+  getWalkInQueue,
   createUnregisteredClient,
   convertClientToRegistered,
   // getClientProfiles,

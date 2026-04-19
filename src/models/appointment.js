@@ -73,6 +73,16 @@ const appointmentSchema = new Schema(
       enum: ["appointment", "walk_in"],
       default: "appointment",
     },
+    queuePosition: {
+      type: Number,
+      default: null,
+      min: 1,
+    },
+    estimatedWaitMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     policySnapshot: {
       version: {
         type: Number,

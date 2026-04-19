@@ -2,6 +2,9 @@ const Business = require("../models/User/business");
 const DomainEvent = require("../models/domainEvent");
 
 const ALLOWED_EVENT_TYPES = new Set([
+  "booking_created",
+  "booking_modified",
+  "booking_cancelled",
   "walkin_created",
   "client_checked_in",
   "service_started",

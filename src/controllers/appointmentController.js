@@ -32,6 +32,29 @@ const { recordDomainEvent } = require("../services/domainEventService");
 const buildAppointmentSemanticState = (status, overrides = {}) =>
   Appointment.getSemanticStateFromLegacyStatus(status, overrides);
 
+const buildBookingEventPayload = (appointment, extra = {}) => ({
+  appointmentId: appointment._id,
+  clientId:
+    appointment.client && typeof appointment.client === "object"
+      ? appointment.client._id || appointment.client
+      : appointment.client,
+  serviceId:
+    appointment.service && typeof appointment.service === "object"
+      ? appointment.service._id || appointment.service
+      : appointment.service,
+  staffId:
+    appointment.staff && typeof appointment.staff === "object"
+      ? appointment.staff._id || appointment.staff
+      : appointment.staff || null,
+  date: appointment.date,
+  startTime: appointment.startTime,
+  endTime: appointment.endTime,
+  status: appointment.status,
+  bookingStatus: appointment.bookingStatus,
+  visitType: appointment.visitType,
+  ...extra,
+});
+
 const getAppointmentBusinessContext = async (appointment, userId) => {
   const business = await Business.findById(appointment.business);
   const isBusinessOwner =
@@ -655,6 +678,15 @@ const createAppointment = async (req, res) => {
     }
 
     const newAppointment = await Appointment.create(newAppointmentData);
+    await recordDomainEvent({
+      type: "booking_created",
+      actorId: req.user._id || req.user.id,
+      shopId: business._id,
+      correlationId: newAppointment._id,
+      payload: buildBookingEventPayload(newAppointment, {
+        source: "client_booking",
+      }),
+    });
 
     // Populate the appointment with related data for response
     const populatedAppointment = await Appointment.findById(newAppointment._id)
@@ -1332,6 +1364,21 @@ const updateAppointmentStatus = async (req, res) => {
       });
     }
 
+    if (status === "Canceled") {
+      await recordDomainEvent({
+        type: "booking_cancelled",
+        actorId: req.user._id || req.user.id,
+        shopId: appointment.business,
+        correlationId: appointment._id,
+        payload: buildBookingEventPayload(appointment, {
+          cancelledBy:
+            req.user?.type === "client" || req.user?.role === "client"
+              ? "client"
+              : "business",
+        }),
+      });
+    }
+
     // Send notifications based on status change
     // Appointment.client references Client model, not User model
     const client = await Client.findById(appointment.client);
@@ -1899,6 +1946,18 @@ const updateAppointment = async (req, res) => {
       .populate("service", "name duration price")
       .populate("client", "firstName lastName email phone")
       .populate("business", "name contactInfo address");
+
+    if (Object.keys(updates).length > 0) {
+      await recordDomainEvent({
+        type: "booking_modified",
+        actorId: req.user._id || req.user.id,
+        shopId: appointment.business,
+        correlationId: updatedAppointment._id,
+        payload: buildBookingEventPayload(updatedAppointment, {
+          modifiedFields: Object.keys(updates),
+        }),
+      });
+    }
 
     // Send notifications if appointment was rescheduled
     if (date || startTime) {
@@ -3384,6 +3443,15 @@ const createAppointmentByBarber = async (req, res) => {
     }
 
     const newAppointment = await Appointment.create(newAppointmentData);
+    await recordDomainEvent({
+      type: "booking_created",
+      actorId: req.user._id || req.user.id,
+      shopId: business._id,
+      correlationId: newAppointment._id,
+      payload: buildBookingEventPayload(newAppointment, {
+        source: "barber_booking",
+      }),
+    });
 
     // Populate the appointment with related data for response
     const populatedAppointment = await Appointment.findById(newAppointment._id)

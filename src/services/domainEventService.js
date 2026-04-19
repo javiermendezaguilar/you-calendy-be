@@ -1,6 +1,15 @@
 const Business = require("../models/User/business");
 const DomainEvent = require("../models/domainEvent");
 
+const ALLOWED_EVENT_TYPES = new Set([
+  "checkout_opened",
+  "checkout_closed",
+  "payment_captured",
+  "payment_refunded",
+  "payment_voided",
+  "rebook_created",
+]);
+
 const normalizeLimit = (value) => {
   const parsed = Number(value);
   if (Number.isNaN(parsed) || parsed <= 0) {
@@ -8,6 +17,21 @@ const normalizeLimit = (value) => {
   }
 
   return Math.min(parsed, 100);
+};
+
+const normalizeType = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  if (!ALLOWED_EVENT_TYPES.has(normalized)) {
+    const error = new Error("Invalid domain event type");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
 };
 
 const recordDomainEvent = async ({
@@ -46,11 +70,12 @@ const getDomainEventsForOwner = async (ownerId, { type, limit } = {}) => {
   }
 
   const query = {
-    shopId: business._id,
+    shopId: { $eq: business._id },
   };
 
-  if (type) {
-    query.type = type;
+  const normalizedType = normalizeType(type);
+  if (normalizedType) {
+    query.type = { $eq: normalizedType };
   }
 
   const events = await DomainEvent.find(query)

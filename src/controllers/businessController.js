@@ -46,6 +46,7 @@ const {
   createWaitlistEntryForOwner,
   getWaitlistEntriesForOwner,
   findWaitlistMatchesForOwner,
+  getFillGapCandidatesForOwner,
 } = require("../services/business/waitlistService");
 const {
   createWalkInForOwner,
@@ -3023,6 +3024,16 @@ const findWaitlistMatches = async (req, res) => {
   }
 };
 
+const getWaitlistFillGaps = async (req, res) => {
+  try {
+    const payload = await getFillGapCandidatesForOwner(req.user.id, req.query);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Get waitlist fill gaps error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 /**
  * @desc Create a walk-in appointment
  * @route POST /api/business/walk-ins
@@ -3645,6 +3656,7 @@ module.exports = {
   createWaitlistEntry,
   getWaitlistEntries,
   findWaitlistMatches,
+  getWaitlistFillGaps,
   updateBusinessProfile,
   getBusinessClients,
   addClient,

@@ -2,6 +2,7 @@ const Appointment = require("../models/appointment");
 const CashSession = require("../models/cashSession");
 const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
+const Refund = require("../models/refund");
 const { resolveBusinessOrReply } = require("./commerceShared");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
@@ -27,6 +28,24 @@ const buildPaymentSnapshot = (checkout) => ({
       Number(checkout.snapshot?.discounts?.flashSale?.amount) || 0,
   },
 });
+
+const hydratePayment = (paymentId) =>
+  Payment.findById(paymentId)
+    .populate("cashSession")
+    .populate("checkout")
+    .populate("appointment")
+    .populate("client", "firstName lastName phone")
+    .populate("staff", "firstName lastName")
+    .populate("capturedBy", "name email");
+
+const hydrateRefund = (refundId) =>
+  Refund.findById(refundId)
+    .populate("payment")
+    .populate("checkout")
+    .populate("appointment")
+    .populate("client", "firstName lastName phone")
+    .populate("staff", "firstName lastName")
+    .populate("refundedBy", "name email");
 
 const capturePayment = async (req, res) => {
   try {
@@ -122,13 +141,7 @@ const capturePayment = async (req, res) => {
       paymentStatus: "Paid",
     });
 
-    const hydratedPayment = await Payment.findById(payment._id)
-      .populate("cashSession")
-      .populate("checkout")
-      .populate("appointment")
-      .populate("client", "firstName lastName phone")
-      .populate("staff", "firstName lastName")
-      .populate("capturedBy", "name email");
+    const hydratedPayment = await hydratePayment(payment._id);
 
     return SuccessHandler(hydratedPayment, 201, res);
   } catch (error) {
@@ -198,8 +211,134 @@ const getPaymentByCheckout = async (req, res) => {
   }
 };
 
+const refundPayment = async (req, res) => {
+  try {
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
+
+    const payment = await Payment.findOne({
+      _id: req.params.id,
+      business: business._id,
+    });
+
+    if (!payment) {
+      return ErrorHandler("Payment not found", 404, req, res);
+    }
+
+    if (
+      payment.status !== "captured" &&
+      payment.status !== "refunded_partial"
+    ) {
+      return ErrorHandler(
+        "Only captured payments can be refunded",
+        409,
+        req,
+        res
+      );
+    }
+
+    const normalizedAmount = Number(req.body.amount);
+    if (Number.isNaN(normalizedAmount) || normalizedAmount <= 0) {
+      return ErrorHandler(
+        "Refund amount must be greater than zero",
+        400,
+        req,
+        res
+      );
+    }
+
+    const refundedTotal = Number(payment.refundedTotal) || 0;
+    const remainingAmount = Number(payment.amount) - refundedTotal;
+    if (normalizedAmount > remainingAmount) {
+      return ErrorHandler(
+        "Refund amount exceeds captured payment amount",
+        409,
+        req,
+        res
+      );
+    }
+
+    const refund = await Refund.create({
+      payment: payment._id,
+      checkout: payment.checkout,
+      appointment: payment.appointment,
+      business: payment.business,
+      client: payment.client,
+      staff: payment.staff,
+      amount: normalizedAmount,
+      currency: payment.currency,
+      reason: req.body.reason || "",
+      refundedAt: new Date(),
+      refundedBy: req.user._id,
+    });
+
+    const newRefundedTotal = refundedTotal + normalizedAmount;
+    payment.refundedTotal = newRefundedTotal;
+    payment.status =
+      newRefundedTotal === Number(payment.amount)
+        ? "refunded_full"
+        : "refunded_partial";
+    await payment.save();
+
+    const checkout = await Checkout.findById(payment.checkout);
+    if (checkout) {
+      checkout.refundSummary = {
+        refundedTotal: newRefundedTotal,
+        status:
+          newRefundedTotal === Number(payment.amount) ? "full" : "partial",
+      };
+      await checkout.save();
+    }
+
+    if (newRefundedTotal === Number(payment.amount)) {
+      await Appointment.findByIdAndUpdate(payment.appointment, {
+        paymentStatus: "Refunded",
+      });
+    }
+
+    const hydratedRefund = await hydrateRefund(refund._id);
+    return SuccessHandler(hydratedRefund, 201, res);
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
+const getRefundsByPayment = async (req, res) => {
+  try {
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
+
+    const payment = await Payment.findOne({
+      _id: req.params.id,
+      business: business._id,
+    });
+
+    if (!payment) {
+      return ErrorHandler("Payment not found", 404, req, res);
+    }
+
+    const refunds = await Refund.find({
+      payment: payment._id,
+      business: business._id,
+    })
+      .sort({ refundedAt: -1 })
+      .populate("payment")
+      .populate("checkout")
+      .populate("appointment")
+      .populate("client", "firstName lastName phone")
+      .populate("staff", "firstName lastName")
+      .populate("refundedBy", "name email");
+
+    return SuccessHandler(refunds, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
 module.exports = {
   capturePayment,
   getPaymentById,
   getPaymentByCheckout,
+  refundPayment,
+  getRefundsByPayment,
 };

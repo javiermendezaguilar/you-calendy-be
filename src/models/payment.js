@@ -35,7 +35,7 @@ const paymentSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["captured", "voided"],
+      enum: ["captured", "voided", "refunded_partial", "refunded_full"],
       default: "captured",
     },
     method: {
@@ -136,6 +136,11 @@ const paymentSchema = new Schema(
           default: 0,
         },
       },
+    },
+    refundedTotal: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
   },
   { timestamps: true }

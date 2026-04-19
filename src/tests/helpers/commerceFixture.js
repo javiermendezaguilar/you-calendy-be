@@ -17,6 +17,7 @@ const Checkout = require("../../models/checkout");
 const Payment = require("../../models/payment");
 const WaitlistEntry = require("../../models/waitlistEntry");
 const CashSession = require("../../models/cashSession");
+const Refund = require("../../models/refund");
 
 let mongoServer;
 
@@ -48,6 +49,7 @@ const resetCommerceCollections = async () => {
     Appointment.deleteMany({}),
     Checkout.deleteMany({}),
     Payment.deleteMany({}),
+    Refund.deleteMany({}),
     WaitlistEntry.deleteMany({}),
     CashSession.deleteMany({}),
   ]);

@@ -29,8 +29,8 @@ const buildPaymentSnapshot = (checkout) => ({
   },
 });
 
-const hydratePayment = (paymentId) =>
-  Payment.findById(paymentId)
+const applyPaymentPopulate = (query) =>
+  query
     .populate("cashSession")
     .populate("checkout")
     .populate("appointment")
@@ -38,8 +38,8 @@ const hydratePayment = (paymentId) =>
     .populate("staff", "firstName lastName")
     .populate("capturedBy", "name email");
 
-const hydrateRefund = (refundId) =>
-  Refund.findById(refundId)
+const applyRefundPopulate = (query) =>
+  query
     .populate("payment")
     .populate("checkout")
     .populate("appointment")
@@ -47,11 +47,38 @@ const hydrateRefund = (refundId) =>
     .populate("staff", "firstName lastName")
     .populate("refundedBy", "name email");
 
+const hydratePayment = (paymentId) => applyPaymentPopulate(Payment.findById(paymentId));
+
+const hydrateRefund = (refundId) => applyRefundPopulate(Refund.findById(refundId));
+
 const getOwnedPayment = (paymentId, businessId) =>
   Payment.findOne({
     _id: paymentId,
     business: businessId,
   });
+
+const getOwnedPaymentOrReply = async (
+  req,
+  res,
+  businessId,
+  paymentId,
+  { hydrate = false } = {}
+) => {
+  const paymentQuery = getOwnedPayment(paymentId, businessId);
+  const payment = hydrate
+    ? await applyPaymentPopulate(paymentQuery)
+    : await paymentQuery;
+
+  if (!payment) {
+    ErrorHandler("Payment not found", 404, req, res);
+    return null;
+  }
+
+  return payment;
+};
+
+const getRefundStatus = (paymentAmount, refundedTotal) =>
+  refundedTotal === paymentAmount ? "full" : "partial";
 
 const capturePayment = async (req, res) => {
   try {
@@ -169,17 +196,10 @@ const getPaymentById = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await getOwnedPayment(req.params.id, business._id)
-      .populate("cashSession")
-      .populate("checkout")
-      .populate("appointment")
-      .populate("client", "firstName lastName phone")
-      .populate("staff", "firstName lastName")
-      .populate("capturedBy", "name email");
-
-    if (!payment) {
-      return ErrorHandler("Payment not found", 404, req, res);
-    }
+    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id, {
+      hydrate: true,
+    });
+    if (!payment) return;
 
     return SuccessHandler(payment, 200, res);
   } catch (error) {
@@ -219,11 +239,8 @@ const refundPayment = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await getOwnedPayment(req.params.id, business._id);
-
-    if (!payment) {
-      return ErrorHandler("Payment not found", 404, req, res);
-    }
+    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id);
+    if (!payment) return;
 
     if (
       payment.status !== "captured" &&
@@ -273,24 +290,21 @@ const refundPayment = async (req, res) => {
     });
 
     const newRefundedTotal = refundedTotal + normalizedAmount;
+    const refundStatus = getRefundStatus(Number(payment.amount), newRefundedTotal);
     payment.refundedTotal = newRefundedTotal;
-    payment.status =
-      newRefundedTotal === Number(payment.amount)
-        ? "refunded_full"
-        : "refunded_partial";
+    payment.status = refundStatus === "full" ? "refunded_full" : "refunded_partial";
     await payment.save();
 
     const checkout = await Checkout.findById(payment.checkout);
     if (checkout) {
       checkout.refundSummary = {
         refundedTotal: newRefundedTotal,
-        status:
-          newRefundedTotal === Number(payment.amount) ? "full" : "partial",
+        status: refundStatus,
       };
       await checkout.save();
     }
 
-    if (newRefundedTotal === Number(payment.amount)) {
+    if (refundStatus === "full") {
       await Appointment.findByIdAndUpdate(payment.appointment, {
         paymentStatus: "Refunded",
       });
@@ -308,23 +322,14 @@ const getRefundsByPayment = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await getOwnedPayment(req.params.id, business._id);
+    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id);
+    if (!payment) return;
 
-    if (!payment) {
-      return ErrorHandler("Payment not found", 404, req, res);
-    }
-
-    const refunds = await Refund.find({
+    const refunds = await applyRefundPopulate(Refund.find({
       payment: payment._id,
       business: business._id,
-    })
-      .sort({ refundedAt: -1 })
-      .populate("payment")
-      .populate("checkout")
-      .populate("appointment")
-      .populate("client", "firstName lastName phone")
-      .populate("staff", "firstName lastName")
-      .populate("refundedBy", "name email");
+    }))
+      .sort({ refundedAt: -1 });
 
     return SuccessHandler(refunds, 200, res);
   } catch (error) {

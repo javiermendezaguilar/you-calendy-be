@@ -27,6 +27,7 @@ const {
   getEffectivePolicySnapshot,
   buildNoShowPenaltyFromPolicy,
 } = require("../services/appointment/policyService");
+const { recordDomainEvent } = require("../services/domainEventService");
 
 const buildAppointmentSemanticState = (status, overrides = {}) =>
   Appointment.getSemanticStateFromLegacyStatus(status, overrides);
@@ -1312,6 +1313,25 @@ const updateAppointmentStatus = async (req, res) => {
     //   }
     // }
 
+    if (status === "Completed" || status === "No-Show") {
+      await recordDomainEvent({
+        type: status === "Completed" ? "service_completed" : "no_show_marked",
+        actorId: req.user._id || req.user.id,
+        shopId: appointment.business,
+        correlationId: appointment._id,
+        payload: {
+          appointmentId: appointment._id,
+          clientId: appointment.client,
+          serviceId:
+            appointment.service && typeof appointment.service === "object"
+              ? appointment.service._id || appointment.service
+              : appointment.service,
+          staffId: appointment.staff,
+          status,
+        },
+      });
+    }
+
     // Send notifications based on status change
     // Appointment.client references Client model, not User model
     const client = await Client.findById(appointment.client);
@@ -1629,6 +1649,18 @@ const checkInAppointment = async (req, res) => {
       checkedInBy: req.user._id,
     };
     await appointment.save();
+    await recordDomainEvent({
+      type: "client_checked_in",
+      actorId: req.user._id || req.user.id,
+      shopId: appointment.business,
+      correlationId: appointment._id,
+      payload: {
+        appointmentId: appointment._id,
+        clientId: appointment.client,
+        serviceId: appointment.service,
+        staffId: appointment.staff,
+      },
+    });
 
     const hydratedAppointment = await Appointment.findById(appointment._id)
       .populate("client", "firstName lastName phone")
@@ -1681,6 +1713,18 @@ const startAppointmentService = async (req, res) => {
       serviceStartedBy: req.user._id,
     };
     await appointment.save();
+    await recordDomainEvent({
+      type: "service_started",
+      actorId: req.user._id || req.user.id,
+      shopId: appointment.business,
+      correlationId: appointment._id,
+      payload: {
+        appointmentId: appointment._id,
+        clientId: appointment.client,
+        serviceId: appointment.service,
+        staffId: appointment.staff,
+      },
+    });
 
     const hydratedAppointment = await Appointment.findById(appointment._id)
       .populate("client", "firstName lastName phone")

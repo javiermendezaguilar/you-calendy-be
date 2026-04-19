@@ -83,6 +83,20 @@ const paymentSchema = new Schema(
       ref: "User",
       required: true,
     },
+    voidedAt: {
+      type: Date,
+      default: null,
+    },
+    voidedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    voidReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     snapshot: {
       subtotal: {
         type: Number,

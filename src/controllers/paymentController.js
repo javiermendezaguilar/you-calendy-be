@@ -77,8 +77,68 @@ const getOwnedPaymentOrReply = async (
   return payment;
 };
 
+const getBusinessAndOwnedPayment = async (
+  req,
+  res,
+  { hydrate = false } = {}
+) => {
+  const business = await resolveBusinessOrReply(req, res);
+  if (!business) {
+    return {};
+  }
+
+  const payment = await getOwnedPaymentOrReply(
+    req,
+    res,
+    business._id,
+    req.params.id,
+    { hydrate }
+  );
+
+  return { business, payment };
+};
+
 const getRefundStatus = (paymentAmount, refundedTotal) =>
   refundedTotal === paymentAmount ? "full" : "partial";
+
+const recalculateCashSessionSummary = async (cashSessionId) => {
+  const cashSession = await CashSession.findById(cashSessionId);
+  if (!cashSession || cashSession.status !== "open") {
+    return cashSession;
+  }
+
+  const cashPayments = await Payment.find({
+    cashSession: cashSession._id,
+    method: "cash",
+    status: "captured",
+  });
+
+  const cashSalesTotal = cashPayments.reduce(
+    (sum, payment) => sum + (Number(payment.amount) || 0),
+    0
+  );
+  const tipsTotal = cashPayments.reduce(
+    (sum, payment) => sum + (Number(payment.tip) || 0),
+    0
+  );
+  const transactionCount = cashPayments.length;
+  const expectedDrawerTotal =
+    (Number(cashSession.openingFloat) || 0) + cashSalesTotal;
+
+  cashSession.payments = cashPayments.map((payment) => payment._id);
+  cashSession.closingExpected = expectedDrawerTotal;
+  cashSession.summary = {
+    cashSalesTotal,
+    tipsTotal,
+    transactionCount,
+    expectedDrawerTotal,
+  };
+  cashSession.variance =
+    (Number(cashSession.closingDeclared) || 0) - expectedDrawerTotal;
+
+  await cashSession.save();
+  return cashSession;
+};
 
 const capturePayment = async (req, res) => {
   try {
@@ -193,10 +253,7 @@ const capturePayment = async (req, res) => {
 
 const getPaymentById = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id, {
+    const { payment } = await getBusinessAndOwnedPayment(req, res, {
       hydrate: true,
     });
     if (!payment) return;
@@ -212,17 +269,11 @@ const getPaymentByCheckout = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await Payment.findOne({
+    const payment = await applyPaymentPopulate(Payment.findOne({
       checkout: req.params.checkoutId,
       business: business._id,
-    })
-      .sort({ createdAt: -1 })
-      .populate("cashSession")
-      .populate("checkout")
-      .populate("appointment")
-      .populate("client", "firstName lastName phone")
-      .populate("staff", "firstName lastName")
-      .populate("capturedBy", "name email");
+    }))
+      .sort({ createdAt: -1 });
 
     if (!payment) {
       return ErrorHandler("Payment not found", 404, req, res);
@@ -236,10 +287,7 @@ const getPaymentByCheckout = async (req, res) => {
 
 const refundPayment = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id);
+    const { payment } = await getBusinessAndOwnedPayment(req, res);
     if (!payment) return;
 
     if (
@@ -317,12 +365,68 @@ const refundPayment = async (req, res) => {
   }
 };
 
+const voidPayment = async (req, res) => {
+  try {
+    const { payment } = await getBusinessAndOwnedPayment(req, res);
+    if (!payment) return;
+
+    const refundCount = await Refund.countDocuments({ payment: payment._id });
+    if (refundCount > 0 || Number(payment.refundedTotal) > 0) {
+      return ErrorHandler(
+        "Payments with refunds cannot be voided",
+        409,
+        req,
+        res
+      );
+    }
+
+    if (payment.status !== "captured") {
+      return ErrorHandler("Only captured payments can be voided", 409, req, res);
+    }
+
+    if (payment.method === "cash" && payment.cashSession) {
+      const cashSession = await CashSession.findById(payment.cashSession);
+
+      if (cashSession && cashSession.status !== "open") {
+        return ErrorHandler(
+          "Cash payments from a closed cash session cannot be voided",
+          409,
+          req,
+          res
+        );
+      }
+    }
+
+    payment.status = "voided";
+    payment.voidedAt = new Date();
+    payment.voidedBy = req.user._id;
+    payment.voidReason = req.body.reason || "";
+    await payment.save();
+
+    const checkout = await Checkout.findById(payment.checkout);
+    if (checkout) {
+      checkout.status = "closed";
+      await checkout.save();
+    }
+
+    await Appointment.findByIdAndUpdate(payment.appointment, {
+      paymentStatus: "Pending",
+    });
+
+    if (payment.method === "cash" && payment.cashSession) {
+      await recalculateCashSessionSummary(payment.cashSession);
+    }
+
+    const hydratedPayment = await hydratePayment(payment._id);
+    return SuccessHandler(hydratedPayment, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
 const getRefundsByPayment = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id);
+    const { business, payment } = await getBusinessAndOwnedPayment(req, res);
     if (!payment) return;
 
     const refunds = await applyRefundPopulate(Refund.find({
@@ -342,5 +446,6 @@ module.exports = {
   getPaymentById,
   getPaymentByCheckout,
   refundPayment,
+  voidPayment,
   getRefundsByPayment,
 };

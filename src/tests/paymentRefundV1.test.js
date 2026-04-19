@@ -7,8 +7,7 @@ const Refund = require("../models/refund");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
-  createCommerceFixture,
-  createClosedCheckoutForFixture,
+  createPaymentCommerceFixture,
   createCapturedPaymentForFixture,
 } = require("./helpers/commerceFixture");
 
@@ -27,34 +26,12 @@ describe("Payment refunds v1", () => {
   let token;
 
   beforeEach(async () => {
-    fixture = await createCommerceFixture({
+    ({ fixture, checkout, token } = await createPaymentCommerceFixture({
       ownerName: "Refund Owner",
       ownerEmail: "refund-owner@example.com",
       businessName: "Refund Shop",
-      appointmentStatus: "Completed",
       paymentStatus: "Paid",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-    });
-
-    token = fixture.token;
-    checkout = await createClosedCheckoutForFixture(fixture, {
-      subtotal: 35,
-      discountTotal: 0,
-      tip: 5,
-      total: 40,
-      sourcePrice: 35,
-    });
+    }));
 
     payment = await createCapturedPaymentForFixture(fixture, checkout, {
       reference: "refund-seed-payment",

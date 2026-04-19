@@ -249,11 +249,47 @@ const createCapturedPaymentForFixture = async (fixture, checkout, overrides = {}
   });
 };
 
+const createPaymentCommerceFixture = async (overrides = {}) => {
+  const fixture = await createCommerceFixture({
+    appointmentStatus: "Completed",
+    promotion: {
+      applied: false,
+      discountAmount: 0,
+      discountPercentage: 0,
+      originalPrice: 0,
+    },
+    flashSale: {
+      applied: false,
+      discountAmount: 0,
+      discountPercentage: 0,
+      originalPrice: 0,
+    },
+    ...overrides,
+  });
+
+  const checkout = await createClosedCheckoutForFixture(fixture, {
+    subtotal: 35,
+    discountTotal: 0,
+    tip: 5,
+    total: 40,
+    sourcePrice: 35,
+    ...overrides.checkoutOverrides,
+  });
+
+  return {
+    fixture,
+    appointment: fixture.appointment,
+    checkout,
+    token: fixture.token,
+  };
+};
+
 module.exports = {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
   createCommerceFixture,
   createClosedCheckoutForFixture,
+  createPaymentCommerceFixture,
   openCashSessionForToken,
   captureCheckoutPaymentForToken,
   createCapturedPaymentForFixture,

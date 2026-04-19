@@ -5,8 +5,7 @@ const Payment = require("../models/payment");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
-  createCommerceFixture,
-  createClosedCheckoutForFixture,
+  createPaymentCommerceFixture,
   openCashSessionForToken,
   captureCheckoutPaymentForToken,
 } = require("./helpers/commerceFixture");
@@ -26,35 +25,12 @@ describe("Payment v1", () => {
   let token;
 
   beforeEach(async () => {
-    fixture = await createCommerceFixture({
+    ({ fixture, appointment, checkout, token } =
+      await createPaymentCommerceFixture({
       ownerName: "Payment Owner",
       ownerEmail: "payment-owner@example.com",
       businessName: "Payment Shop",
-      appointmentStatus: "Completed",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-    });
-
-    appointment = fixture.appointment;
-    checkout = await createClosedCheckoutForFixture(fixture, {
-      subtotal: 35,
-      discountTotal: 0,
-      tip: 5,
-      total: 40,
-      sourcePrice: 35,
-    });
-
-    token = fixture.token;
+    }));
   });
 
   test("captures a payment from a closed checkout and updates legacy appointment payment status", async () => {

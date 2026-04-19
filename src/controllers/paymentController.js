@@ -4,6 +4,7 @@ const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
 const Refund = require("../models/refund");
 const { resolveBusinessOrReply } = require("./commerceShared");
+const { recordDomainEvent } = require("../services/domainEventService");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -245,6 +246,20 @@ const capturePayment = async (req, res) => {
     await Appointment.findByIdAndUpdate(checkout.appointment, {
       paymentStatus: "Paid",
     });
+    await recordDomainEvent({
+      type: "payment_captured",
+      actorId: req.user._id || req.user.id,
+      shopId: business._id,
+      correlationId: checkout._id,
+      payload: {
+        paymentId: payment._id,
+        checkoutId: checkout._id,
+        appointmentId: checkout.appointment,
+        method,
+        amount: normalizedAmount,
+        tip: Number(checkout.tip) || 0,
+      },
+    });
 
     const hydratedPayment = await hydratePayment(payment._id);
 
@@ -369,6 +384,21 @@ const refundPayment = async (req, res) => {
         paymentStatus: "Refunded",
       });
     }
+    await recordDomainEvent({
+      type: "payment_refunded",
+      actorId: req.user._id || req.user.id,
+      shopId: payment.business,
+      correlationId: payment.checkout,
+      payload: {
+        refundId: refund._id,
+        paymentId: payment._id,
+        checkoutId: payment.checkout,
+        appointmentId: payment.appointment,
+        amount: normalizedAmount,
+        refundedTotal: newRefundedTotal,
+        refundStatus,
+      },
+    });
 
     const hydratedRefund = await hydrateRefund(refund._id);
     return SuccessHandler(hydratedRefund, 201, res);
@@ -428,6 +458,20 @@ const voidPayment = async (req, res) => {
     if (payment.method === "cash" && payment.cashSession) {
       await recalculateCashSessionSummary(payment.cashSession);
     }
+    await recordDomainEvent({
+      type: "payment_voided",
+      actorId: req.user._id || req.user.id,
+      shopId: payment.business,
+      correlationId: payment.checkout,
+      payload: {
+        paymentId: payment._id,
+        checkoutId: payment.checkout,
+        appointmentId: payment.appointment,
+        method: payment.method,
+        amount: Number(payment.amount) || 0,
+        reason: payment.voidReason || "",
+      },
+    });
 
     const hydratedPayment = await hydratePayment(payment._id);
     return SuccessHandler(hydratedPayment, 200, res);

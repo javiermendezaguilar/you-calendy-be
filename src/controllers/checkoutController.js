@@ -5,6 +5,7 @@ const Service = require("../models/service");
 const Staff = require("../models/staff");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
+const { recordDomainEvent } = require("../services/domainEventService");
 const moment = require("moment");
 const mongoose = require("mongoose");
 
@@ -143,6 +144,19 @@ const openCheckout = async (req, res) => {
     }
 
     const checkout = await Checkout.create(buildCheckoutPayload(appointment));
+    await recordDomainEvent({
+      type: "checkout_opened",
+      actorId: req.user._id || req.user.id,
+      shopId: business._id,
+      correlationId: checkout._id,
+      payload: {
+        checkoutId: checkout._id,
+        appointmentId: appointment._id,
+        clientId: checkout.client,
+        staffId: checkout.staff,
+        total: checkout.total,
+      },
+    });
     const hydratedCheckout = await Checkout.findById(checkout._id)
       .populate("appointment")
       .populate("client", "firstName lastName phone")
@@ -245,6 +259,20 @@ const closeCheckout = async (req, res) => {
     checkout.closedBy = req.user._id;
 
     await checkout.save();
+    await recordDomainEvent({
+      type: "checkout_closed",
+      actorId: req.user._id || req.user.id,
+      shopId: business._id,
+      correlationId: checkout._id,
+      payload: {
+        checkoutId: checkout._id,
+        appointmentId: checkout.appointment,
+        clientId: checkout.client,
+        staffId: checkout.staff,
+        tip: checkout.tip,
+        total: checkout.total,
+      },
+    });
 
     const hydratedCheckout = await Checkout.findById(checkout._id)
       .populate("appointment")
@@ -450,6 +478,22 @@ const createRebooking = async (req, res) => {
       createdBy: req.user._id,
     };
     await checkout.save();
+    await recordDomainEvent({
+      type: "rebook_created",
+      actorId: req.user._id || req.user.id,
+      shopId: business._id,
+      correlationId: checkout._id,
+      payload: {
+        checkoutId: checkout._id,
+        sourceAppointmentId: sourceAppointment._id,
+        appointmentId: rebookedAppointment._id,
+        clientId: rebookedAppointment.client,
+        serviceId: rebookedAppointment.service,
+        staffId: rebookedAppointment.staff,
+        date,
+        startTime,
+      },
+    });
 
     const hydratedAppointment = await Appointment.findById(rebookedAppointment._id)
       .populate("service", "name price currency")

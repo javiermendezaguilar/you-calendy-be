@@ -2,6 +2,11 @@ const Business = require("../models/User/business");
 const DomainEvent = require("../models/domainEvent");
 
 const ALLOWED_EVENT_TYPES = new Set([
+  "walkin_created",
+  "client_checked_in",
+  "service_started",
+  "service_completed",
+  "no_show_marked",
   "checkout_opened",
   "checkout_closed",
   "payment_captured",

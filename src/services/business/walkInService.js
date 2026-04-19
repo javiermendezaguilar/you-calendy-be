@@ -15,6 +15,7 @@ const {
   getOrderedActiveWalkIns,
   getQueueResponseForBusiness,
 } = require("./queueService");
+const { recordDomainEvent } = require("../domainEventService");
 
 const buildCheckedInTimestamps = (userId) => ({
   checkedInAt: new Date(),
@@ -193,6 +194,21 @@ const createWalkInForOwner = async (ownerId, payload) => {
     },
     operationalTimestamps: buildCheckedInTimestamps(ownerId),
     policySnapshot: Appointment.buildPolicySnapshot(business),
+  });
+
+  await recordDomainEvent({
+    type: "walkin_created",
+    actorId: ownerId,
+    shopId: business._id,
+    correlationId: appointment._id,
+    payload: {
+      appointmentId: appointment._id,
+      clientId: appointment.client,
+      serviceId: appointment.service,
+      staffId: appointment.staff,
+      queuePosition: appointment.queuePosition,
+      estimatedWaitMinutes: appointment.estimatedWaitMinutes,
+    },
   });
 
   return populateWalkInQuery(Appointment.findById(appointment._id));

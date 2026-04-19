@@ -1,6 +1,7 @@
 const request = require("supertest");
 const app = require("../app");
 const Appointment = require("../models/appointment");
+const DomainEvent = require("../models/domainEvent");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
@@ -57,9 +58,14 @@ describe("Check-in v1", () => {
     expect(res.body.data.operationalTimestamps.checkedInBy).toBeTruthy();
 
     const stored = await Appointment.findById(appointment._id).lean();
+    const event = await DomainEvent.findOne({
+      type: "client_checked_in",
+      "payload.appointmentId": appointment._id,
+    }).lean();
     expect(stored.visitStatus).toBe("checked_in");
     expect(stored.operationalTimestamps.checkedInAt).not.toBeNull();
     expect(stored.operationalTimestamps.checkedInBy.toString()).toBeDefined();
+    expect(event).not.toBeNull();
   });
 
   test("starts service only after check-in and persists service start timestamp", async () => {
@@ -79,8 +85,13 @@ describe("Check-in v1", () => {
     expect(startRes.body.data.operationalTimestamps.serviceStartedBy).toBeTruthy();
 
     const stored = await Appointment.findById(appointment._id).lean();
+    const event = await DomainEvent.findOne({
+      type: "service_started",
+      "payload.appointmentId": appointment._id,
+    }).lean();
     expect(stored.visitStatus).toBe("in_service");
     expect(stored.operationalTimestamps.serviceStartedAt).not.toBeNull();
+    expect(event).not.toBeNull();
   });
 
   test("rejects start-service when appointment has not been checked in", async () => {

@@ -2,6 +2,7 @@ const request = require("supertest");
 const app = require("../app");
 const Appointment = require("../models/appointment");
 const Client = require("../models/client");
+const DomainEvent = require("../models/domainEvent");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
@@ -78,9 +79,14 @@ describe("Walk-ins v1", () => {
     expect(res.body.data.operationalTimestamps.checkedInAt).toBeTruthy();
 
     const stored = await Appointment.findById(res.body.data._id).lean();
+    const event = await DomainEvent.findOne({
+      type: "walkin_created",
+      correlationId: res.body.data._id.toString(),
+    }).lean();
     expect(stored.visitType).toBe("walk_in");
     expect(stored.visitStatus).toBe("checked_in");
     expect(stored.operationalTimestamps.checkedInAt).not.toBeNull();
+    expect(event).not.toBeNull();
   });
 
   test("creates or reuses an unregistered client when clientId is not provided", async () => {

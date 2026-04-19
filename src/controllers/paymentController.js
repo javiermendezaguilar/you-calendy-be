@@ -77,6 +77,27 @@ const getOwnedPaymentOrReply = async (
   return payment;
 };
 
+const getBusinessAndOwnedPayment = async (
+  req,
+  res,
+  { hydrate = false } = {}
+) => {
+  const business = await resolveBusinessOrReply(req, res);
+  if (!business) {
+    return {};
+  }
+
+  const payment = await getOwnedPaymentOrReply(
+    req,
+    res,
+    business._id,
+    req.params.id,
+    { hydrate }
+  );
+
+  return { business, payment };
+};
+
 const getRefundStatus = (paymentAmount, refundedTotal) =>
   refundedTotal === paymentAmount ? "full" : "partial";
 
@@ -232,10 +253,7 @@ const capturePayment = async (req, res) => {
 
 const getPaymentById = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id, {
+    const { payment } = await getBusinessAndOwnedPayment(req, res, {
       hydrate: true,
     });
     if (!payment) return;
@@ -251,17 +269,11 @@ const getPaymentByCheckout = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await Payment.findOne({
+    const payment = await applyPaymentPopulate(Payment.findOne({
       checkout: req.params.checkoutId,
       business: business._id,
-    })
-      .sort({ createdAt: -1 })
-      .populate("cashSession")
-      .populate("checkout")
-      .populate("appointment")
-      .populate("client", "firstName lastName phone")
-      .populate("staff", "firstName lastName")
-      .populate("capturedBy", "name email");
+    }))
+      .sort({ createdAt: -1 });
 
     if (!payment) {
       return ErrorHandler("Payment not found", 404, req, res);
@@ -275,10 +287,7 @@ const getPaymentByCheckout = async (req, res) => {
 
 const refundPayment = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id);
+    const { payment } = await getBusinessAndOwnedPayment(req, res);
     if (!payment) return;
 
     if (
@@ -358,10 +367,7 @@ const refundPayment = async (req, res) => {
 
 const voidPayment = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id);
+    const { payment } = await getBusinessAndOwnedPayment(req, res);
     if (!payment) return;
 
     const refundCount = await Refund.countDocuments({ payment: payment._id });
@@ -420,10 +426,7 @@ const voidPayment = async (req, res) => {
 
 const getRefundsByPayment = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const payment = await getOwnedPaymentOrReply(req, res, business._id, req.params.id);
+    const { business, payment } = await getBusinessAndOwnedPayment(req, res);
     if (!payment) return;
 
     const refunds = await applyRefundPopulate(Refund.find({

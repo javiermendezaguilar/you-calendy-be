@@ -7,8 +7,7 @@ const Refund = require("../models/refund");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
-  createCommerceFixture,
-  createClosedCheckoutForFixture,
+  createPaymentCommerceFixture,
   openCashSessionForToken,
   captureCheckoutPaymentForToken,
   createCapturedPaymentForFixture,
@@ -28,34 +27,11 @@ describe("Payment void v1", () => {
   let token;
 
   beforeEach(async () => {
-    fixture = await createCommerceFixture({
+    ({ fixture, checkout, token } = await createPaymentCommerceFixture({
       ownerName: "Void Owner",
       ownerEmail: "void-owner@example.com",
       businessName: "Void Shop",
-      appointmentStatus: "Completed",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-    });
-
-    checkout = await createClosedCheckoutForFixture(fixture, {
-      subtotal: 35,
-      discountTotal: 0,
-      tip: 5,
-      total: 40,
-      sourcePrice: 35,
-    });
-
-    token = fixture.token;
+    }));
   });
 
   test("voids a captured card payment and reopens financial state", async () => {

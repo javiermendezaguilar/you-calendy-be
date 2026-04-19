@@ -2,9 +2,11 @@ const Appointment = require("../models/appointment");
 const Business = require("../models/User/business");
 const Checkout = require("../models/checkout");
 const Service = require("../models/service");
+const Staff = require("../models/staff");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const moment = require("moment");
+const mongoose = require("mongoose");
 
 const getBusinessForOwner = async (ownerId) => {
   return Business.findOne({ owner: ownerId });
@@ -92,6 +94,24 @@ const buildRebookingDateTime = (date, startTime) => {
 
 const getRebookingEndTime = (startTime, duration) => {
   return moment(startTime, "HH:mm").add(duration, "minutes").format("HH:mm");
+};
+
+const staffSupportsService = (staffDoc, serviceId) => {
+  if (!staffDoc || !Array.isArray(staffDoc.services)) {
+    return false;
+  }
+
+  return staffDoc.services.some(({ service }) => {
+    if (!service) return false;
+    return service.toString() === serviceId.toString();
+  });
+};
+
+const toValidatedObjectId = (value) => {
+  if (!value) return null;
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  if (!mongoose.Types.ObjectId.isValid(value)) return null;
+  return new mongoose.Types.ObjectId(value);
 };
 
 const openCheckout = async (req, res) => {
@@ -245,7 +265,7 @@ const createRebooking = async (req, res) => {
       return ErrorHandler("Business not found", 404, req, res);
     }
 
-    const { date, startTime } = req.body;
+    const { date, startTime, serviceId, staffId } = req.body;
     if (!date || !startTime) {
       return ErrorHandler("Date and startTime are required", 400, req, res);
     }
@@ -292,17 +312,47 @@ const createRebooking = async (req, res) => {
       return ErrorHandler("Source appointment not found", 404, req, res);
     }
 
+    const targetServiceId = serviceId
+      ? toValidatedObjectId(serviceId)
+      : toValidatedObjectId(sourceAppointment.service);
+    if (!targetServiceId) {
+      return ErrorHandler("Invalid serviceId", 400, req, res);
+    }
+
     const service = await Service.findOne({
-      _id: sourceAppointment.service,
-      business: business._id,
+      _id: { $eq: targetServiceId },
+      business: { $eq: business._id },
+      isActive: { $eq: true },
     });
     if (!service) {
       return ErrorHandler("Service not found for rebooking", 404, req, res);
     }
 
-    if (!sourceAppointment.staff) {
+    const targetStaffId = staffId
+      ? toValidatedObjectId(staffId)
+      : toValidatedObjectId(sourceAppointment.staff);
+    if (!targetStaffId) {
       return ErrorHandler(
-        "Rebooking requires a staff member on the source appointment",
+        staffId
+          ? "Invalid staffId"
+          : "Rebooking requires a staff member on the source appointment",
+        400,
+        req,
+        res
+      );
+    }
+
+    const staff = await Staff.findOne({
+      _id: { $eq: targetStaffId },
+      business: { $eq: business._id },
+    });
+    if (!staff) {
+      return ErrorHandler("Staff not found for rebooking", 404, req, res);
+    }
+
+    if (!staffSupportsService(staff, service._id)) {
+      return ErrorHandler(
+        "Selected staff member does not provide this service",
         400,
         req,
         res
@@ -310,7 +360,8 @@ const createRebooking = async (req, res) => {
     }
 
     const duration = Number(sourceAppointment.duration) || Number(service.duration) || 0;
-    if (duration <= 0) {
+    const targetDuration = Number(service.duration) || duration;
+    if (targetDuration <= 0) {
       return ErrorHandler(
         "Rebooking requires a valid appointment duration",
         400,
@@ -331,10 +382,10 @@ const createRebooking = async (req, res) => {
       );
     }
 
-    const endTime = getRebookingEndTime(startTime, duration);
+    const endTime = getRebookingEndTime(startTime, targetDuration);
     const conflictingAppointment = await Appointment.findOne({
       business: business._id,
-      staff: sourceAppointment.staff,
+      staff: staff._id,
       date: { $eq: moment(date, "YYYY-MM-DD").startOf("day").toDate() },
       status: { $nin: ["Canceled", "No-Show"] },
       startTime: { $lt: endTime },
@@ -353,12 +404,12 @@ const createRebooking = async (req, res) => {
     const rebookedAppointment = await Appointment.create({
       client: sourceAppointment.client,
       business: sourceAppointment.business,
-      service: sourceAppointment.service,
-      staff: sourceAppointment.staff,
+      service: service._id,
+      staff: staff._id,
       date: moment(date, "YYYY-MM-DD").startOf("day").toDate(),
       startTime,
       endTime,
-      duration,
+      duration: targetDuration,
       status: "Confirmed",
       bookingStatus: "booked",
       visitStatus: "not_started",
@@ -393,6 +444,8 @@ const createRebooking = async (req, res) => {
     checkout.rebooking = {
       status: "booked",
       appointment: rebookedAppointment._id,
+      service: service._id,
+      staff: staff._id,
       createdAt: new Date(),
       createdBy: req.user._id,
     };

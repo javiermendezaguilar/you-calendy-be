@@ -1,8 +1,11 @@
 const request = require("supertest");
 const app = require("../app");
+const moment = require("moment");
 const Appointment = require("../models/appointment");
 const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
+const Service = require("../models/service");
+const Staff = require("../models/staff");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
@@ -23,6 +26,8 @@ describe("Rebooking v1", () => {
   let client;
   let service;
   let staff;
+  let altService;
+  let altStaff;
   let appointment;
   let token;
   let paidCheckout;
@@ -55,6 +60,25 @@ describe("Rebooking v1", () => {
     staff = fixture.staff;
     appointment = fixture.appointment;
     token = fixture.token;
+
+    staff.services = [{ service: service._id, timeInterval: 45 }];
+    await staff.save();
+
+    altService = await Service.create({
+      business: business._id,
+      name: "Premium Beard",
+      price: 25,
+      currency: "EUR",
+      duration: 30,
+      isActive: true,
+    });
+
+    altStaff = await Staff.create({
+      business: business._id,
+      firstName: "Robin",
+      lastName: "Blade",
+      services: [{ service: altService._id, timeInterval: 30 }],
+    });
 
     paidCheckout = await Checkout.create({
       appointment: appointment._id,
@@ -164,6 +188,34 @@ describe("Rebooking v1", () => {
     );
   });
 
+  test("allows overriding service and staff and persists richer checkout traceability", async () => {
+    const rebookRes = await request(app)
+      .post(`/checkout/${paidCheckout._id}/rebook`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        date: "2026-05-04",
+        startTime: "12:30",
+        serviceId: altService._id,
+        staffId: altStaff._id,
+      });
+
+    expect(rebookRes.status).toBe(201);
+    expect(rebookRes.body.data.service._id.toString()).toBe(altService._id.toString());
+    expect(rebookRes.body.data.staff._id.toString()).toBe(altStaff._id.toString());
+    expect(rebookRes.body.data.price).toBe(25);
+    expect(rebookRes.body.data.duration).toBe(30);
+
+    const storedCheckout = await Checkout.findById(paidCheckout._id).lean();
+    expect(storedCheckout.rebooking.service.toString()).toBe(altService._id.toString());
+    expect(storedCheckout.rebooking.staff.toString()).toBe(altStaff._id.toString());
+
+    const rebookedAppointment = await Appointment.findById(
+      storedCheckout.rebooking.appointment
+    ).lean();
+    expect(rebookedAppointment.service.toString()).toBe(altService._id.toString());
+    expect(rebookedAppointment.staff.toString()).toBe(altStaff._id.toString());
+  });
+
   test("rejects a duplicate rebooking for the same checkout", async () => {
     const firstRebook = await request(app)
       .post(`/checkout/${paidCheckout._id}/rebook`)
@@ -185,6 +237,38 @@ describe("Rebooking v1", () => {
 
     expect(duplicateRebook.status).toBe(409);
     expect(duplicateRebook.body.message).toMatch(/rebooking already exists/i);
+  });
+
+  test("rejects staff conflicts for the selected rebooking slot", async () => {
+    await Appointment.create({
+      client: client._id,
+      business: business._id,
+      service: altService._id,
+      staff: altStaff._id,
+      date: moment("2026-05-06", "YYYY-MM-DD").startOf("day").toDate(),
+      startTime: "13:00",
+      endTime: "13:30",
+      duration: 30,
+      status: "Confirmed",
+      bookingStatus: "confirmed",
+      visitStatus: "not_started",
+      visitType: "appointment",
+      paymentStatus: "Pending",
+      price: 25,
+    });
+
+    const rebookRes = await request(app)
+      .post(`/checkout/${paidCheckout._id}/rebook`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        date: "2026-05-06",
+        startTime: "13:15",
+        serviceId: altService._id,
+        staffId: altStaff._id,
+      });
+
+    expect(rebookRes.status).toBe(409);
+    expect(rebookRes.body.message).toMatch(/not available/i);
   });
 
   test("rejects rebooking from a checkout that is not paid", async () => {

@@ -188,6 +188,16 @@ const checkoutSchema = new Schema(
         ref: "Appointment",
         default: null,
       },
+      service: {
+        type: Schema.Types.ObjectId,
+        ref: "Service",
+        default: null,
+      },
+      staff: {
+        type: Schema.Types.ObjectId,
+        ref: "Staff",
+        default: null,
+      },
       createdAt: {
         type: Date,
         default: null,

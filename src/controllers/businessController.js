@@ -55,6 +55,9 @@ const {
 const {
   getOperationalDashboardForOwner,
 } = require("../services/business/operationalDashboardService");
+const {
+  getDomainEventsForOwner,
+} = require("../services/domainEventService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -3077,6 +3080,16 @@ const getOperationalDashboard = async (req, res) => {
   }
 };
 
+const getDomainEvents = async (req, res) => {
+  try {
+    const payload = await getDomainEventsForOwner(req.user.id, req.query);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Get domain events error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 /**
  * @desc Convert unregistered client to registered
  * @route POST /api/business/client/:clientId/convert-to-registered
@@ -3699,6 +3712,7 @@ module.exports = {
   createWalkIn,
   getWalkInQueue,
   getOperationalDashboard,
+  getDomainEvents,
   createUnregisteredClient,
   convertClientToRegistered,
   // getClientProfiles,

@@ -24,6 +24,11 @@ router.get(
   isAuthenticated,
   businessController.getOperationalDashboard
 );
+router.get(
+  "/domain-events",
+  isAuthenticated,
+  businessController.getDomainEvents
+);
 router.put("/", isAuthenticated, businessController.updateBusinessProfile);
 
 // Business info routes

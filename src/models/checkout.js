@@ -66,6 +66,18 @@ const checkoutSchema = new Schema(
       required: true,
       min: 0,
     },
+    refundSummary: {
+      refundedTotal: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      status: {
+        type: String,
+        enum: ["none", "partial", "full"],
+        default: "none",
+      },
+    },
     sourcePrice: {
       type: Number,
       required: true,

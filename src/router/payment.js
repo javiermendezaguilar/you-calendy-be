@@ -8,6 +8,8 @@ router.post(
   isAuthenticated,
   paymentController.capturePayment
 );
+router.post("/:id/refund", isAuthenticated, paymentController.refundPayment);
+router.get("/:id/refunds", isAuthenticated, paymentController.getRefundsByPayment);
 router.get(
   "/checkout/:checkoutId",
   isAuthenticated,

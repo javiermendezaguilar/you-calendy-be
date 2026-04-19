@@ -17,6 +17,7 @@ const Checkout = require("../../models/checkout");
 const Payment = require("../../models/payment");
 const WaitlistEntry = require("../../models/waitlistEntry");
 const CashSession = require("../../models/cashSession");
+const Refund = require("../../models/refund");
 
 let mongoServer;
 
@@ -48,6 +49,7 @@ const resetCommerceCollections = async () => {
     Appointment.deleteMany({}),
     Checkout.deleteMany({}),
     Payment.deleteMany({}),
+    Refund.deleteMany({}),
     WaitlistEntry.deleteMany({}),
     CashSession.deleteMany({}),
   ]);
@@ -207,6 +209,46 @@ const captureCheckoutPaymentForToken = async (
     });
 };
 
+const createCapturedPaymentForFixture = async (fixture, checkout, overrides = {}) => {
+  checkout.status = overrides.checkoutStatus || "paid";
+  await checkout.save();
+
+  return Payment.create({
+    checkout: checkout._id,
+    appointment: fixture.appointment._id,
+    business: fixture.business._id,
+    client: fixture.client._id,
+    staff: fixture.staff._id,
+    status: overrides.status || "captured",
+    method: overrides.method || "card_manual",
+    currency: overrides.currency || "EUR",
+    amount: overrides.amount ?? 40,
+    tip: overrides.tip ?? 5,
+    reference: overrides.reference || "fixture-payment",
+    capturedAt: overrides.capturedAt || new Date(),
+    capturedBy: overrides.capturedBy || fixture.owner._id,
+    snapshot: overrides.snapshot || {
+      subtotal: overrides.subtotal ?? 35,
+      discountTotal: overrides.discountTotal ?? 0,
+      total: overrides.total ?? 40,
+      sourcePrice: overrides.sourcePrice ?? 35,
+      service: {
+        id: fixture.service._id,
+        name: fixture.service.name,
+      },
+      client: {
+        id: fixture.client._id,
+        firstName: fixture.client.firstName,
+        lastName: fixture.client.lastName,
+      },
+      discounts: {
+        promotionAmount: 0,
+        flashSaleAmount: 0,
+      },
+    },
+  });
+};
+
 module.exports = {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
@@ -214,4 +256,5 @@ module.exports = {
   createClosedCheckoutForFixture,
   openCashSessionForToken,
   captureCheckoutPaymentForToken,
+  createCapturedPaymentForFixture,
 };

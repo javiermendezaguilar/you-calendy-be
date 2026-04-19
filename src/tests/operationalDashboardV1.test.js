@@ -4,19 +4,12 @@ const app = require("../app");
 const CashSession = require("../models/cashSession");
 const WaitlistEntry = require("../models/waitlistEntry");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
   createPaymentCommerceFixture,
   createCapturedPaymentForFixture,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Operational dashboard v1", () => {
   let fixture;
@@ -38,7 +31,7 @@ describe("Operational dashboard v1", () => {
     await WaitlistEntry.deleteMany({});
   });
 
-  test("returns queue, waitlist, cash session and commerce summary", async () => {
+  test("returns queue, waitlist, cash session, commerce summary and operational actions", async () => {
     await request(app)
       .post("/business/walk-ins")
       .set("Authorization", `Bearer ${token}`)
@@ -99,6 +92,11 @@ describe("Operational dashboard v1", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.queue.activeCount).toBe(1);
+    expect(res.body.data.queue.staffBreakdown).toHaveLength(1);
+    expect(res.body.data.queue.staffBreakdown[0].staff._id.toString()).toBe(
+      fixture.staff._id.toString()
+    );
+    expect(res.body.data.queue.staffBreakdown[0].activeCount).toBe(1);
     expect(res.body.data.waitlist.activeCount).toBe(1);
     expect(res.body.data.waitlist.fillGapCount).toBe(1);
     expect(res.body.data.cashSession.active).toBe(true);
@@ -106,5 +104,23 @@ describe("Operational dashboard v1", () => {
     expect(res.body.data.commerceToday.grossCaptured).toBe(40);
     expect(res.body.data.commerceToday.netCaptured).toBe(40);
     expect(res.body.data.commerceToday.transactionCount).toBe(1);
+    expect(
+      res.body.data.nextActions.some(
+        (item) => item.type === "serve_next_walk_in"
+      )
+    ).toBe(true);
+    expect(
+      res.body.data.nextActions.some(
+        (item) => item.type === "review_fill_gaps"
+      )
+    ).toBe(true);
+    expect(
+      res.body.data.alerts.some(
+        (item) => item.type === "waitlist_opportunity"
+      )
+    ).toBe(true);
+    expect(
+      res.body.data.alerts.some((item) => item.type === "no_cash_session")
+    ).toBe(false);
   });
 });

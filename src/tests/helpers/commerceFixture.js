@@ -20,23 +20,43 @@ const CashSession = require("../../models/cashSession");
 const Refund = require("../../models/refund");
 
 let mongoServer;
+let mongoServerUri;
+let stopTimer = null;
+
+const stopCommerceTestServer = async () => {
+  if (!mongoServer) {
+    return;
+  }
+
+  await mongoose.disconnect();
+  await mongoServer.stop();
+  mongoServer = null;
+  mongoServerUri = null;
+};
 
 const connectCommerceTestDatabase = async () => {
   mongoose.set("strictQuery", true);
-  mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
-  const uri = mongoServer.getUri();
+  if (stopTimer) {
+    clearTimeout(stopTimer);
+    stopTimer = null;
+  }
+
+  if (!mongoServer) {
+    mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+    mongoServerUri = mongoServer.getUri();
+  }
+
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
-  await mongoose.connect(uri);
+  await mongoose.connect(mongoServerUri);
 };
 
 const disconnectCommerceTestDatabase = async () => {
   await mongoose.disconnect();
-  if (mongoServer) {
-    await mongoServer.stop();
-    mongoServer = null;
-  }
+  stopTimer = setTimeout(() => {
+    stopCommerceTestServer().catch(() => {});
+  }, 1000);
 };
 
 const resetCommerceCollections = async () => {

@@ -322,22 +322,16 @@ const findWaitlistMatchesForOwner = async (ownerId, payload) => {
   });
 };
 
-const getFillGapCandidatesForOwner = async (ownerId, query = {}) => {
+const getFillGapCandidatesForBusiness = async (businessId, query = {}) => {
   const { serviceId, date, staffId } = query;
-
-  if (!serviceId || !date) {
-    throw buildServiceError("serviceId and date are required", 400);
-  }
-
   const fromTime = ensureFromTime(query.fromTime);
-  const business = await getBusinessForOwner(ownerId);
   const { validServiceId, validStaffId } = await resolveWaitlistScope(
-    business._id,
+    businessId,
     { serviceId, staffId }
   );
   const normalizedDate = normalizeWaitlistDate(date);
 
-  const candidateSlots = await buildCandidateSlots(business._id, {
+  const candidateSlots = await buildCandidateSlots(businessId, {
     serviceId: validServiceId,
     staffId: validStaffId,
     date,
@@ -345,7 +339,7 @@ const getFillGapCandidatesForOwner = async (ownerId, query = {}) => {
   });
 
   const entries = await getActiveWaitlistEntries({
-    businessId: business._id,
+    businessId,
     serviceId: validServiceId,
     date: normalizedDate,
     staffId: validStaffId,
@@ -373,9 +367,22 @@ const getFillGapCandidatesForOwner = async (ownerId, query = {}) => {
   });
 };
 
+const getFillGapCandidatesForOwner = async (ownerId, query = {}) => {
+  const { serviceId, date } = query;
+
+  if (!serviceId || !date) {
+    throw buildServiceError("serviceId and date are required", 400);
+  }
+
+  const business = await getBusinessForOwner(ownerId);
+  return getFillGapCandidatesForBusiness(business._id, query);
+};
+
 module.exports = {
   createWaitlistEntryForOwner,
   getWaitlistEntriesForOwner,
   findWaitlistMatchesForOwner,
+  getFillGapCandidatesForBusiness,
   getFillGapCandidatesForOwner,
+  normalizeWaitlistDate,
 };

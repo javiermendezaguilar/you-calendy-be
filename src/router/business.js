@@ -19,6 +19,11 @@ const upload = multer({
 
 // Business CRUD routes - Note: Create business removed as it's handled by auth/register
 router.get("/", isAuthenticated, businessController.getUserBusiness);
+router.get(
+  "/operational-dashboard",
+  isAuthenticated,
+  businessController.getOperationalDashboard
+);
 router.put("/", isAuthenticated, businessController.updateBusinessProfile);
 
 // Business info routes

@@ -1,4 +1,5 @@
 const moment = require("moment");
+const Appointment = require("../../models/appointment");
 const CashSession = require("../../models/cashSession");
 const Payment = require("../../models/payment");
 const WaitlistEntry = require("../../models/waitlistEntry");
@@ -59,7 +60,41 @@ const buildPaymentSummary = async (businessId, bounds) => {
     refundedTotal,
     netCaptured: grossCaptured - refundedTotal,
     transactionCount: payments.length,
+    staffBreakdown: buildCommerceStaffBreakdown(payments),
   };
+};
+
+const buildCommerceStaffBreakdown = (payments) => {
+  const breakdown = new Map();
+
+  payments
+    .filter((payment) => payment.status !== "voided" && payment.staff)
+    .forEach((payment) => {
+      const staffId = normalizeScopeId(payment.staff);
+      if (!staffId) {
+        return;
+      }
+
+      const current = breakdown.get(staffId) || {
+        staff: {
+          _id: payment.staff,
+        },
+        grossCaptured: 0,
+        transactionCount: 0,
+      };
+
+      current.grossCaptured += Number(payment.amount) || 0;
+      current.transactionCount += 1;
+      breakdown.set(staffId, current);
+    });
+
+  return [...breakdown.values()].sort((left, right) => {
+    if (right.grossCaptured !== left.grossCaptured) {
+      return right.grossCaptured - left.grossCaptured;
+    }
+
+    return right.transactionCount - left.transactionCount;
+  });
 };
 
 const buildQueueStaffBreakdown = (queue) => {
@@ -181,6 +216,50 @@ const buildAlerts = ({ queue, fillGapOpportunities, activeCashSession }) => {
   return alerts;
 };
 
+const getStuckAppointments = async (businessId, bounds) => {
+  const appointments = await Appointment.find({
+    business: businessId,
+    date: { $eq: bounds.normalizedDate },
+    visitStatus: { $in: ["checked_in", "in_service"] },
+    status: { $nin: ["Canceled", "Completed", "No-Show", "Missed"] },
+  })
+    .populate("client", "firstName lastName")
+    .populate("staff", "firstName lastName")
+    .populate("service", "name")
+    .sort({
+      "operationalTimestamps.checkedInAt": 1,
+      "operationalTimestamps.serviceStartedAt": 1,
+      createdAt: 1,
+    })
+    .lean();
+
+  return appointments.slice(0, 5).map((appointment) => ({
+    _id: appointment._id,
+    visitStatus: appointment.visitStatus,
+    visitType: appointment.visitType,
+    client: appointment.client,
+    staff: appointment.staff,
+    service: appointment.service,
+    checkedInAt: appointment.operationalTimestamps?.checkedInAt || null,
+    serviceStartedAt: appointment.operationalTimestamps?.serviceStartedAt || null,
+    estimatedWaitMinutes: appointment.estimatedWaitMinutes || 0,
+  }));
+};
+
+const buildCashClosingSummary = (activeCashSession) => {
+  if (!activeCashSession) {
+    return null;
+  }
+
+  return {
+    ready: Number(activeCashSession.summary?.transactionCount) > 0,
+    transactionCount: Number(activeCashSession.summary?.transactionCount) || 0,
+    cashSalesTotal: Number(activeCashSession.summary?.cashSalesTotal) || 0,
+    expectedDrawerTotal:
+      Number(activeCashSession.summary?.expectedDrawerTotal) || 0,
+  };
+};
+
 const getOperationalDashboardForOwner = async (ownerId, query = {}) => {
   const business = await getBusinessForOwner(ownerId);
   const bounds = buildDayBounds(query.date);
@@ -241,6 +320,7 @@ const getOperationalDashboardForOwner = async (ownerId, query = {}) => {
     status: "open",
   }).lean();
   const queueStaffBreakdown = buildQueueStaffBreakdown(queue);
+  const stuckAppointments = await getStuckAppointments(business._id, bounds);
   const nextActions = buildNextActions({
     queue,
     fillGapOpportunities,
@@ -271,11 +351,14 @@ const getOperationalDashboardForOwner = async (ownerId, query = {}) => {
           openingFloat: activeCashSession.openingFloat,
           closingExpected: activeCashSession.closingExpected,
           summary: activeCashSession.summary,
+          closing: buildCashClosingSummary(activeCashSession),
         }
       : {
           active: false,
+          closing: null,
         },
     commerceToday: await buildPaymentSummary(business._id, bounds),
+    stuckAppointments,
     nextActions,
     alerts,
   };

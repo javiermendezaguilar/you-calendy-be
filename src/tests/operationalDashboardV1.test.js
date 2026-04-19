@@ -27,6 +27,18 @@ describe("Operational dashboard v1", () => {
     fixture.staff.services = [{ service: fixture.service._id, timeInterval: 30 }];
     await fixture.staff.save();
 
+    fixture.appointment.status = "Confirmed";
+    fixture.appointment.bookingStatus = "confirmed";
+    fixture.appointment.visitStatus = "in_service";
+    fixture.appointment.date = moment(today, "YYYY-MM-DD").toDate();
+    fixture.appointment.operationalTimestamps = {
+      checkedInAt: new Date(),
+      checkedInBy: fixture.owner._id,
+      serviceStartedAt: new Date(),
+      serviceStartedBy: fixture.owner._id,
+    };
+    await fixture.appointment.save();
+
     await CashSession.deleteMany({});
     await WaitlistEntry.deleteMany({});
   });
@@ -101,9 +113,24 @@ describe("Operational dashboard v1", () => {
     expect(res.body.data.waitlist.fillGapCount).toBe(1);
     expect(res.body.data.cashSession.active).toBe(true);
     expect(res.body.data.cashSession.openingFloat).toBe(50);
+    expect(res.body.data.cashSession.closing.ready).toBe(true);
+    expect(res.body.data.cashSession.closing.transactionCount).toBe(1);
     expect(res.body.data.commerceToday.grossCaptured).toBe(40);
     expect(res.body.data.commerceToday.netCaptured).toBe(40);
     expect(res.body.data.commerceToday.transactionCount).toBe(1);
+    expect(res.body.data.commerceToday.staffBreakdown).toHaveLength(1);
+    expect(res.body.data.commerceToday.staffBreakdown[0].grossCaptured).toBe(40);
+    expect(res.body.data.stuckAppointments.length).toBeGreaterThanOrEqual(1);
+    expect(
+      res.body.data.stuckAppointments.some(
+        (item) => item.visitStatus === "in_service"
+      )
+    ).toBe(true);
+    expect(
+      res.body.data.stuckAppointments.some(
+        (item) => item.visitStatus === "checked_in"
+      )
+    ).toBe(true);
     expect(
       res.body.data.nextActions.some(
         (item) => item.type === "serve_next_walk_in"

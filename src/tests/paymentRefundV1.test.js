@@ -9,6 +9,7 @@ const {
   disconnectCommerceTestDatabase,
   createCommerceFixture,
   createClosedCheckoutForFixture,
+  createCapturedPaymentForFixture,
 } = require("./helpers/commerceFixture");
 
 beforeAll(async () => {
@@ -55,42 +56,8 @@ describe("Payment refunds v1", () => {
       sourcePrice: 35,
     });
 
-    checkout.status = "paid";
-    await checkout.save();
-
-    payment = await Payment.create({
-      checkout: checkout._id,
-      appointment: fixture.appointment._id,
-      business: fixture.business._id,
-      client: fixture.client._id,
-      staff: fixture.staff._id,
-      status: "captured",
-      method: "card_manual",
-      currency: "EUR",
-      amount: 40,
-      tip: 5,
+    payment = await createCapturedPaymentForFixture(fixture, checkout, {
       reference: "refund-seed-payment",
-      capturedAt: new Date(),
-      capturedBy: fixture.owner._id,
-      snapshot: {
-        subtotal: 35,
-        discountTotal: 0,
-        total: 40,
-        sourcePrice: 35,
-        service: {
-          id: fixture.service._id,
-          name: fixture.service.name,
-        },
-        client: {
-          id: fixture.client._id,
-          firstName: fixture.client.firstName,
-          lastName: fixture.client.lastName,
-        },
-        discounts: {
-          promotionAmount: 0,
-          flashSaleAmount: 0,
-        },
-      },
     });
   });
 

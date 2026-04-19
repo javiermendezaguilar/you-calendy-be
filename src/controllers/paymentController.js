@@ -47,6 +47,12 @@ const hydrateRefund = (refundId) =>
     .populate("staff", "firstName lastName")
     .populate("refundedBy", "name email");
 
+const getOwnedPayment = (paymentId, businessId) =>
+  Payment.findOne({
+    _id: paymentId,
+    business: businessId,
+  });
+
 const capturePayment = async (req, res) => {
   try {
     const business = await resolveBusinessOrReply(req, res);
@@ -163,10 +169,7 @@ const getPaymentById = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await Payment.findOne({
-      _id: req.params.id,
-      business: business._id,
-    })
+    const payment = await getOwnedPayment(req.params.id, business._id)
       .populate("cashSession")
       .populate("checkout")
       .populate("appointment")
@@ -216,10 +219,7 @@ const refundPayment = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await Payment.findOne({
-      _id: req.params.id,
-      business: business._id,
-    });
+    const payment = await getOwnedPayment(req.params.id, business._id);
 
     if (!payment) {
       return ErrorHandler("Payment not found", 404, req, res);
@@ -308,10 +308,7 @@ const getRefundsByPayment = async (req, res) => {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const payment = await Payment.findOne({
-      _id: req.params.id,
-      business: business._id,
-    });
+    const payment = await getOwnedPayment(req.params.id, business._id);
 
     if (!payment) {
       return ErrorHandler("Payment not found", 404, req, res);

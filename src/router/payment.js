@@ -8,6 +8,7 @@ router.post(
   isAuthenticated,
   paymentController.capturePayment
 );
+router.get("/summary", isAuthenticated, paymentController.getPaymentSummary);
 router.post("/:id/void", isAuthenticated, paymentController.voidPayment);
 router.post("/:id/refund", isAuthenticated, paymentController.refundPayment);
 router.get("/:id/refunds", isAuthenticated, paymentController.getRefundsByPayment);

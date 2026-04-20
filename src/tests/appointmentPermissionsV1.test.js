@@ -20,8 +20,10 @@ afterAll(async () => {
 describe("Appointment permissions v1", () => {
   let owner;
   let client;
+  let staff;
   let appointment;
   let ownerToken;
+  let assignedStaffToken;
   let foreignBarberToken;
   let clientToken;
 
@@ -46,12 +48,27 @@ describe("Appointment permissions v1", () => {
         discountPercentage: 0,
         originalPrice: 0,
       },
+      staffEmail: "assigned-staff@example.com",
     });
 
     owner = fixture.owner;
     client = fixture.client;
+    staff = fixture.staff;
     appointment = fixture.appointment;
     ownerToken = fixture.token;
+
+    const assignedStaffUser = await User.create({
+      name: "Assigned Staff User",
+      email: staff.email,
+      password: "password123",
+      role: "barber",
+      isActive: true,
+    });
+
+    assignedStaffToken = jwt.sign(
+      { id: assignedStaffUser._id, role: "barber" },
+      process.env.JWT_SECRET
+    );
 
     const foreignBarber = await User.create({
       name: "Foreign Barber",
@@ -79,6 +96,52 @@ describe("Appointment permissions v1", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.visitStatus).toBe("checked_in");
+  });
+
+  test("allows the assigned staff user to check in their own appointment", async () => {
+    const res = await request(app)
+      .post(`/appointments/${appointment._id}/check-in`)
+      .set("Authorization", `Bearer ${assignedStaffToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.visitStatus).toBe("checked_in");
+  });
+
+  test("allows the assigned staff user to start service for their own appointment", async () => {
+    await Appointment.findByIdAndUpdate(appointment._id, {
+      visitStatus: "checked_in",
+      operationalTimestamps: {
+        checkedInAt: new Date(),
+        checkedInBy: owner._id,
+      },
+    });
+
+    const res = await request(app)
+      .post(`/appointments/${appointment._id}/start-service`)
+      .set("Authorization", `Bearer ${assignedStaffToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.visitStatus).toBe("in_service");
+  });
+
+  test("allows the assigned staff user to mark their own appointment as completed", async () => {
+    const res = await request(app)
+      .put(`/appointments/${appointment._id}/status`)
+      .set("Authorization", `Bearer ${assignedStaffToken}`)
+      .send({ status: "Completed" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("Completed");
+  });
+
+  test("rejects the assigned staff user when marking no-show", async () => {
+    const res = await request(app)
+      .put(`/appointments/${appointment._id}/status`)
+      .set("Authorization", `Bearer ${assignedStaffToken}`)
+      .send({ status: "No-Show" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/business owner/i);
   });
 
   test("rejects a foreign barber checking in an appointment from another business", async () => {

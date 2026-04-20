@@ -4,18 +4,12 @@ const Appointment = require("../models/appointment");
 const Service = require("../models/service");
 const Staff = require("../models/staff");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
-  createCommerceFixture,
+  createOperationalCommerceFixture,
+  assignPrimaryServiceToStaff,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Walk-ins queue v2", () => {
   let business;
@@ -27,14 +21,12 @@ describe("Walk-ins queue v2", () => {
   let token;
 
   beforeEach(async () => {
-    const fixture = await createCommerceFixture({
+    const fixture = await createOperationalCommerceFixture({
       ownerName: "Queue Owner",
       ownerEmail: "queue-owner@example.com",
       businessName: "Queue Shop",
-      appointmentStatus: "Confirmed",
-      bookingStatus: "confirmed",
-      visitStatus: "not_started",
-      paymentStatus: "Pending",
+    }, {
+      staffTimeInterval: 30,
     });
 
     business = fixture.business;
@@ -56,9 +48,8 @@ describe("Walk-ins queue v2", () => {
       lastName: "Clipper",
     });
 
-    staff.services = [{ service: service._id, timeInterval: 30 }];
+    await assignPrimaryServiceToStaff(staff, service, 30);
     secondStaff.services = [{ service: secondService._id, timeInterval: 45 }];
-    await staff.save();
     await secondStaff.save();
 
     await Appointment.deleteMany({});

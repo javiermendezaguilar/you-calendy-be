@@ -27,9 +27,17 @@ const findOwnedBusinessOrThrow = async (user) => {
   return business;
 };
 
+const findOwnedClientOrThrow = async (user, clientId) => {
+  const validClientId = ensureObjectIdString(clientId, "Client ID is required.");
+  const business = await findOwnedBusinessOrThrow(user);
+
+  return { validClientId, business };
+};
+
 module.exports = {
   buildServiceError,
   getOwnerUserId,
   ensureObjectIdString,
   findOwnedBusinessOrThrow,
+  findOwnedClientOrThrow,
 };

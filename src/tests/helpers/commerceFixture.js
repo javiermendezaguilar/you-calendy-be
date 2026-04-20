@@ -24,6 +24,13 @@ let mongoServer;
 let mongoServerUri;
 let stopTimer = null;
 
+const createNoPromotionState = () => ({
+  applied: false,
+  discountAmount: 0,
+  discountPercentage: 0,
+  originalPrice: 0,
+});
+
 const stopCommerceTestServer = async () => {
   if (!mongoServer) {
     return;
@@ -166,6 +173,55 @@ const createCommerceFixture = async (overrides = {}) => {
     appointment,
     token,
   };
+};
+
+const assignPrimaryServiceToStaff = async (staff, service, timeInterval = 45) => {
+  staff.services = [{ service: service._id, timeInterval }];
+  await staff.save();
+  return staff;
+};
+
+const syncPrimaryServiceOnBusiness = async (business, service) => {
+  business.services = [
+    {
+      _id: service._id,
+      name: service.name,
+      type: "Barber",
+      price: service.price,
+      currency: service.currency,
+    },
+  ];
+  await business.save();
+  return business;
+};
+
+const createOperationalCommerceFixture = async (
+  overrides = {},
+  options = {}
+) => {
+  const fixture = await createCommerceFixture({
+    appointmentStatus: "Confirmed",
+    bookingStatus: "confirmed",
+    visitStatus: "not_started",
+    paymentStatus: "Pending",
+    promotion: createNoPromotionState(),
+    flashSale: createNoPromotionState(),
+    ...overrides,
+  });
+
+  if (options.staffTimeInterval) {
+    await assignPrimaryServiceToStaff(
+      fixture.staff,
+      fixture.service,
+      options.staffTimeInterval
+    );
+  }
+
+  if (options.syncBusinessServices) {
+    await syncPrimaryServiceOnBusiness(fixture.business, fixture.service);
+  }
+
+  return fixture;
 };
 
 const createClosedCheckoutForFixture = async (fixture, overrides = {}) => {
@@ -311,8 +367,11 @@ module.exports = {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
   createCommerceFixture,
+  createOperationalCommerceFixture,
   createClosedCheckoutForFixture,
   createPaymentCommerceFixture,
+  assignPrimaryServiceToStaff,
+  syncPrimaryServiceOnBusiness,
   openCashSessionForToken,
   captureCheckoutPaymentForToken,
   createCapturedPaymentForFixture,

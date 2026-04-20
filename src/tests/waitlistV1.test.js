@@ -4,18 +4,11 @@ const Appointment = require("../models/appointment");
 const Client = require("../models/client");
 const WaitlistEntry = require("../models/waitlistEntry");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
-  createCommerceFixture,
+  createOperationalCommerceFixture,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Waitlist v1", () => {
   let business;
@@ -25,26 +18,12 @@ describe("Waitlist v1", () => {
   let token;
 
   beforeEach(async () => {
-    const fixture = await createCommerceFixture({
+    const fixture = await createOperationalCommerceFixture({
       ownerName: "Waitlist Owner",
       ownerEmail: "waitlist-owner@example.com",
       businessName: "Waitlist Shop",
-      appointmentStatus: "Confirmed",
-      bookingStatus: "confirmed",
-      visitStatus: "not_started",
-      paymentStatus: "Pending",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
+    }, {
+      staffTimeInterval: 45,
     });
 
     business = fixture.business;
@@ -52,9 +31,6 @@ describe("Waitlist v1", () => {
     service = fixture.service;
     staff = fixture.staff;
     token = fixture.token;
-
-    staff.services = [{ service: service._id, timeInterval: 45 }];
-    await staff.save();
     await Appointment.deleteMany({});
     await WaitlistEntry.deleteMany({});
   });

@@ -2,7 +2,7 @@ const Client = require("../../models/client");
 const {
   buildServiceError,
   ensureObjectIdString,
-  findOwnedBusinessOrThrow,
+  findOwnedClientOrThrow,
 } = require("./shared");
 
 const buildNotificationPrefs = (client) => ({
@@ -15,8 +15,10 @@ const buildNotificationPrefs = (client) => ({
 });
 
 const getClientNotificationPreferencesForOwner = async (user, clientId) => {
-  const validClientId = ensureObjectIdString(clientId, "Client ID is required.");
-  const business = await findOwnedBusinessOrThrow(user);
+  const { validClientId, business } = await findOwnedClientOrThrow(
+    user,
+    clientId
+  );
 
   const client = await Client.findOne({
     _id: validClientId,
@@ -35,8 +37,10 @@ const toggleClientNotificationsForOwner = async (user, clientId, enabled) => {
     throw buildServiceError("Enabled field must be a boolean value.", 400);
   }
 
-  const validClientId = ensureObjectIdString(clientId, "Client ID is required.");
-  const business = await findOwnedBusinessOrThrow(user);
+  const { validClientId, business } = await findOwnedClientOrThrow(
+    user,
+    clientId
+  );
 
   const client = await Client.findOne({
     _id: validClientId,

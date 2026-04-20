@@ -1,7 +1,7 @@
 const request = require("supertest");
 const app = require("../app");
 const {
-  createCommerceFixture,
+  createOperationalCommerceFixture,
   createPaymentCommerceFixture,
 } = require("./helpers/commerceFixture");
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
@@ -10,27 +10,12 @@ setupCommerceTestSuite();
 
 describe("Domain event v1", () => {
   test("records checkout, payment, refund and rebooking events and exposes them by business", async () => {
-    const fixture = await createCommerceFixture({
+    const fixture = await createOperationalCommerceFixture({
       appointmentStatus: "Completed",
-      bookingStatus: "confirmed",
       visitStatus: "completed",
-      paymentStatus: "Pending",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
+    }, {
+      staffTimeInterval: 45,
     });
-
-    fixture.staff.services = [{ service: fixture.service._id, timeInterval: 45 }];
-    await fixture.staff.save();
 
     const openCheckoutRes = await request(app)
       .post(`/checkout/appointment/${fixture.appointment._id}/open`)

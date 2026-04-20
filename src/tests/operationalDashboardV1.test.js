@@ -6,6 +6,7 @@ const WaitlistEntry = require("../models/waitlistEntry");
 const {
   createPaymentCommerceFixture,
   createCapturedPaymentForFixture,
+  assignPrimaryServiceToStaff,
 } = require("./helpers/commerceFixture");
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
@@ -24,8 +25,7 @@ describe("Operational dashboard v1", () => {
     token = paymentFixture.token;
     today = moment().format("YYYY-MM-DD");
 
-    fixture.staff.services = [{ service: fixture.service._id, timeInterval: 30 }];
-    await fixture.staff.save();
+    await assignPrimaryServiceToStaff(fixture.staff, fixture.service, 30);
 
     fixture.appointment.status = "Confirmed";
     fixture.appointment.bookingStatus = "confirmed";

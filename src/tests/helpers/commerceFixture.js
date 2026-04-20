@@ -109,8 +109,9 @@ const createCommerceFixture = async (overrides = {}) => {
 
   const staff = await Staff.create({
     business: business._id,
-    firstName: "Alex",
-    lastName: "Fade",
+    firstName: overrides.staffFirstName || "Alex",
+    lastName: overrides.staffLastName || "Fade",
+    email: overrides.staffEmail || "alex.fade@example.com",
   });
 
   const client = await Client.create({

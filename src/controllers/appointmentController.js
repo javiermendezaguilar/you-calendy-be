@@ -55,6 +55,8 @@ const buildBookingEventPayload = (appointment, extra = {}) => ({
   ...extra,
 });
 
+const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+
 const getAppointmentBusinessContext = async (appointment, userId) => {
   const business = await Business.findById(appointment.business);
   const isBusinessOwner =
@@ -66,18 +68,40 @@ const getAppointmentBusinessContext = async (appointment, userId) => {
   };
 };
 
-const getOperationalAppointmentForUser = async (appointmentId, userId) => {
+const getOperationalAppointmentContext = async (appointment, user) => {
+  const userId = user.id || user._id;
+  const { business, isBusinessOwner } = await getAppointmentBusinessContext(
+    appointment,
+    userId
+  );
+
+  let assignedStaff = null;
+  if (!isBusinessOwner && appointment.staff && user?.email) {
+    assignedStaff = await Staff.findOne({
+      _id: appointment.staff,
+      business: appointment.business,
+      email: normalizeEmail(user.email),
+    }).select("_id business email");
+  }
+
+  return {
+    business,
+    isBusinessOwner,
+    isAssignedStaff: Boolean(assignedStaff),
+    assignedStaff,
+  };
+};
+
+const getOperationalAppointmentForUser = async (appointmentId, user) => {
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) {
     return { error: { message: "Appointment not found", status: 404 } };
   }
 
-  const { isBusinessOwner } = await getAppointmentBusinessContext(
-    appointment,
-    userId
-  );
+  const { isBusinessOwner, isAssignedStaff } =
+    await getOperationalAppointmentContext(appointment, user);
 
-  if (!isBusinessOwner) {
+  if (!isBusinessOwner && !isAssignedStaff) {
     return {
       error: {
         message: "Not authorized to manage this appointment operationally",
@@ -1183,18 +1207,22 @@ const updateAppointmentStatus = async (req, res) => {
     }
 
     // Check authorization
-    const { business, isBusinessOwner } = await getAppointmentBusinessContext(
-      appointment,
-      userId
-    );
+    const { business, isBusinessOwner, isAssignedStaff } =
+      await getOperationalAppointmentContext(appointment, req.user);
     const isClient = appointment.client.toString() === userId;
 
-    if (
-      (status === "Completed" || status === "No-Show" || status === "Missed") &&
-      !isBusinessOwner
-    ) {
+    if ((status === "No-Show" || status === "Missed") && !isBusinessOwner) {
       return ErrorHandler(
-        "Only the business owner can mark appointments as Completed, No-Show, or Missed",
+        "Only the business owner can mark appointments as No-Show or Missed",
+        403,
+        req,
+        res
+      );
+    }
+
+    if (status === "Completed" && !isBusinessOwner && !isAssignedStaff) {
+      return ErrorHandler(
+        "Only the business owner or assigned staff can mark appointments as Completed",
         403,
         req,
         res
@@ -1660,7 +1688,7 @@ const checkInAppointment = async (req, res) => {
   try {
     const { appointment, error } = await getOperationalAppointmentForUser(
       req.params.id,
-      req.user.id
+      req.user
     );
 
     if (error) {
@@ -1724,7 +1752,7 @@ const startAppointmentService = async (req, res) => {
   try {
     const { appointment, error } = await getOperationalAppointmentForUser(
       req.params.id,
-      req.user.id
+      req.user
     );
 
     if (error) {

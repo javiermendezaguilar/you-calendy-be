@@ -8,7 +8,12 @@ const getBusinessForOwner = async (ownerId) => {
 const resolveBusinessOrReply = async (req, res) => {
   const business = await getBusinessForOwner(req.user.id);
   if (!business) {
-    ErrorHandler("Business not found", 404, req, res);
+    ErrorHandler(
+      "Only the business owner can access this commerce flow",
+      403,
+      req,
+      res
+    );
     return null;
   }
 

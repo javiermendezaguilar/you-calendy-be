@@ -2,6 +2,10 @@ const stripe = require("./stripeClient");
 const CreditProduct = require("../../models/creditProduct");
 const Business = require("../../models/User/business");
 const {
+  stripeCheckoutSessionSchema,
+  stripeSubscriptionSchema,
+} = require("./subscriptionRuntimeSchemas");
+const {
   updateBusinessSubscriptionStatus,
 } = require("./subscriptionStatusService");
 
@@ -59,9 +63,10 @@ const processCreditPurchaseSession = async (session) => {
 };
 
 const processSubscriptionCheckoutSession = async (session) => {
-  const businessId = session.metadata?.businessId;
+  const normalizedSession = stripeCheckoutSessionSchema.parse(session);
+  const businessId = normalizedSession.metadata?.businessId;
 
-  if (!businessId || session.mode !== "subscription") {
+  if (!businessId || normalizedSession.mode !== "subscription") {
     return "Unhandled event";
   }
 
@@ -71,7 +76,9 @@ const processSubscriptionCheckoutSession = async (session) => {
     return "Business not found, skipping";
   }
 
-  const subscription = await stripe.subscriptions.retrieve(session.subscription);
+  const subscription = await stripe.subscriptions.retrieve(
+    normalizedSession.subscription
+  );
   const normalizedSubscription = {
     ...subscription,
     metadata: {
@@ -80,13 +87,19 @@ const processSubscriptionCheckoutSession = async (session) => {
     },
   };
 
-  await updateBusinessSubscriptionStatus(business, normalizedSubscription);
+  await updateBusinessSubscriptionStatus(business, normalizedSubscription, {
+    allowReplace: true,
+  });
 
   return "Subscription activated";
 };
 
 const processSubscriptionLifecycleEvent = async (subscription, fallbackStatus) => {
-  const businessId = subscription.metadata?.businessId;
+  const normalizedSubscription = stripeSubscriptionSchema.parse({
+    ...subscription,
+    status: fallbackStatus || subscription.status,
+  });
+  const businessId = normalizedSubscription.metadata?.businessId;
 
   if (!businessId) {
     return "Subscription metadata missing businessId, skipping";
@@ -98,12 +111,17 @@ const processSubscriptionLifecycleEvent = async (subscription, fallbackStatus) =
     return "Business not found, skipping";
   }
 
-  await updateBusinessSubscriptionStatus(business, {
-    ...subscription,
-    status: fallbackStatus || subscription.status,
-  });
+  const result = await updateBusinessSubscriptionStatus(
+    business,
+    normalizedSubscription,
+    { allowReplace: false }
+  );
 
-  if ((fallbackStatus || subscription.status) === "canceled") {
+  if (result.stale) {
+    return "Stale subscription event ignored";
+  }
+
+  if (normalizedSubscription.status === "canceled") {
     return "Subscription canceled";
   }
 

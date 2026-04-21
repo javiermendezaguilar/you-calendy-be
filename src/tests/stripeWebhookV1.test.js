@@ -30,13 +30,38 @@ describe("Stripe webhook v1", () => {
     });
   });
 
+  test("logs when the webhook runtime already uses the canonical secret", () => {
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_canonical";
+    process.env.WEBHOOK_SECRET_ONE = "whsec_legacy_one";
+    process.env.WEBHOOK_SECRET_TWO = "whsec_legacy_two";
+
+    const logger = {
+      log: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+
+    const info = logStripeWebhookSecretMode(logger);
+
+    expect(info).toEqual({
+      value: "whsec_canonical",
+      source: "STRIPE_WEBHOOK_SECRET",
+      usesLegacyFallback: false,
+    });
+    expect(logger.log).toHaveBeenCalledWith(
+      "Stripe webhook secret source: STRIPE_WEBHOOK_SECRET"
+    );
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
   test("warns when the webhook runtime still depends on a legacy fallback", () => {
     delete process.env.STRIPE_WEBHOOK_SECRET;
     process.env.WEBHOOK_SECRET_ONE = "whsec_legacy_one";
     delete process.env.WEBHOOK_SECRET_TWO;
 
     const logger = {
-      info: jest.fn(),
+      log: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
     };
@@ -51,7 +76,7 @@ describe("Stripe webhook v1", () => {
     expect(logger.warn).toHaveBeenCalledWith(
       "Stripe webhook secret source: WEBHOOK_SECRET_ONE (legacy fallback still active)"
     );
-    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.log).not.toHaveBeenCalled();
     expect(logger.error).not.toHaveBeenCalled();
   });
 

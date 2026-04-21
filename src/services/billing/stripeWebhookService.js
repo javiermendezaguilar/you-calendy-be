@@ -50,7 +50,7 @@ const logStripeWebhookSecretMode = (logger = console) => {
     return info;
   }
 
-  logger.info("Stripe webhook secret source: STRIPE_WEBHOOK_SECRET");
+  logger.log("Stripe webhook secret source: STRIPE_WEBHOOK_SECRET");
   return info;
 };
 

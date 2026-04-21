@@ -7,7 +7,7 @@ const User = require("../models/User/user");
 const Note = require("../models/note");
 const crypto = require("crypto");
 const ErrorHandler = require("../utils/ErrorHandler");
-const stripe = require("stripe")(process.env.STRIPE_SECRET);
+const stripe = require("../services/billing/stripeClient");
 const moment = require("moment");
 const EmailCampaign = require("../models/emailCampaign");
 const sendMail = require("../utils/sendMail");
@@ -58,6 +58,12 @@ const {
 const {
   getDomainEventsForOwner,
 } = require("../services/domainEventService");
+const {
+  updateBusinessSubscriptionStatus,
+} = require("../services/billing/subscriptionStatusService");
+const {
+  handleStripeWebhook,
+} = require("./webhookController");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -1119,38 +1125,6 @@ const getSubscriptionStatus = async (req, res) => {
 };
 
 /**
- * @desc Helper function to update business subscription status
- * @param {Object} business - Business document
- * @param {Object} subscription - Stripe subscription object
- * @returns {Promise<void>}
- */
-const updateBusinessSubscriptionStatus = async (business, subscription) => {
-  try {
-    console.log(
-      `Updating business subscription status from '${business.subscriptionStatus}' to '${subscription.status}'`
-    );
-
-    // Update subscription details
-    business.stripeSubscriptionId = subscription.id;
-    business.subscriptionStatus = subscription.status;
-
-    // Clear trial data if subscription is active (webhook behavior)
-    if (subscription.status === "active") {
-      business.trialEnd = null;
-      business.trialStart = null;
-    }
-
-    await business.save();
-    console.log(
-      `Successfully updated business subscription status to '${subscription.status}'`
-    );
-  } catch (error) {
-    console.error("Error updating business subscription status:", error);
-    throw error;
-  }
-};
-
-/**
  * @desc Create Stripe subscription for the business (with or without trial based on trial status)
  * @route POST /api/business/create-subscription
  * @access Private
@@ -1300,138 +1274,6 @@ const createStripeSubscription = async (req, res) => {
   } catch (err) {
     console.error("Create Stripe subscription error:", err);
     return ErrorHandler(err.message, 500, req, res);
-  }
-};
-
-/**
- * @desc Stripe webhook handler (to be used in a separate route, not directly exposed)
- */
-const handleStripeWebhook = async (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.rawBody,
-      sig,
-      process.env.WEBHOOK_SECRET_TWO
-    );
-  } catch (err) {
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  try {
-    // Handle checkout session completed (when user completes payment)
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      console.log(
-        `Processing checkout.session.completed event for session: ${session.id}`
-      );
-
-      // Handle subscription payments (when trial has ended and user pays)
-      if (
-        session.metadata &&
-        session.metadata.businessId &&
-        session.mode === "subscription"
-      ) {
-        const businessId = session.metadata.businessId;
-        const business = await Business.findById(businessId);
-        if (!business) {
-          console.log(`Business not found for ID: ${businessId}`);
-          return res.status(200).send("Business not found, skipping");
-        }
-
-        // Get the subscription from the session
-        const subscription = await stripe.subscriptions.retrieve(
-          session.subscription
-        );
-
-        console.log(
-          `Retrieved subscription: ${subscription.id}, status: ${subscription.status}`
-        );
-
-        // Update business with subscription details using helper function
-        await updateBusinessSubscriptionStatus(business, subscription);
-
-        // Send notification to admins
-        await sendNotificationToAdmins(
-          "Subscription Activated",
-          `Business "${business.name || business.businessName
-          }" subscription has been activated (ID: ${subscription.id})`,
-          "admin",
-          {
-            businessId: business._id,
-            businessName: business.name || business.businessName,
-            subscriptionId: subscription.id,
-            subscriptionStatus: subscription.status,
-            ownerId: business.owner,
-          }
-        );
-
-        return res.status(200).send("Subscription activated");
-      }
-    }
-
-    // Handle subscription lifecycle events
-    if (
-      event.type === "customer.subscription.updated" ||
-      event.type === "customer.subscription.created"
-    ) {
-      const subscription = event.data.object;
-      const businessId = subscription.metadata.businessId;
-      if (businessId) {
-        const business = await Business.findById(businessId);
-        if (business) {
-          console.log(
-            `Processing subscription event: ${event.type}, status: ${subscription.status}, current business status: ${business.subscriptionStatus}`
-          );
-
-          // Only update if the subscription status is more advanced than current status
-          // This prevents downgrading from 'trialing' to 'incomplete_expired' etc.
-          const statusPriority = {
-            none: 0,
-            incomplete: 1,
-            incomplete_expired: 2,
-            trialing: 3,
-            active: 4,
-            past_due: 5,
-            canceled: 6,
-            unpaid: 7,
-            paused: 8,
-          };
-
-          const currentPriority =
-            statusPriority[business.subscriptionStatus] || 0;
-          const newPriority = statusPriority[subscription.status] || 0;
-
-          if (newPriority >= currentPriority) {
-            await updateBusinessSubscriptionStatus(business, subscription);
-          } else {
-            console.log(
-              `Skipping status update: ${subscription.status} is lower priority than ${business.subscriptionStatus}`
-            );
-          }
-        }
-      }
-      return res.status(200).send("Subscription updated");
-    }
-
-    if (event.type === "customer.subscription.deleted") {
-      const subscription = event.data.object;
-      const businessId = subscription.metadata.businessId;
-      if (businessId) {
-        const business = await Business.findById(businessId);
-        if (business) {
-          business.subscriptionStatus = "canceled";
-          await business.save();
-        }
-      }
-      return res.status(200).send("Subscription canceled");
-    }
-
-    return res.status(200).send("Unhandled event");
-  } catch (error) {
-    console.error("Webhook error:", error);
-    return res.status(500).send("Webhook processing error");
   }
 };
 

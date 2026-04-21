@@ -25,8 +25,7 @@ const sendNotification = require("./utils/pushNotification");
 const adminNotification = require("./utils/adminNotification");
 // const Season = require("./models/League/season");
 // dotenv.config({ path: "./config/config.env" });
-// Comment out Stripe to avoid dependency on STRIPE_SECRET
-const stripe = require("stripe")(process.env.STRIPE_SECRET);
+const webhookController = require("./controllers/webhookController");
 
 const parseAllowedOrigins = (value) =>
   (value || "")
@@ -86,7 +85,7 @@ app.post(
     req.rawBody = req.body;
     next();
   },
-  require("./controllers/webhookController").handleStripeWebhook
+  webhookController.handleStripeWebhook
 );
 app.post(
   "/webhook",
@@ -95,7 +94,7 @@ app.post(
     req.rawBody = req.body;
     next();
   },
-  require("./controllers/businessController").handleStripeWebhook
+  webhookController.handleStripeWebhook
 );
 
 app.use(express.urlencoded({ extended: true }));

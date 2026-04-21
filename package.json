@@ -4,7 +4,7 @@
   "description": "",
   "main": "./src/index.js",
   "scripts": {
-    "test": "jest src/tests --setupFilesAfterEnv ./src/tests/setup.js",
+    "test": "jest src/tests --setupFilesAfterEnv ./src/tests/setup.js --runInBand",
     "dev": "nodemon ./src/index.js",
     "start": "node ./src/index.js",
     "swagger": "node ./swagger.js",

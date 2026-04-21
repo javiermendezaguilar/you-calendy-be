@@ -9,11 +9,50 @@ const {
   updateBusinessSubscriptionStatus,
 } = require("./subscriptionStatusService");
 
-const getStripeWebhookSecret = () =>
-  process.env.STRIPE_WEBHOOK_SECRET ||
-  process.env.WEBHOOK_SECRET_ONE ||
-  process.env.WEBHOOK_SECRET_TWO ||
-  "";
+const webhookSecretSources = [
+  "STRIPE_WEBHOOK_SECRET",
+  "WEBHOOK_SECRET_ONE",
+  "WEBHOOK_SECRET_TWO",
+];
+
+const getStripeWebhookSecretInfo = () => {
+  const source = webhookSecretSources.find((name) => process.env[name]);
+
+  if (!source) {
+    return {
+      value: "",
+      source: null,
+      usesLegacyFallback: false,
+    };
+  }
+
+  return {
+    value: process.env[source],
+    source,
+    usesLegacyFallback: source !== "STRIPE_WEBHOOK_SECRET",
+  };
+};
+
+const getStripeWebhookSecret = () => getStripeWebhookSecretInfo().value;
+
+const logStripeWebhookSecretMode = (logger = console) => {
+  const info = getStripeWebhookSecretInfo();
+
+  if (!info.source) {
+    logger.error("Stripe webhook secret is not configured");
+    return info;
+  }
+
+  if (info.usesLegacyFallback) {
+    logger.warn(
+      `Stripe webhook secret source: ${info.source} (legacy fallback still active)`
+    );
+    return info;
+  }
+
+  logger.info("Stripe webhook secret source: STRIPE_WEBHOOK_SECRET");
+  return info;
+};
 
 const processCreditPurchaseSession = async (session) => {
   const businessId = session.metadata?.businessId;
@@ -155,5 +194,7 @@ const processStripeWebhookEvent = async (event) => {
 
 module.exports = {
   getStripeWebhookSecret,
+  getStripeWebhookSecretInfo,
+  logStripeWebhookSecretMode,
   processStripeWebhookEvent,
 };

@@ -27,6 +27,9 @@ const adminNotification = require("./utils/adminNotification");
 // const Season = require("./models/League/season");
 // dotenv.config({ path: "./config/config.env" });
 const webhookController = require("./controllers/webhookController");
+const {
+  logStripeWebhookSecretMode,
+} = require("./services/billing/stripeWebhookService");
 
 const parseAllowedOrigins = (value) =>
   (value || "")
@@ -61,6 +64,8 @@ const appLimiter = rateLimit({
     message: "Too many requests, please try again later.",
   },
 });
+
+logStripeWebhookSecretMode();
 
 // League related global variable doesn't exist
 // console.log(global.onlineUsers);

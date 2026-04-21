@@ -10,10 +10,51 @@ const {
 jest.mock("../services/billing/stripeClient", () => mockStripe);
 
 const { handleStripeWebhook } = require("../controllers/webhookController");
+const {
+  getStripeWebhookSecretInfo,
+  logStripeWebhookSecretMode,
+} = require("../services/billing/stripeWebhookService");
 
 registerStripeBillingTestHooks({ clearLegacyWebhookSecrets: true });
 
 describe("Stripe webhook v1", () => {
+  test("resolves the canonical webhook secret before legacy fallbacks", () => {
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_canonical";
+    process.env.WEBHOOK_SECRET_ONE = "whsec_legacy_one";
+    process.env.WEBHOOK_SECRET_TWO = "whsec_legacy_two";
+
+    expect(getStripeWebhookSecretInfo()).toEqual({
+      value: "whsec_canonical",
+      source: "STRIPE_WEBHOOK_SECRET",
+      usesLegacyFallback: false,
+    });
+  });
+
+  test("warns when the webhook runtime still depends on a legacy fallback", () => {
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.WEBHOOK_SECRET_ONE = "whsec_legacy_one";
+    delete process.env.WEBHOOK_SECRET_TWO;
+
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+
+    const info = logStripeWebhookSecretMode(logger);
+
+    expect(info).toEqual({
+      value: "whsec_legacy_one",
+      source: "WEBHOOK_SECRET_ONE",
+      usesLegacyFallback: true,
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Stripe webhook secret source: WEBHOOK_SECRET_ONE (legacy fallback still active)"
+    );
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
   test("adds credits for a successful credit purchase checkout", async () => {
     const fixture = await createCommerceFixture({
       ownerName: "Stripe Credits Owner",

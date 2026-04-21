@@ -24,6 +24,7 @@ describe("Operational dashboard v1", () => {
     checkout = paymentFixture.checkout;
     token = paymentFixture.token;
     today = moment().format("YYYY-MM-DD");
+    const stuckAppointmentStart = moment().subtract(90, "minutes");
 
     await assignPrimaryServiceToStaff(fixture.staff, fixture.service, 30);
 
@@ -31,6 +32,11 @@ describe("Operational dashboard v1", () => {
     fixture.appointment.bookingStatus = "confirmed";
     fixture.appointment.visitStatus = "in_service";
     fixture.appointment.date = moment(today, "YYYY-MM-DD").toDate();
+    fixture.appointment.startTime = stuckAppointmentStart.format("HH:mm");
+    fixture.appointment.endTime = stuckAppointmentStart
+      .clone()
+      .add(45, "minutes")
+      .format("HH:mm");
     fixture.appointment.operationalTimestamps = {
       checkedInAt: new Date(),
       checkedInBy: fixture.owner._id,

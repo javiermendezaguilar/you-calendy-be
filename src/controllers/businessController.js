@@ -59,6 +59,10 @@ const {
   getDomainEventsForOwner,
 } = require("../services/domainEventService");
 const {
+  createSubscriptionRequestSchema,
+} = require("../services/billing/subscriptionRuntimeSchemas");
+const {
+  reconcileBusinessSubscriptionStatus,
   updateBusinessSubscriptionStatus,
 } = require("../services/billing/subscriptionStatusService");
 const {
@@ -1081,6 +1085,21 @@ const getSubscriptionStatus = async (req, res) => {
     let daysLeft = null;
     let trialCalcMs = 0;
     let saveMs = 0;
+    let stripeSyncMs = 0;
+    let source = "local";
+
+    if (business.stripeSubscriptionId) {
+      try {
+        const stripeSyncStart = Date.now();
+        const reconcileResult = await reconcileBusinessSubscriptionStatus(business);
+        stripeSyncMs = Date.now() - stripeSyncStart;
+        status = reconcileResult.status || status;
+        source = reconcileResult.source || source;
+      } catch (stripeError) {
+        console.error("Subscription status reconciliation error:", stripeError);
+        source = "local_fallback";
+      }
+    }
 
     // Calculate days left for trialing status
     if (status === "trialing" && business.trialEnd) {
@@ -1114,11 +1133,12 @@ const getSubscriptionStatus = async (req, res) => {
     }
     setPerfHeader(res, {
       businessLookup: businessLookupMs,
+      stripeSync: stripeSyncMs,
       trialCalc: trialCalcMs,
       save: saveMs,
       total: Date.now() - totalStart,
     });
-    return SuccessHandler({ status, daysLeft, message }, 200, res);
+    return SuccessHandler({ status, daysLeft, message, source }, 200, res);
   } catch (err) {
     return ErrorHandler(err.message, 500, req, res);
   }
@@ -1131,12 +1151,7 @@ const getSubscriptionStatus = async (req, res) => {
  */
 const createStripeSubscription = async (req, res) => {
   try {
-    const { priceId } = req.body;
-
-    // Validate input
-    if (!priceId || typeof priceId !== "string") {
-      return ErrorHandler("Valid price ID is required", 400, req, res);
-    }
+    const { priceId } = createSubscriptionRequestSchema.parse(req.body);
 
     // Find business and validate
     const business = await Business.findOne({ owner: req.user.id });
@@ -1272,6 +1287,9 @@ const createStripeSubscription = async (req, res) => {
       return ErrorHandler("Failed to create subscription", 500, req, res);
     }
   } catch (err) {
+    if (err.name === "ZodError") {
+      return ErrorHandler(err.issues?.[0]?.message || "Invalid subscription payload", 400, req, res);
+    }
     console.error("Create Stripe subscription error:", err);
     return ErrorHandler(err.message, 500, req, res);
   }

@@ -61,7 +61,8 @@
     "swagger-ui-express": "^4.6.2",
     "twilio": "^5.7.1",
     "validator": "^13.7.0",
-    "winston": "^3.8.2"
+    "winston": "^3.8.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "jest": "^30.3.0",

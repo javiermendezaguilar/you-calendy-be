@@ -1,48 +1,110 @@
-const SUBSCRIPTION_STATUS_PRIORITY = {
-  none: 0,
-  incomplete: 1,
-  incomplete_expired: 2,
-  trialing: 3,
-  active: 4,
-  past_due: 5,
-  canceled: 6,
-  unpaid: 7,
-  paused: 8,
-};
+const stripe = require("./stripeClient");
+const {
+  stripeSubscriptionSchema,
+} = require("./subscriptionRuntimeSchemas");
 
-const getSubscriptionStatusPriority = (status) =>
-  SUBSCRIPTION_STATUS_PRIORITY[status] || 0;
+const NON_TRIAL_STATUSES = new Set([
+  "active",
+  "past_due",
+  "canceled",
+  "unpaid",
+  "incomplete",
+  "incomplete_expired",
+  "paused",
+]);
 
-const updateBusinessSubscriptionStatus = async (business, subscription) => {
-  const currentPriority = getSubscriptionStatusPriority(
-    business.subscriptionStatus
-  );
-  const nextPriority = getSubscriptionStatusPriority(subscription.status);
+const normalizeStripeSubscription = (subscription) =>
+  stripeSubscriptionSchema.parse(subscription);
 
-  if (nextPriority < currentPriority) {
+const shouldIgnoreStaleSubscriptionEvent = (business, subscriptionId, allowReplace) => {
+  if (!business.stripeSubscriptionId || !subscriptionId) {
     return false;
   }
 
-  if (subscription.id) {
-    business.stripeSubscriptionId = subscription.id;
+  if (business.stripeSubscriptionId === subscriptionId) {
+    return false;
   }
 
-  if (subscription.customer) {
+  return !allowReplace;
+};
+
+const updateBusinessSubscriptionStatus = async (
+  business,
+  rawSubscription,
+  options = {}
+) => {
+  const subscription = normalizeStripeSubscription(rawSubscription);
+  const allowReplace = options.allowReplace === true;
+
+  if (
+    shouldIgnoreStaleSubscriptionEvent(
+      business,
+      subscription.id,
+      allowReplace
+    )
+  ) {
+    return {
+      updated: false,
+      stale: true,
+      reason: "stale_subscription_event",
+      status: business.subscriptionStatus,
+    };
+  }
+
+  business.stripeSubscriptionId = subscription.id;
+
+  if (typeof subscription.customer === "string" && subscription.customer) {
     business.stripeCustomerId = subscription.customer;
   }
 
   business.subscriptionStatus = subscription.status;
 
   if (subscription.status === "active") {
-    business.trialEnd = null;
     business.trialStart = null;
+    business.trialEnd = null;
+  } else if (NON_TRIAL_STATUSES.has(subscription.status)) {
+    business.trialEnd = business.trialEnd || null;
   }
 
   await business.save();
-  return true;
+
+  return {
+    updated: true,
+    stale: false,
+    reason: "synced",
+    status: subscription.status,
+  };
+};
+
+const reconcileBusinessSubscriptionStatus = async (business) => {
+  if (!business?.stripeSubscriptionId) {
+    return {
+      updated: false,
+      reconciled: false,
+      source: "local",
+      reason: "missing_subscription_id",
+      status: business?.subscriptionStatus || "none",
+    };
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(
+    business.stripeSubscriptionId
+  );
+
+  const result = await updateBusinessSubscriptionStatus(business, subscription, {
+    allowReplace: true,
+  });
+
+  return {
+    ...result,
+    reconciled: true,
+    source: "stripe",
+    subscriptionId: subscription.id,
+  };
 };
 
 module.exports = {
-  getSubscriptionStatusPriority,
+  normalizeStripeSubscription,
   updateBusinessSubscriptionStatus,
+  reconcileBusinessSubscriptionStatus,
 };

@@ -1,64 +1,19 @@
 const CreditProduct = require("../models/creditProduct");
 const Business = require("../models/User/business");
+const { createCommerceFixture } = require("./helpers/commerceFixture");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
-  createCommerceFixture,
-} = require("./helpers/commerceFixture");
-
-const mockStripe = {
-  webhooks: {
-    constructEvent: jest.fn(),
-  },
-  checkout: {
-    sessions: {
-      listLineItems: jest.fn(),
-    },
-  },
-  subscriptions: {
-    retrieve: jest.fn(),
-  },
-};
+  mockStripe,
+  createWebhookResponse,
+  registerStripeBillingTestHooks,
+} = require("./helpers/stripeBillingTestHelper");
 
 jest.mock("../services/billing/stripeClient", () => mockStripe);
 
 const { handleStripeWebhook } = require("../controllers/webhookController");
 
-const createWebhookResponse = () => {
-  const res = {
-    statusCode: 200,
-    payload: null,
-  };
-
-  res.status = jest.fn((code) => {
-    res.statusCode = code;
-    return res;
-  });
-
-  res.send = jest.fn((payload) => {
-    res.payload = payload;
-    return res;
-  });
-
-  return res;
-};
-
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+registerStripeBillingTestHooks({ clearLegacyWebhookSecrets: true });
 
 describe("Stripe webhook v1", () => {
-  beforeEach(() => {
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_canonical";
-    delete process.env.WEBHOOK_SECRET_ONE;
-    delete process.env.WEBHOOK_SECRET_TWO;
-    jest.clearAllMocks();
-  });
-
   test("adds credits for a successful credit purchase checkout", async () => {
     const fixture = await createCommerceFixture({
       ownerName: "Stripe Credits Owner",

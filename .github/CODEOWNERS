@@ -1,0 +1,18 @@
+* @javiermendezaguilar
+
+# Backend bootstrap and runtime
+/src/app.js @javiermendezaguilar
+/src/index.js @javiermendezaguilar
+/src/config/** @javiermendezaguilar
+
+# Sensitive business logic
+/src/controllers/authController.js @javiermendezaguilar
+/src/controllers/businessController.js @javiermendezaguilar
+/src/controllers/appointmentController.js @javiermendezaguilar
+/src/controllers/webhookController.js @javiermendezaguilar
+/src/services/billing/** @javiermendezaguilar
+/src/router/auth.js @javiermendezaguilar
+
+# Operational and deploy
+/railway.json @javiermendezaguilar
+/.github/workflows/** @javiermendezaguilar

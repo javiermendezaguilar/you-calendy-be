@@ -12,6 +12,7 @@ const { analyticsMiddleware } = require("./middleware/analyticsMiddleware");
 const swaggerUi = require("swagger-ui-express");
 const swaggerFile = require("../swagger_output.json"); // Generated Swagger file
 const path = require("path");
+const mongoose = require("mongoose");
 const createCsrfProtection = require("./middleware/csrfProtection");
 const user = require("./models/User/user");
 // const League = require("./models/League/league");
@@ -43,6 +44,12 @@ const allowedOrigins = [
 ].filter(Boolean);
 
 const exposedHeaders = ["X-Groomnest-Perf"];
+const mongoReadyStates = {
+  0: "disconnected",
+  1: "connected",
+  2: "connecting",
+  3: "disconnecting",
+};
 
 const appLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -102,6 +109,31 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(appLimiter);
 app.use(createCsrfProtection({ allowedOrigins }));
+
+app.get("/healthz", (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: "ok",
+    service: "groomnest-backend",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/readyz", (req, res) => {
+  const readyState = mongoose.connection.readyState;
+  const database = mongoReadyStates[readyState] || "unknown";
+  const isReady = readyState === 1;
+
+  res.status(isReady ? 200 : 503).json({
+    success: isReady,
+    status: isReady ? "ready" : "not_ready",
+    service: "groomnest-backend",
+    checks: {
+      database,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // router index
 app.use("/", router);

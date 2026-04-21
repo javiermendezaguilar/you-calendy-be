@@ -3,58 +3,25 @@ const jwt = require("jsonwebtoken");
 const app = require("../app");
 const DomainEvent = require("../models/domainEvent");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
-  createCommerceFixture,
+  createOperationalCommerceFixture,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Booking event map v3", () => {
   let fixture;
   let clientToken;
 
   beforeEach(async () => {
-    fixture = await createCommerceFixture({
+    fixture = await createOperationalCommerceFixture({
       ownerName: "Booking Owner",
       ownerEmail: "booking-owner@example.com",
       businessName: "Booking Shop",
-      appointmentStatus: "Confirmed",
-      bookingStatus: "confirmed",
-      visitStatus: "not_started",
-      paymentStatus: "Pending",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
+    }, {
+      staffTimeInterval: 45,
+      syncBusinessServices: true,
     });
-
-    fixture.staff.services = [{ service: fixture.service._id, timeInterval: 45 }];
-    await fixture.staff.save();
-    fixture.business.services = [
-      {
-        _id: fixture.service._id,
-        name: fixture.service.name,
-        type: "Barber",
-        price: fixture.service.price,
-        currency: fixture.service.currency,
-      },
-    ];
-    await fixture.business.save();
 
     clientToken = jwt.sign(
       {

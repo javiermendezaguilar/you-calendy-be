@@ -5,7 +5,7 @@ const { generateInvitationToken } = require("../../utils/index");
 const {
   buildServiceError,
   ensureObjectIdString,
-  findOwnedBusinessOrThrow,
+  findOwnedClientOrThrow,
 } = require("./shared");
 
 const getFrontendBaseUrl = () =>
@@ -39,8 +39,10 @@ const getClientByInvitationTokenValue = async (token) => {
 };
 
 const getInvitationLinkForOwner = async (user, clientId) => {
-  const validClientId = ensureObjectIdString(clientId, "Client ID is required.");
-  const business = await findOwnedBusinessOrThrow(user);
+  const { validClientId, business } = await findOwnedClientOrThrow(
+    user,
+    clientId
+  );
 
   const client = await Client.findOne({
     _id: validClientId,
@@ -62,8 +64,10 @@ const getInvitationLinkForOwner = async (user, clientId) => {
 };
 
 const updateClientInvitationTokenForOwner = async (user, clientId) => {
-  const validClientId = ensureObjectIdString(clientId, "Client ID is required.");
-  const business = await findOwnedBusinessOrThrow(user);
+  const { validClientId, business } = await findOwnedClientOrThrow(
+    user,
+    clientId
+  );
 
   const client = await Client.findOne({
     _id: validClientId,

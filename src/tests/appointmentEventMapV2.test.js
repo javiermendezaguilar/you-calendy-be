@@ -2,44 +2,21 @@ const request = require("supertest");
 const app = require("../app");
 const DomainEvent = require("../models/domainEvent");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
-  createCommerceFixture,
+  createOperationalCommerceFixture,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Appointment event map v2", () => {
   let appointment;
   let token;
 
   beforeEach(async () => {
-    const fixture = await createCommerceFixture({
+    const fixture = await createOperationalCommerceFixture({
       ownerName: "EventMap Owner",
       ownerEmail: "eventmap-owner@example.com",
       businessName: "EventMap Shop",
-      appointmentStatus: "Confirmed",
-      bookingStatus: "confirmed",
-      visitStatus: "not_started",
-      paymentStatus: "Pending",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
     });
 
     appointment = fixture.appointment;

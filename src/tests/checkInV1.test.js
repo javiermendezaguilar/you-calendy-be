@@ -3,44 +3,21 @@ const app = require("../app");
 const Appointment = require("../models/appointment");
 const DomainEvent = require("../models/domainEvent");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
-  createCommerceFixture,
+  createOperationalCommerceFixture,
 } = require("./helpers/commerceFixture");
+const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+setupCommerceTestSuite();
 
 describe("Check-in v1", () => {
   let appointment;
   let token;
 
   beforeEach(async () => {
-    const fixture = await createCommerceFixture({
+    const fixture = await createOperationalCommerceFixture({
       ownerName: "Checkin Owner",
       ownerEmail: "checkin-owner@example.com",
       businessName: "Checkin Shop",
-      appointmentStatus: "Confirmed",
-      bookingStatus: "confirmed",
-      visitStatus: "not_started",
-      paymentStatus: "Pending",
-      promotion: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
-      flashSale: {
-        applied: false,
-        discountAmount: 0,
-        discountPercentage: 0,
-        originalPrice: 0,
-      },
     });
 
     appointment = fixture.appointment;

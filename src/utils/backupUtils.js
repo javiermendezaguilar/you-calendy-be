@@ -19,6 +19,25 @@ const Billing = require("../models/User/billing");
 const EmailCampaign = require("../models/emailCampaign");
 const SmsCampaign = require("../models/smsCampaign");
 
+const BACKUP_COLLECTIONS = [
+  { name: "users", model: User },
+  { name: "businesses", model: Business },
+  { name: "clients", model: Client },
+  { name: "appointments", model: Appointment },
+  { name: "services", model: Service },
+  { name: "staff", model: Staff },
+  { name: "supports", model: Support },
+  { name: "featuresuggestions", model: FeatureSuggestion },
+  { name: "promotions", model: Promotion },
+  { name: "flashsales", model: FlashSale },
+  { name: "haircutgalleries", model: HaircutGallery },
+  { name: "notes", model: Note },
+  { name: "notifications", model: Notification },
+  { name: "billings", model: Billing },
+  { name: "emailcampaigns", model: EmailCampaign },
+  { name: "smscampaigns", model: SmsCampaign },
+];
+
 /**
  * Get all collections from the database
  */
@@ -26,6 +45,96 @@ const getAllCollections = async () => {
   const collections = await mongoose.connection.db.listCollections().toArray();
   return collections.map((col) => col.name);
 };
+
+const createBackupEnvelope = (backupType, createdBy) => ({
+  metadata: {
+    backupType,
+    backupDate: new Date(),
+    version: "1.0",
+    createdBy: createdBy.toString(),
+    totalCollections: 0,
+    totalRecords: 0,
+  },
+  collections: {},
+});
+
+const emitCollectionProgress = async ({
+  onProgress,
+  phase,
+  collections,
+  processed,
+  currentCollection,
+  reserveUploadTail = false,
+}) => {
+  if (!onProgress) {
+    return;
+  }
+
+  const ratio = processed / collections.length;
+  const progress = reserveUploadTail
+    ? Math.max(1, Math.round(ratio * 90))
+    : Math.max(1, Math.round(ratio * 100));
+
+  await onProgress({
+    [`${phase}Phase`]: phase,
+    [`${phase}TotalCollections`]: collections.length,
+    [`${phase}ProcessedCollections`]: processed,
+    [`${phase}CurrentCollection`]: currentCollection,
+    [`${phase}Progress`]: progress,
+  });
+};
+
+const collectBackupData = async (collections, backupData, onProgress) => {
+  let totalRecords = 0;
+
+  if (onProgress) {
+    await onProgress({
+      backupPhase: "gathering",
+      backupTotalCollections: collections.length,
+      backupProcessedCollections: 0,
+      backupCurrentCollection: null,
+      backupProgress: 1,
+    });
+  }
+
+  for (let idx = 0; idx < collections.length; idx++) {
+    const collection = collections[idx];
+    try {
+      const data = await collection.model.find({}).lean();
+      backupData.collections[collection.name] = data;
+      totalRecords += data.length;
+
+      console.log(`Backed up ${data.length} records from ${collection.name}`);
+
+      await emitCollectionProgress({
+        onProgress,
+        phase: "backup",
+        collections,
+        processed: idx + 1,
+        currentCollection: collection.name,
+        reserveUploadTail: true,
+      });
+    } catch (error) {
+      console.error(`Error backing up ${collection.name}:`, error.message);
+      backupData.collections[collection.name] = [];
+    }
+  }
+
+  backupData.metadata.totalCollections = collections.length;
+  backupData.metadata.totalRecords = totalRecords;
+};
+
+const buildBackupResult = (filename, buffer, cloudinaryResult, backupData) => ({
+  filename,
+  cloudinaryUrl: cloudinaryResult.secure_url,
+  cloudinaryPublicId: cloudinaryResult.public_id,
+  fileSize: buffer.length,
+  collections: BACKUP_COLLECTIONS.map((col) => ({
+    name: col.name,
+    count: backupData.collections[col.name]?.length || 0,
+  })),
+  metadata: backupData.metadata,
+});
 
 /**
  * Create a JSON backup and upload to Cloudinary
@@ -35,46 +144,13 @@ const createJsonBackup = async (backupType, createdBy, opts = {}) => {
   try {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `backup_${backupType}_${timestamp}.json`;
-
-    const backupData = {
-      metadata: {
-        backupType,
-        backupDate: new Date(),
-        version: "1.0",
-        createdBy: createdBy.toString(),
-        totalCollections: 0,
-        totalRecords: 0,
-      },
-      collections: {},
-    };
-
-    // Define collections to backup in order
-    const collectionsToBackup = [
-      { name: "users", model: User },
-      { name: "businesses", model: Business },
-      { name: "clients", model: Client },
-      { name: "appointments", model: Appointment },
-      { name: "services", model: Service },
-      { name: "staff", model: Staff },
-      { name: "supports", model: Support },
-      { name: "featuresuggestions", model: FeatureSuggestion },
-      { name: "promotions", model: Promotion },
-      { name: "flashsales", model: FlashSale },
-      { name: "haircutgalleries", model: HaircutGallery },
-      { name: "notes", model: Note },
-      { name: "notifications", model: Notification },
-      { name: "billings", model: Billing },
-      { name: "emailcampaigns", model: EmailCampaign },
-      { name: "smscampaigns", model: SmsCampaign },
-    ];
-
-    let totalRecords = 0;
+    const backupData = createBackupEnvelope(backupType, createdBy);
 
     // Emit total collections upfront
     if (onProgress) {
       await onProgress({
         backupPhase: "gathering",
-        backupTotalCollections: collectionsToBackup.length,
+        backupTotalCollections: BACKUP_COLLECTIONS.length,
         backupProcessedCollections: 0,
         backupCurrentCollection: null,
         // Reserve 90% for gathering data, 10% for upload
@@ -82,36 +158,7 @@ const createJsonBackup = async (backupType, createdBy, opts = {}) => {
       });
     }
 
-    // Backup each collection
-    for (let idx = 0; idx < collectionsToBackup.length; idx++) {
-      const collection = collectionsToBackup[idx];
-      try {
-        const data = await collection.model.find({}).lean();
-        backupData.collections[collection.name] = data;
-        totalRecords += data.length;
-
-        console.log(`Backed up ${data.length} records from ${collection.name}`);
-
-        if (onProgress) {
-          const processed = idx + 1;
-          const gatherRatio = processed / collectionsToBackup.length;
-          const progress = Math.max(1, Math.round(gatherRatio * 90));
-          await onProgress({
-            backupPhase: "gathering",
-            backupTotalCollections: collectionsToBackup.length,
-            backupProcessedCollections: processed,
-            backupCurrentCollection: collection.name,
-            backupProgress: progress,
-          });
-        }
-      } catch (error) {
-        console.error(`Error backing up ${collection.name}:`, error.message);
-        backupData.collections[collection.name] = [];
-      }
-    }
-
-    backupData.metadata.totalCollections = collectionsToBackup.length;
-    backupData.metadata.totalRecords = totalRecords;
+    await collectBackupData(BACKUP_COLLECTIONS, backupData, onProgress);
 
     // Convert backup data to JSON buffer
     const jsonData = JSON.stringify(backupData, null, 2);
@@ -139,17 +186,7 @@ const createJsonBackup = async (backupType, createdBy, opts = {}) => {
       });
     }
 
-    return {
-      filename,
-      cloudinaryUrl: cloudinaryResult.secure_url,
-      cloudinaryPublicId: cloudinaryResult.public_id,
-      fileSize: buffer.length,
-      collections: collectionsToBackup.map((col) => ({
-        name: col.name,
-        count: backupData.collections[col.name]?.length || 0,
-      })),
-      metadata: backupData.metadata,
-    };
+    return buildBackupResult(filename, buffer, cloudinaryResult, backupData);
   } catch (error) {
     throw new Error(`Backup creation failed: ${error.message}`);
   }
@@ -163,81 +200,19 @@ const createCompressedBackup = async (backupType, createdBy, opts = {}) => {
   try {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `backup_${backupType}_${timestamp}.json.gz`;
-
-    const backupData = {
-      metadata: {
-        backupType,
-        backupDate: new Date(),
-        version: "1.0",
-        createdBy: createdBy.toString(),
-        totalCollections: 0,
-        totalRecords: 0,
-      },
-      collections: {},
-    };
-
-    // Define collections to backup in order
-    const collectionsToBackup = [
-      { name: "users", model: User },
-      { name: "businesses", model: Business },
-      { name: "clients", model: Client },
-      { name: "appointments", model: Appointment },
-      { name: "services", model: Service },
-      { name: "staff", model: Staff },
-      { name: "supports", model: Support },
-      { name: "featuresuggestions", model: FeatureSuggestion },
-      { name: "promotions", model: Promotion },
-      { name: "flashsales", model: FlashSale },
-      { name: "haircutgalleries", model: HaircutGallery },
-      { name: "notes", model: Note },
-      { name: "notifications", model: Notification },
-      { name: "billings", model: Billing },
-      { name: "emailcampaigns", model: EmailCampaign },
-      { name: "smscampaigns", model: SmsCampaign },
-    ];
-
-    let totalRecords = 0;
+    const backupData = createBackupEnvelope(backupType, createdBy);
 
     if (onProgress) {
       await onProgress({
         backupPhase: "gathering",
-        backupTotalCollections: collectionsToBackup.length,
+        backupTotalCollections: BACKUP_COLLECTIONS.length,
         backupProcessedCollections: 0,
         backupCurrentCollection: null,
         backupProgress: 1,
       });
     }
 
-    // Backup each collection
-    for (let idx = 0; idx < collectionsToBackup.length; idx++) {
-      const collection = collectionsToBackup[idx];
-      try {
-        const data = await collection.model.find({}).lean();
-        backupData.collections[collection.name] = data;
-        totalRecords += data.length;
-
-        console.log(`Backed up ${data.length} records from ${collection.name}`);
-
-        if (onProgress) {
-          const processed = idx + 1;
-          const gatherRatio = processed / collectionsToBackup.length;
-          const progress = Math.max(1, Math.round(gatherRatio * 90));
-          await onProgress({
-            backupPhase: "gathering",
-            backupTotalCollections: collectionsToBackup.length,
-            backupProcessedCollections: processed,
-            backupCurrentCollection: collection.name,
-            backupProgress: progress,
-          });
-        }
-      } catch (error) {
-        console.error(`Error backing up ${collection.name}:`, error.message);
-        backupData.collections[collection.name] = [];
-      }
-    }
-
-    backupData.metadata.totalCollections = collectionsToBackup.length;
-    backupData.metadata.totalRecords = totalRecords;
+    await collectBackupData(BACKUP_COLLECTIONS, backupData, onProgress);
 
     // Convert backup data to JSON and compress
     const jsonData = JSON.stringify(backupData, null, 2);
@@ -266,17 +241,7 @@ const createCompressedBackup = async (backupType, createdBy, opts = {}) => {
       });
     }
 
-    return {
-      filename,
-      cloudinaryUrl: cloudinaryResult.secure_url,
-      cloudinaryPublicId: cloudinaryResult.public_id,
-      fileSize: buffer.length,
-      collections: collectionsToBackup.map((col) => ({
-        name: col.name,
-        count: backupData.collections[col.name]?.length || 0,
-      })),
-      metadata: backupData.metadata,
-    };
+    return buildBackupResult(filename, buffer, cloudinaryResult, backupData);
   } catch (error) {
     throw new Error(`Compressed backup creation failed: ${error.message}`);
   }
@@ -385,30 +350,11 @@ const restoreFromBackupData = async (backupData, opts = {}) => {
     console.log(`Total records: ${backupData.metadata.totalRecords}`);
 
     // Define collections to restore in order
-    const collectionsToRestore = [
-      { name: "users", model: User },
-      { name: "businesses", model: Business },
-      { name: "clients", model: Client },
-      { name: "appointments", model: Appointment },
-      { name: "services", model: Service },
-      { name: "staff", model: Staff },
-      { name: "supports", model: Support },
-      { name: "featuresuggestions", model: FeatureSuggestion },
-      { name: "promotions", model: Promotion },
-      { name: "flashsales", model: FlashSale },
-      { name: "haircutgalleries", model: HaircutGallery },
-      { name: "notes", model: Note },
-      { name: "notifications", model: Notification },
-      { name: "billings", model: Billing },
-      { name: "emailcampaigns", model: EmailCampaign },
-      { name: "smscampaigns", model: SmsCampaign },
-    ];
-
     // Emit total upfront
     if (onProgress) {
       await onProgress({
         restorePhase: "restoring",
-        restoreTotalCollections: collectionsToRestore.length,
+        restoreTotalCollections: BACKUP_COLLECTIONS.length,
         restoreProcessedCollections: 0,
         restoreCurrentCollection: null,
         restoreProgress: 1,
@@ -416,8 +362,8 @@ const restoreFromBackupData = async (backupData, opts = {}) => {
     }
 
     // Restore collections in order
-    for (let idx = 0; idx < collectionsToRestore.length; idx++) {
-      const collection = collectionsToRestore[idx];
+    for (let idx = 0; idx < BACKUP_COLLECTIONS.length; idx++) {
+      const collection = BACKUP_COLLECTIONS[idx];
       try {
         let data = backupData.collections[collection.name] || [];
 
@@ -438,17 +384,12 @@ const restoreFromBackupData = async (backupData, opts = {}) => {
           console.log(`Restored ${data.length} records to ${collection.name}`);
 
           if (onProgress) {
-            const processed = idx + 1;
-            const progress = Math.max(
-              1,
-              Math.round((processed / collectionsToRestore.length) * 100)
-            );
-            await onProgress({
-              restorePhase: "restoring",
-              restoreTotalCollections: collectionsToRestore.length,
-              restoreProcessedCollections: processed,
-              restoreCurrentCollection: collection.name,
-              restoreProgress: progress,
+            await emitCollectionProgress({
+              onProgress,
+              phase: "restore",
+              collections: BACKUP_COLLECTIONS,
+              processed: idx + 1,
+              currentCollection: collection.name,
             });
           }
         }

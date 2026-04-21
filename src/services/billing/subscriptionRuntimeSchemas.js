@@ -12,6 +12,10 @@ const subscriptionStatusSchema = z.enum([
   "paused",
 ]);
 
+const stripeIdSchema = z.string().trim().min(1);
+const stripeCustomerSchema = z.union([stripeIdSchema, z.null()]);
+const stripeMetadataSchema = z.record(z.string(), z.string());
+
 const createSubscriptionRequestSchema = z
   .object({
     priceId: z.string().trim().min(1, "priceId is required"),
@@ -20,19 +24,19 @@ const createSubscriptionRequestSchema = z
 
 const stripeSubscriptionSchema = z
   .object({
-    id: z.string().trim().min(1),
+    id: stripeIdSchema,
     status: subscriptionStatusSchema,
-    customer: z.union([z.string().trim().min(1), z.null()]).optional(),
-    metadata: z.record(z.string(), z.string()).optional(),
+    customer: stripeCustomerSchema.optional(),
+    metadata: stripeMetadataSchema.optional(),
   })
   .passthrough();
 
 const stripeCheckoutSessionSchema = z
   .object({
-    id: z.string().trim().min(1),
+    id: stripeIdSchema,
     mode: z.string().optional(),
-    subscription: z.union([z.string().trim().min(1), z.null()]).optional(),
-    metadata: z.record(z.string(), z.string()).optional(),
+    subscription: stripeCustomerSchema.optional(),
+    metadata: stripeMetadataSchema.optional(),
   })
   .passthrough();
 

@@ -1,68 +1,20 @@
 const request = require("supertest");
 const Business = require("../models/User/business");
+const { createCommerceFixture } = require("./helpers/commerceFixture");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
-  createCommerceFixture,
-} = require("./helpers/commerceFixture");
-
-const mockStripe = {
-  webhooks: {
-    constructEvent: jest.fn(),
-  },
-  checkout: {
-    sessions: {
-      create: jest.fn(),
-      listLineItems: jest.fn(),
-    },
-  },
-  subscriptions: {
-    create: jest.fn(),
-    retrieve: jest.fn(),
-  },
-  customers: {
-    create: jest.fn(),
-  },
-};
+  mockStripe,
+  createWebhookResponse,
+  registerStripeBillingTestHooks,
+} = require("./helpers/stripeBillingTestHelper");
 
 jest.mock("../services/billing/stripeClient", () => mockStripe);
 
 const app = require("../app");
 const { handleStripeWebhook } = require("../controllers/webhookController");
 
-const createWebhookResponse = () => {
-  const res = {
-    statusCode: 200,
-    payload: null,
-  };
-
-  res.status = jest.fn((code) => {
-    res.statusCode = code;
-    return res;
-  });
-
-  res.send = jest.fn((payload) => {
-    res.payload = payload;
-    return res;
-  });
-
-  return res;
-};
-
-beforeAll(async () => {
-  await connectCommerceTestDatabase();
-});
-
-afterAll(async () => {
-  await disconnectCommerceTestDatabase();
-});
+registerStripeBillingTestHooks();
 
 describe("Stripe subscription status v2", () => {
-  beforeEach(() => {
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_canonical";
-    jest.clearAllMocks();
-  });
-
   test("reconciles GET /business/subscription-status from Stripe when local state is stale", async () => {
     const fixture = await createCommerceFixture({
       ownerName: "Stripe Reconcile Owner",

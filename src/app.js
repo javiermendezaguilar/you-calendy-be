@@ -99,15 +99,6 @@ app.post(
   },
   webhookController.handleStripeWebhook
 );
-app.post(
-  "/webhook",
-  express.raw({ type: "application/json" }),
-  (req, res, next) => {
-    req.rawBody = req.body;
-    next();
-  },
-  webhookController.handleStripeWebhook
-);
 
 app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.urlencoded({ extended: false }));

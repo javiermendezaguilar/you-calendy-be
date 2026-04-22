@@ -189,7 +189,7 @@ const registerStripeBillingTestHooks = ({
       delete process.env.WEBHOOK_SECRET_ONE;
       delete process.env.WEBHOOK_SECRET_TWO;
     }
-    jest.clearAllMocks();
+    jest.resetAllMocks();
   });
 };
 

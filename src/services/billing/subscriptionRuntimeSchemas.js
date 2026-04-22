@@ -36,7 +36,49 @@ const stripeCheckoutSessionSchema = z
     id: stripeIdSchema,
     mode: z.string().optional(),
     subscription: stripeCustomerSchema.optional(),
+    customer: stripeCustomerSchema.optional(),
+    currency: z.string().trim().min(1).optional(),
+    amount_total: z.number().nonnegative().optional(),
+    payment_status: z.string().trim().min(1).optional(),
     metadata: stripeMetadataSchema.optional(),
+  })
+  .passthrough();
+
+const stripeInvoiceLineSchema = z
+  .object({
+    metadata: stripeMetadataSchema.optional(),
+  })
+  .passthrough();
+
+const stripeInvoiceSchema = z
+  .object({
+    id: stripeIdSchema,
+    customer: stripeCustomerSchema.optional(),
+    subscription: stripeCustomerSchema.optional(),
+    currency: z.string().trim().min(1).optional(),
+    amount_paid: z.number().nonnegative().optional(),
+    number: z.union([z.string().trim().min(1), z.null()]).optional(),
+    created: z.number().int().nonnegative().optional(),
+    metadata: stripeMetadataSchema.optional(),
+    lines: z
+      .object({
+        data: z.array(stripeInvoiceLineSchema).optional(),
+      })
+      .optional(),
+    parent: z
+      .object({
+        subscription_details: z
+          .object({
+            metadata: stripeMetadataSchema.optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    status_transitions: z
+      .object({
+        paid_at: z.union([z.number().int().nonnegative(), z.null()]).optional(),
+      })
+      .optional(),
   })
   .passthrough();
 
@@ -44,4 +86,5 @@ module.exports = {
   createSubscriptionRequestSchema,
   stripeCheckoutSessionSchema,
   stripeSubscriptionSchema,
+  stripeInvoiceSchema,
 };

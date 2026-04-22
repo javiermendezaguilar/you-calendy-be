@@ -3,6 +3,7 @@ const Appointment = require("../../models/appointment");
 const CashSession = require("../../models/cashSession");
 const Payment = require("../../models/payment");
 const WaitlistEntry = require("../../models/waitlistEntry");
+const { buildCommercePaymentFilter } = require("../payment/paymentScope");
 const { getBusinessForOwner } = require("./shared");
 const {
   getQueueResponseForBusiness,
@@ -45,6 +46,7 @@ const buildPaymentSummary = async (businessId, bounds) => {
   const payments = await Payment.find({
     business: businessId,
     capturedAt: { $gte: bounds.start, $lte: bounds.end },
+    ...buildCommercePaymentFilter(),
   }).lean();
 
   const grossCaptured = payments

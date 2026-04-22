@@ -54,6 +54,40 @@ const createSubscriptionDeletedEvent = ({
   },
 });
 
+const createInvoicePaidEvent = ({
+  eventId = "evt_invoice_paid",
+  invoiceId = "in_test_paid",
+  customerId = "cus_test_paid",
+  subscriptionId = "sub_test_paid",
+  businessId,
+  amountPaid = 2900,
+  currency = "eur",
+  paidAt = 1776556800,
+}) => ({
+  id: eventId,
+  type: "invoice.paid",
+  data: {
+    object: {
+      id: invoiceId,
+      customer: customerId,
+      subscription: subscriptionId,
+      amount_paid: amountPaid,
+      currency,
+      number: `INV-${invoiceId}`,
+      status_transitions: {
+        paid_at: paidAt,
+      },
+      parent: {
+        subscription_details: {
+          metadata: {
+            businessId,
+          },
+        },
+      },
+    },
+  },
+});
+
 const registerStripeBillingTestHooks = ({
   clearLegacyWebhookSecrets = false,
 } = {}) => {
@@ -84,5 +118,6 @@ module.exports = {
   mockStripe,
   createWebhookResponse,
   createSubscriptionDeletedEvent,
+  createInvoicePaidEvent,
   registerStripeBillingTestHooks,
 };

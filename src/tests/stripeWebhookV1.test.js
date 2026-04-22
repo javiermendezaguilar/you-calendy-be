@@ -1,10 +1,12 @@
 const CreditProduct = require("../models/creditProduct");
 const Business = require("../models/User/business");
+const Payment = require("../models/payment");
 const request = require("supertest");
 const { createCommerceFixture } = require("./helpers/commerceFixture");
 const {
   mockStripe,
   createWebhookResponse,
+  createInvoicePaidEvent,
   createSubscriptionDeletedEvent,
   registerStripeBillingTestHooks,
 } = require("./helpers/stripeBillingTestHelper");
@@ -173,6 +175,16 @@ describe("Stripe webhook v1", () => {
     expect(res.payload).toBe("Credits added successfully");
     expect(updatedBusiness.smsCredits).toBe(120);
     expect(updatedBusiness.emailCredits).toBe(45);
+
+    const storedPayment = await Payment.findOne({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "checkout_session:cs_credit",
+    }).lean();
+
+    expect(storedPayment).not.toBeNull();
+    expect(storedPayment.method).toBe("stripe");
+    expect(storedPayment.amount).toBe(49);
     expect(mockStripe.webhooks.constructEvent).toHaveBeenCalledWith(
       expect.any(Buffer),
       "sig_credits",
@@ -269,5 +281,59 @@ describe("Stripe webhook v1", () => {
     expect(res.payload).toBe("Subscription canceled");
     expect(updatedBusiness.subscriptionStatus).toBe("canceled");
     expect(updatedBusiness.stripeSubscriptionId).toBe("sub_previous");
+  });
+
+  test("records invoice.paid once even when Stripe retries the same billing event", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Invoice Owner",
+      ownerEmail: "stripe-invoice-owner@example.com",
+      businessName: "Stripe Invoice Shop",
+    });
+
+    const invoiceEvent = createInvoicePaidEvent({
+      eventId: "evt_invoice_paid_once",
+      invoiceId: "in_paid_once",
+      customerId: "cus_invoice",
+      subscriptionId: "sub_invoice",
+      businessId: fixture.business._id.toString(),
+      amountPaid: 3900,
+      currency: "eur",
+      paidAt: 1776556800,
+    });
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(invoiceEvent);
+
+    const firstRes = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_first" },
+      },
+      firstRes
+    );
+
+    const secondRes = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_retry" },
+      },
+      secondRes
+    );
+
+    const storedPayments = await Payment.find({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "invoice:in_paid_once",
+    }).lean();
+
+    expect(firstRes.statusCode).toBe(200);
+    expect(secondRes.statusCode).toBe(200);
+    expect(firstRes.payload).toBe("Invoice payment recorded");
+    expect(secondRes.payload).toBe("Invoice payment recorded");
+    expect(storedPayments).toHaveLength(1);
+    expect(storedPayments[0].amount).toBe(39);
+    expect(storedPayments[0].currency).toBe("EUR");
+    expect(storedPayments[0].providerSubscriptionId).toBe("sub_invoice");
   });
 });

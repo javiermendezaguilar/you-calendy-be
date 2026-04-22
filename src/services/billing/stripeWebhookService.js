@@ -1,13 +1,109 @@
 const stripe = require("./stripeClient");
 const CreditProduct = require("../../models/creditProduct");
 const Business = require("../../models/User/business");
+const Payment = require("../../models/payment");
 const {
   stripeCheckoutSessionSchema,
+  stripeInvoiceSchema,
   stripeSubscriptionSchema,
 } = require("./subscriptionRuntimeSchemas");
 const {
   updateBusinessSubscriptionStatus,
 } = require("./subscriptionStatusService");
+const {
+  PAYMENT_PROVIDER,
+  PAYMENT_SCOPE,
+} = require("../payment/paymentScope");
+
+const normalizeStripeAmount = (value) => {
+  const normalizedValue = Number(value);
+  if (Number.isNaN(normalizedValue) || normalizedValue < 0) {
+    return 0;
+  }
+
+  return Number((normalizedValue / 100).toFixed(2));
+};
+
+const normalizeCurrency = (value, fallback = "USD") => {
+  const normalizedValue = typeof value === "string" ? value.trim() : "";
+  return (normalizedValue || fallback).toUpperCase();
+};
+
+const buildPlatformBillingSnapshot = (amount) => ({
+  subtotal: amount,
+  discountTotal: 0,
+  total: amount,
+  sourcePrice: amount,
+  service: {
+    id: null,
+    name: "",
+  },
+  client: {
+    id: null,
+    firstName: "",
+    lastName: "",
+  },
+  discounts: {
+    promotionAmount: 0,
+    flashSaleAmount: 0,
+  },
+});
+
+const persistPlatformBillingPayment = async ({
+  business,
+  amount,
+  currency,
+  providerReference,
+  providerEventId,
+  providerCustomerId = "",
+  providerSubscriptionId = "",
+  reference = "",
+  capturedAt = new Date(),
+}) => {
+  if (!providerReference) {
+    throw new Error("Platform billing payments require a provider reference");
+  }
+
+  return Payment.findOneAndUpdate(
+    {
+      paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
+      provider: PAYMENT_PROVIDER.STRIPE,
+      providerReference,
+    },
+    {
+      $setOnInsert: {
+        paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
+        business: business._id,
+        status: "captured",
+        method: "stripe",
+        provider: PAYMENT_PROVIDER.STRIPE,
+        providerReference,
+        providerEventId,
+        providerCustomerId,
+        providerSubscriptionId,
+        currency: normalizeCurrency(currency),
+        amount,
+        tip: 0,
+        reference,
+        capturedAt,
+        capturedBy: business.owner || null,
+        snapshot: buildPlatformBillingSnapshot(amount),
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+};
+
+const extractBusinessIdFromInvoice = (invoice) =>
+  invoice.metadata?.businessId ||
+  invoice.parent?.subscription_details?.metadata?.businessId ||
+  invoice.lines?.data?.find((line) => line.metadata?.businessId)?.metadata
+    ?.businessId ||
+  null;
 
 const getStripeWebhookSecretInfo = () => {
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
@@ -82,6 +178,17 @@ const processCreditPurchaseSession = async (session) => {
     (business.emailCredits || 0) + (productDoc.emailCredits || 0);
 
   await business.save();
+  await persistPlatformBillingPayment({
+    business,
+    amount:
+      typeof session.amount_total === "number"
+        ? normalizeStripeAmount(session.amount_total)
+        : Number(productDoc.amount) || 0,
+    currency: session.currency || productDoc.currency || "USD",
+    providerReference: `checkout_session:${session.id}`,
+    providerEventId: session.id,
+    reference: session.id,
+  });
 
   return "Credits added successfully";
 };
@@ -152,6 +259,41 @@ const processSubscriptionLifecycleEvent = async (subscription, fallbackStatus) =
   return "Subscription updated";
 };
 
+const processInvoicePaidEvent = async (invoice, eventId) => {
+  const normalizedInvoice = stripeInvoiceSchema.parse(invoice);
+  const businessId = extractBusinessIdFromInvoice(normalizedInvoice);
+
+  if (!businessId) {
+    return "Invoice metadata missing businessId, skipping";
+  }
+
+  const business = await Business.findById(businessId);
+
+  if (!business) {
+    return "Business not found, skipping";
+  }
+
+  const paidAtSeconds = normalizedInvoice.status_transitions?.paid_at;
+  const capturedAt =
+    typeof paidAtSeconds === "number"
+      ? new Date(paidAtSeconds * 1000)
+      : new Date((normalizedInvoice.created || Math.floor(Date.now() / 1000)) * 1000);
+
+  await persistPlatformBillingPayment({
+    business,
+    amount: normalizeStripeAmount(normalizedInvoice.amount_paid),
+    currency: normalizedInvoice.currency || "USD",
+    providerReference: `invoice:${normalizedInvoice.id}`,
+    providerEventId: eventId,
+    providerCustomerId: normalizedInvoice.customer || "",
+    providerSubscriptionId: normalizedInvoice.subscription || "",
+    reference: normalizedInvoice.number || normalizedInvoice.id,
+    capturedAt,
+  });
+
+  return "Invoice payment recorded";
+};
+
 const processStripeWebhookEvent = async (event) => {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
@@ -161,6 +303,10 @@ const processStripeWebhookEvent = async (event) => {
     }
 
     return processSubscriptionCheckoutSession(session);
+  }
+
+  if (event.type === "invoice.paid") {
+    return processInvoicePaidEvent(event.data.object, event.id || "");
   }
 
   if (

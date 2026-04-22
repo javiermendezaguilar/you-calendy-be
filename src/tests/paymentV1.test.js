@@ -61,6 +61,7 @@ describe("Payment v1", () => {
       checkout: checkout._id,
     }).lean();
     expect(storedPayment).not.toBeNull();
+    expect(storedPayment.paymentScope).toBe("commerce_checkout");
     expect(storedPayment.snapshot.total).toBe(40);
     expect(storedPayment.snapshot.service.name).toBe("Signature Cut");
   });

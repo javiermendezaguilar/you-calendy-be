@@ -1,17 +1,31 @@
 const mongoose = require("mongoose");
 const Schema = mongoose.Schema;
+const {
+  PAYMENT_PROVIDER,
+  PAYMENT_SCOPE,
+} = require("../services/payment/paymentScope");
 
 const paymentSchema = new Schema(
   {
+    paymentScope: {
+      type: String,
+      enum: Object.values(PAYMENT_SCOPE),
+      default: PAYMENT_SCOPE.COMMERCE_CHECKOUT,
+      index: true,
+    },
     checkout: {
       type: Schema.Types.ObjectId,
       ref: "Checkout",
-      required: true,
+      required() {
+        return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
+      },
     },
     appointment: {
       type: Schema.Types.ObjectId,
       ref: "Appointment",
-      required: true,
+      required() {
+        return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
+      },
     },
     business: {
       type: Schema.Types.ObjectId,
@@ -21,7 +35,9 @@ const paymentSchema = new Schema(
     client: {
       type: Schema.Types.ObjectId,
       ref: "Client",
-      required: true,
+      required() {
+        return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
+      },
     },
     staff: {
       type: Schema.Types.ObjectId,
@@ -40,8 +56,32 @@ const paymentSchema = new Schema(
     },
     method: {
       type: String,
-      enum: ["cash", "card_manual", "other"],
+      enum: ["cash", "card_manual", "other", "stripe"],
       required: true,
+    },
+    provider: {
+      type: String,
+      enum: Object.values(PAYMENT_PROVIDER),
+      default: PAYMENT_PROVIDER.INTERNAL,
+    },
+    providerReference: {
+      type: String,
+      trim: true,
+    },
+    providerEventId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    providerCustomerId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    providerSubscriptionId: {
+      type: String,
+      trim: true,
+      default: "",
     },
     currency: {
       type: String,
@@ -81,7 +121,9 @@ const paymentSchema = new Schema(
     capturedBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required() {
+        return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
+      },
     },
     voidedAt: {
       type: Date,
@@ -161,14 +203,30 @@ const paymentSchema = new Schema(
 );
 
 paymentSchema.index(
-  { checkout: 1, status: 1 },
+  { paymentScope: 1, checkout: 1, status: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: "captured" },
+    partialFilterExpression: {
+      paymentScope: PAYMENT_SCOPE.COMMERCE_CHECKOUT,
+      status: "captured",
+      checkout: { $exists: true },
+    },
   }
 );
 
-paymentSchema.index({ business: 1, capturedAt: -1 });
+paymentSchema.index(
+  { paymentScope: 1, provider: 1, providerReference: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
+      provider: PAYMENT_PROVIDER.STRIPE,
+      providerReference: { $exists: true },
+    },
+  }
+);
+
+paymentSchema.index({ business: 1, paymentScope: 1, capturedAt: -1 });
 paymentSchema.index({ appointment: 1, capturedAt: -1 });
 paymentSchema.index({ cashSession: 1, capturedAt: -1 });
 

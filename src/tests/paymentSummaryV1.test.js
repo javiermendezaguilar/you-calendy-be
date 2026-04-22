@@ -1,6 +1,7 @@
 const request = require("supertest");
 const app = require("../app");
 const Checkout = require("../models/checkout");
+const Payment = require("../models/payment");
 const Refund = require("../models/refund");
 const {
   createPaymentCommerceFixture,
@@ -141,6 +142,33 @@ describe("Payment summary v1", () => {
       status: "voided",
       capturedAt: new Date("2026-04-19T11:10:00.000Z"),
       reference: "summary-voided",
+    });
+
+    await Payment.create({
+      paymentScope: "platform_billing",
+      business: fixture.business._id,
+      status: "captured",
+      method: "stripe",
+      provider: "stripe",
+      providerReference: "invoice:summary-platform",
+      providerEventId: "evt_summary_platform",
+      providerCustomerId: "cus_summary_platform",
+      providerSubscriptionId: "sub_summary_platform",
+      currency: "EUR",
+      amount: 99,
+      tip: 0,
+      reference: "summary-platform",
+      capturedAt: new Date("2026-04-19T12:10:00.000Z"),
+      capturedBy: fixture.owner._id,
+      snapshot: {
+        subtotal: 99,
+        discountTotal: 0,
+        total: 99,
+        sourcePrice: 99,
+        service: { id: null, name: "" },
+        client: { id: null, firstName: "", lastName: "" },
+        discounts: { promotionAmount: 0, flashSaleAmount: 0 },
+      },
     });
   });
 

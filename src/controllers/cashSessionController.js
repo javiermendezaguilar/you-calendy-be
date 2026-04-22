@@ -1,6 +1,7 @@
 const CashSession = require("../models/cashSession");
 const Payment = require("../models/payment");
 const { resolveBusinessOrReply } = require("./commerceShared");
+const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -164,6 +165,7 @@ const closeCashSession = async (req, res) => {
       cashSession: cashSession._id,
       status: "captured",
       method: "cash",
+      ...buildCommercePaymentFilter(),
     }).sort({ capturedAt: 1 });
 
     const cashSalesTotal = payments.reduce(

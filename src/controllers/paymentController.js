@@ -5,6 +5,7 @@ const Payment = require("../models/payment");
 const Refund = require("../models/refund");
 const { resolveBusinessOrReply } = require("./commerceShared");
 const { recordDomainEvent } = require("../services/domainEventService");
+const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -53,10 +54,10 @@ const hydratePayment = (paymentId) => applyPaymentPopulate(Payment.findById(paym
 const hydrateRefund = (refundId) => applyRefundPopulate(Refund.findById(refundId));
 
 const getOwnedPayment = (paymentId, businessId) =>
-  Payment.findOne({
+  Payment.findOne(buildCommercePaymentFilter({
     _id: paymentId,
     business: businessId,
-  });
+  }));
 
 const getOwnedPaymentOrReply = async (
   req,
@@ -124,6 +125,7 @@ const recalculateCashSessionSummary = async (cashSessionId) => {
     cashSession: cashSession._id,
     method: "cash",
     status: "captured",
+    ...buildCommercePaymentFilter(),
   });
 
   const cashSalesTotal = cashPayments.reduce(
@@ -171,6 +173,7 @@ const capturePayment = async (req, res) => {
     const existingPayment = await Payment.findOne({
       checkout: checkout._id,
       status: "captured",
+      ...buildCommercePaymentFilter(),
     });
 
     if (existingPayment) {
@@ -223,6 +226,7 @@ const capturePayment = async (req, res) => {
     }
 
     const payment = await Payment.create({
+      paymentScope: "commerce_checkout",
       checkout: checkout._id,
       appointment: checkout.appointment,
       business: checkout.business,
@@ -299,6 +303,7 @@ const getPaymentByCheckout = async (req, res) => {
     const payment = await applyPaymentPopulate(Payment.findOne({
       checkout: req.params.checkoutId,
       business: business._id,
+      ...buildCommercePaymentFilter(),
     }))
       .sort({ createdAt: -1 });
 
@@ -513,6 +518,7 @@ const getPaymentSummary = async (req, res) => {
       Payment.find({
         business: business._id,
         ...paymentDateFilter,
+        ...buildCommercePaymentFilter(),
       }).lean(),
       Refund.find({
         business: business._id,

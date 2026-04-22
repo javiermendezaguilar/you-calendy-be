@@ -54,6 +54,41 @@ const createSubscriptionDeletedEvent = ({
   },
 });
 
+const buildInvoiceEvent = ({
+  eventId,
+  eventType,
+  invoiceId,
+  customerId,
+  subscriptionId,
+  businessId,
+  currency = "eur",
+  status,
+  created = 1776556800,
+  extraFields = {},
+}) => ({
+  id: eventId,
+  type: eventType,
+  data: {
+    object: {
+      id: invoiceId,
+      customer: customerId,
+      subscription: subscriptionId,
+      currency,
+      status,
+      number: `INV-${invoiceId}`,
+      created,
+      parent: {
+        subscription_details: {
+          metadata: {
+            businessId,
+          },
+        },
+      },
+      ...extraFields,
+    },
+  },
+});
+
 const createInvoicePaidEvent = ({
   eventId = "evt_invoice_paid",
   invoiceId = "in_test_paid",
@@ -63,30 +98,74 @@ const createInvoicePaidEvent = ({
   amountPaid = 2900,
   currency = "eur",
   paidAt = 1776556800,
-}) => ({
-  id: eventId,
-  type: "invoice.paid",
-  data: {
-    object: {
-      id: invoiceId,
-      customer: customerId,
-      subscription: subscriptionId,
+}) =>
+  buildInvoiceEvent({
+    eventId,
+    eventType: "invoice.paid",
+    invoiceId,
+    customerId,
+    subscriptionId,
+    businessId,
+    currency,
+    extraFields: {
       amount_paid: amountPaid,
-      currency,
-      number: `INV-${invoiceId}`,
       status_transitions: {
         paid_at: paidAt,
       },
-      parent: {
-        subscription_details: {
-          metadata: {
-            businessId,
-          },
-        },
-      },
     },
-  },
-});
+  });
+
+const createInvoicePaymentFailedEvent = ({
+  eventId = "evt_invoice_failed",
+  invoiceId = "in_test_failed",
+  customerId = "cus_test_failed",
+  subscriptionId = "sub_test_failed",
+  businessId,
+  amountDue = 2900,
+  currency = "eur",
+  created = 1776556800,
+  status = "open",
+}) =>
+  buildInvoiceEvent({
+    eventId,
+    eventType: "invoice.payment_failed",
+    invoiceId,
+    customerId,
+    subscriptionId,
+    businessId,
+    currency,
+    created,
+    status,
+    extraFields: {
+      amount_due: amountDue,
+    },
+  });
+
+const createInvoiceVoidedEvent = ({
+  eventId = "evt_invoice_voided",
+  invoiceId = "in_test_voided",
+  customerId = "cus_test_voided",
+  subscriptionId = "sub_test_voided",
+  businessId,
+  amountDue = 2900,
+  currency = "eur",
+  created = 1776556800,
+  status = "void",
+}) =>
+  buildInvoiceEvent({
+    eventId,
+    eventType: "invoice.voided",
+    invoiceId,
+    customerId,
+    subscriptionId,
+    businessId,
+    currency,
+    created,
+    status,
+    extraFields: {
+      amount_due: amountDue,
+    },
+  });
 
 const registerStripeBillingTestHooks = ({
   clearLegacyWebhookSecrets = false,
@@ -119,5 +198,7 @@ module.exports = {
   createWebhookResponse,
   createSubscriptionDeletedEvent,
   createInvoicePaidEvent,
+  createInvoicePaymentFailedEvent,
+  createInvoiceVoidedEvent,
   registerStripeBillingTestHooks,
 };

@@ -49,8 +49,32 @@ const buildPlatformBillingSnapshot = (amount) => ({
   },
 });
 
-const persistPlatformBillingPayment = async ({
+const resolveInvoiceAmount = (invoice) => {
+  if (typeof invoice.amount_paid === "number" && invoice.amount_paid > 0) {
+    return normalizeStripeAmount(invoice.amount_paid);
+  }
+
+  if (typeof invoice.amount_due === "number" && invoice.amount_due >= 0) {
+    return normalizeStripeAmount(invoice.amount_due);
+  }
+
+  if (typeof invoice.total === "number" && invoice.total >= 0) {
+    return normalizeStripeAmount(invoice.total);
+  }
+
+  if (
+    typeof invoice.amount_remaining === "number" &&
+    invoice.amount_remaining >= 0
+  ) {
+    return normalizeStripeAmount(invoice.amount_remaining);
+  }
+
+  return 0;
+};
+
+const upsertPlatformBillingPayment = async ({
   business,
+  status = "captured",
   amount,
   currency,
   providerReference,
@@ -59,43 +83,86 @@ const persistPlatformBillingPayment = async ({
   providerSubscriptionId = "",
   reference = "",
   capturedAt = new Date(),
+  failedAt = null,
+  failureReason = "",
+  voidedAt = null,
+  voidReason = "",
 }) => {
   if (!providerReference) {
     throw new Error("Platform billing payments require a provider reference");
   }
 
-  return Payment.findOneAndUpdate(
-    {
-      paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
-      provider: PAYMENT_PROVIDER.STRIPE,
-      providerReference,
-    },
-    {
-      $setOnInsert: {
-        paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
-        business: business._id,
-        status: "captured",
-        method: "stripe",
-        provider: PAYMENT_PROVIDER.STRIPE,
-        providerReference,
-        providerEventId,
-        providerCustomerId,
-        providerSubscriptionId,
-        currency: normalizeCurrency(currency),
-        amount,
-        tip: 0,
-        reference,
-        capturedAt,
-        capturedBy: business.owner || null,
-        snapshot: buildPlatformBillingSnapshot(amount),
-      },
-    },
-    {
-      new: true,
-      upsert: true,
-      setDefaultsOnInsert: true,
+  const existingPayment = await Payment.findOne({
+    paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
+    provider: PAYMENT_PROVIDER.STRIPE,
+    providerReference,
+  });
+
+  if (existingPayment) {
+    if (existingPayment.status === "captured" && status !== "captured") {
+      return existingPayment;
     }
-  );
+
+    existingPayment.status = status;
+    existingPayment.providerEventId = providerEventId || existingPayment.providerEventId;
+    existingPayment.providerCustomerId =
+      providerCustomerId || existingPayment.providerCustomerId;
+    existingPayment.providerSubscriptionId =
+      providerSubscriptionId || existingPayment.providerSubscriptionId;
+    existingPayment.currency = normalizeCurrency(
+      currency,
+      existingPayment.currency || "USD"
+    );
+    existingPayment.amount = amount;
+    existingPayment.reference = reference || existingPayment.reference;
+    existingPayment.snapshot = buildPlatformBillingSnapshot(amount);
+
+    if (status === "captured") {
+      existingPayment.capturedAt = capturedAt;
+      existingPayment.failedAt = null;
+      existingPayment.failureReason = "";
+      existingPayment.voidedAt = null;
+      existingPayment.voidReason = "";
+    }
+
+    if (status === "failed") {
+      existingPayment.failedAt = failedAt || new Date();
+      existingPayment.failureReason = failureReason || "";
+      existingPayment.voidedAt = null;
+      existingPayment.voidReason = "";
+    }
+
+    if (status === "voided") {
+      existingPayment.voidedAt = voidedAt || new Date();
+      existingPayment.voidReason = voidReason || "";
+    }
+
+    await existingPayment.save();
+    return existingPayment;
+  }
+
+  return Payment.create({
+    paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
+    business: business._id,
+    status,
+    method: "stripe",
+    provider: PAYMENT_PROVIDER.STRIPE,
+    providerReference,
+    providerEventId,
+    providerCustomerId,
+    providerSubscriptionId,
+    currency: normalizeCurrency(currency),
+    amount,
+    tip: 0,
+    reference,
+    capturedAt,
+    capturedBy: business.owner || null,
+    failedAt,
+    failureReason,
+    voidedAt,
+    voidReason,
+    snapshot: buildPlatformBillingSnapshot(amount),
+  });
 };
 
 const extractBusinessIdFromInvoice = (invoice) =>
@@ -178,8 +245,9 @@ const processCreditPurchaseSession = async (session) => {
     (business.emailCredits || 0) + (productDoc.emailCredits || 0);
 
   await business.save();
-  await persistPlatformBillingPayment({
+  await upsertPlatformBillingPayment({
     business,
+    status: "captured",
     amount:
       typeof session.amount_total === "number"
         ? normalizeStripeAmount(session.amount_total)
@@ -279,8 +347,9 @@ const processInvoicePaidEvent = async (invoice, eventId) => {
       ? new Date(paidAtSeconds * 1000)
       : new Date((normalizedInvoice.created || Math.floor(Date.now() / 1000)) * 1000);
 
-  await persistPlatformBillingPayment({
+  await upsertPlatformBillingPayment({
     business,
+    status: "captured",
     amount: normalizeStripeAmount(normalizedInvoice.amount_paid),
     currency: normalizedInvoice.currency || "USD",
     providerReference: `invoice:${normalizedInvoice.id}`,
@@ -293,6 +362,94 @@ const processInvoicePaidEvent = async (invoice, eventId) => {
 
   return "Invoice payment recorded";
 };
+
+const syncBusinessSubscriptionFromInvoice = async (business, invoice) => {
+  if (!invoice.subscription) {
+    return null;
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+  return updateBusinessSubscriptionStatus(business, subscription, {
+    allowReplace: false,
+  });
+};
+
+const resolveInvoiceEventCapturedAt = (invoice) =>
+  new Date((invoice.created || Math.floor(Date.now() / 1000)) * 1000);
+
+const getInvoiceEventResultMessage = (status) => {
+  if (status === "failed") {
+    return "Invoice payment failure recorded";
+  }
+
+  if (status === "voided") {
+    return "Invoice void recorded";
+  }
+
+  return "Invoice event recorded";
+};
+
+const processNegativeInvoiceEvent = async ({
+  invoice,
+  eventId,
+  status,
+  failureReason = "",
+  voidReason = "",
+  syncSubscription = false,
+}) => {
+  const normalizedInvoice = stripeInvoiceSchema.parse(invoice);
+  const businessId = extractBusinessIdFromInvoice(normalizedInvoice);
+
+  if (!businessId) {
+    return "Invoice metadata missing businessId, skipping";
+  }
+
+  const business = await Business.findById(businessId);
+  if (!business) {
+    return "Business not found, skipping";
+  }
+
+  const eventDate = resolveInvoiceEventCapturedAt(normalizedInvoice);
+
+  await upsertPlatformBillingPayment({
+    business,
+    status,
+    amount: resolveInvoiceAmount(normalizedInvoice),
+    currency: normalizedInvoice.currency || "USD",
+    providerReference: `invoice:${normalizedInvoice.id}`,
+    providerEventId: eventId,
+    providerCustomerId: normalizedInvoice.customer || "",
+    providerSubscriptionId: normalizedInvoice.subscription || "",
+    reference: normalizedInvoice.number || normalizedInvoice.id,
+    failedAt: status === "failed" ? eventDate : null,
+    failureReason,
+    voidedAt: status === "voided" ? eventDate : null,
+    voidReason,
+  });
+
+  if (syncSubscription) {
+    await syncBusinessSubscriptionFromInvoice(business, normalizedInvoice);
+  }
+
+  return getInvoiceEventResultMessage(status);
+};
+
+const processInvoicePaymentFailedEvent = async (invoice, eventId) =>
+  processNegativeInvoiceEvent({
+    invoice,
+    eventId,
+    status: "failed",
+    failureReason: stripeInvoiceSchema.parse(invoice).status || "payment_failed",
+    syncSubscription: true,
+  });
+
+const processInvoiceVoidedEvent = async (invoice, eventId) =>
+  processNegativeInvoiceEvent({
+    invoice,
+    eventId,
+    status: "voided",
+    voidReason: stripeInvoiceSchema.parse(invoice).status || "invoice_voided",
+  });
 
 const processStripeWebhookEvent = async (event) => {
   if (event.type === "checkout.session.completed") {
@@ -307,6 +464,14 @@ const processStripeWebhookEvent = async (event) => {
 
   if (event.type === "invoice.paid") {
     return processInvoicePaidEvent(event.data.object, event.id || "");
+  }
+
+  if (event.type === "invoice.payment_failed") {
+    return processInvoicePaymentFailedEvent(event.data.object, event.id || "");
+  }
+
+  if (event.type === "invoice.voided") {
+    return processInvoiceVoidedEvent(event.data.object, event.id || "");
   }
 
   if (

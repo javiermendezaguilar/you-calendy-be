@@ -53,10 +53,17 @@ const stripeInvoiceLineSchema = z
 const stripeInvoiceSchema = z
   .object({
     id: stripeIdSchema,
+    status: z.string().trim().min(1).optional(),
     customer: stripeCustomerSchema.optional(),
     subscription: stripeCustomerSchema.optional(),
     currency: z.string().trim().min(1).optional(),
     amount_paid: z.number().nonnegative().optional(),
+    amount_due: z.number().nonnegative().optional(),
+    total: z.number().optional(),
+    amount_remaining: z.number().optional(),
+    attempt_count: z.number().int().nonnegative().optional(),
+    attempted: z.boolean().optional(),
+    hosted_invoice_url: z.union([z.string().trim().min(1), z.null()]).optional(),
     number: z.union([z.string().trim().min(1), z.null()]).optional(),
     created: z.number().int().nonnegative().optional(),
     metadata: stripeMetadataSchema.optional(),

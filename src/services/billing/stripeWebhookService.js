@@ -374,7 +374,29 @@ const syncBusinessSubscriptionFromInvoice = async (business, invoice) => {
   });
 };
 
-const processInvoicePaymentFailedEvent = async (invoice, eventId) => {
+const resolveInvoiceEventCapturedAt = (invoice) =>
+  new Date((invoice.created || Math.floor(Date.now() / 1000)) * 1000);
+
+const getInvoiceEventResultMessage = (status) => {
+  if (status === "failed") {
+    return "Invoice payment failure recorded";
+  }
+
+  if (status === "voided") {
+    return "Invoice void recorded";
+  }
+
+  return "Invoice event recorded";
+};
+
+const processNegativeInvoiceEvent = async ({
+  invoice,
+  eventId,
+  status,
+  failureReason = "",
+  voidReason = "",
+  syncSubscription = false,
+}) => {
   const normalizedInvoice = stripeInvoiceSchema.parse(invoice);
   const businessId = extractBusinessIdFromInvoice(normalizedInvoice);
 
@@ -387,57 +409,47 @@ const processInvoicePaymentFailedEvent = async (invoice, eventId) => {
     return "Business not found, skipping";
   }
 
+  const eventDate = resolveInvoiceEventCapturedAt(normalizedInvoice);
+
   await upsertPlatformBillingPayment({
     business,
+    status,
+    amount: resolveInvoiceAmount(normalizedInvoice),
+    currency: normalizedInvoice.currency || "USD",
+    providerReference: `invoice:${normalizedInvoice.id}`,
+    providerEventId: eventId,
+    providerCustomerId: normalizedInvoice.customer || "",
+    providerSubscriptionId: normalizedInvoice.subscription || "",
+    reference: normalizedInvoice.number || normalizedInvoice.id,
+    failedAt: status === "failed" ? eventDate : null,
+    failureReason,
+    voidedAt: status === "voided" ? eventDate : null,
+    voidReason,
+  });
+
+  if (syncSubscription) {
+    await syncBusinessSubscriptionFromInvoice(business, normalizedInvoice);
+  }
+
+  return getInvoiceEventResultMessage(status);
+};
+
+const processInvoicePaymentFailedEvent = async (invoice, eventId) =>
+  processNegativeInvoiceEvent({
+    invoice,
+    eventId,
     status: "failed",
-    amount: resolveInvoiceAmount(normalizedInvoice),
-    currency: normalizedInvoice.currency || "USD",
-    providerReference: `invoice:${normalizedInvoice.id}`,
-    providerEventId: eventId,
-    providerCustomerId: normalizedInvoice.customer || "",
-    providerSubscriptionId: normalizedInvoice.subscription || "",
-    reference: normalizedInvoice.number || normalizedInvoice.id,
-    failedAt: new Date(
-      (normalizedInvoice.created || Math.floor(Date.now() / 1000)) * 1000
-    ),
-    failureReason: normalizedInvoice.status || "payment_failed",
+    failureReason: stripeInvoiceSchema.parse(invoice).status || "payment_failed",
+    syncSubscription: true,
   });
 
-  await syncBusinessSubscriptionFromInvoice(business, normalizedInvoice);
-  return "Invoice payment failure recorded";
-};
-
-const processInvoiceVoidedEvent = async (invoice, eventId) => {
-  const normalizedInvoice = stripeInvoiceSchema.parse(invoice);
-  const businessId = extractBusinessIdFromInvoice(normalizedInvoice);
-
-  if (!businessId) {
-    return "Invoice metadata missing businessId, skipping";
-  }
-
-  const business = await Business.findById(businessId);
-  if (!business) {
-    return "Business not found, skipping";
-  }
-
-  await upsertPlatformBillingPayment({
-    business,
+const processInvoiceVoidedEvent = async (invoice, eventId) =>
+  processNegativeInvoiceEvent({
+    invoice,
+    eventId,
     status: "voided",
-    amount: resolveInvoiceAmount(normalizedInvoice),
-    currency: normalizedInvoice.currency || "USD",
-    providerReference: `invoice:${normalizedInvoice.id}`,
-    providerEventId: eventId,
-    providerCustomerId: normalizedInvoice.customer || "",
-    providerSubscriptionId: normalizedInvoice.subscription || "",
-    reference: normalizedInvoice.number || normalizedInvoice.id,
-    voidedAt: new Date(
-      (normalizedInvoice.created || Math.floor(Date.now() / 1000)) * 1000
-    ),
-    voidReason: normalizedInvoice.status || "invoice_voided",
+    voidReason: stripeInvoiceSchema.parse(invoice).status || "invoice_voided",
   });
-
-  return "Invoice void recorded";
-};
 
 const processStripeWebhookEvent = async (event) => {
   if (event.type === "checkout.session.completed") {

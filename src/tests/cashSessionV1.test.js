@@ -185,6 +185,20 @@ describe("CashSession v1", () => {
     expect(secondOpenRes.body.message).toMatch(/openingFloat must match/i);
   });
 
+  test("rejects cash session handoff when handoffFromSessionId is not a valid object id", async () => {
+    const openRes = await request(app)
+      .post("/cash-sessions/open")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        openingFloat: 50,
+        currency: "EUR",
+        handoffFromSessionId: "not-a-valid-id",
+      });
+
+    expect(openRes.status).toBe(400);
+    expect(openRes.body.message).toMatch(/handoffFromSessionId must be a valid/i);
+  });
+
   test("requires an opening note for manual cash session adjustment", async () => {
     const openWithoutNoteRes = await request(app)
       .post("/cash-sessions/open")

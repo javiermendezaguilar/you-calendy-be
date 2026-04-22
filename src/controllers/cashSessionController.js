@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const CashSession = require("../models/cashSession");
 const Payment = require("../models/payment");
 const { resolveBusinessOrReply } = require("./commerceShared");
@@ -220,6 +221,15 @@ const openCashSession = async (req, res) => {
     let handoffFrom = null;
 
     if (req.body.handoffFromSessionId) {
+      if (!mongoose.Types.ObjectId.isValid(req.body.handoffFromSessionId)) {
+        return ErrorHandler(
+          "handoffFromSessionId must be a valid cash session id",
+          400,
+          req,
+          res
+        );
+      }
+
       handoffFrom = await CashSession.findOne({
         _id: req.body.handoffFromSessionId,
         business: business._id,

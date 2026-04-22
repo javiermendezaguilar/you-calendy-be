@@ -61,23 +61,35 @@ const stripeInvoiceSchema = z
     created: z.number().int().nonnegative().optional(),
     metadata: stripeMetadataSchema.optional(),
     lines: z
-      .object({
-        data: z.array(stripeInvoiceLineSchema).optional(),
-      })
+      .union([
+        z.object({
+          data: z.array(stripeInvoiceLineSchema).optional(),
+        }),
+        z.null(),
+      ])
       .optional(),
     parent: z
-      .object({
-        subscription_details: z
-          .object({
-            metadata: stripeMetadataSchema.optional(),
-          })
-          .optional(),
-      })
+      .union([
+        z.object({
+          subscription_details: z
+            .union([
+              z.object({
+                metadata: stripeMetadataSchema.optional(),
+              }),
+              z.null(),
+            ])
+            .optional(),
+        }),
+        z.null(),
+      ])
       .optional(),
     status_transitions: z
-      .object({
-        paid_at: z.union([z.number().int().nonnegative(), z.null()]).optional(),
-      })
+      .union([
+        z.object({
+          paid_at: z.union([z.number().int().nonnegative(), z.null()]).optional(),
+        }),
+        z.null(),
+      ])
       .optional(),
   })
   .passthrough();

@@ -10,6 +10,7 @@
     "swagger": "node ./swagger.js",
     "seed:gallery": "node ./seeds/gallerySeeder.js",
     "stripe:clock": "node ./scripts/stripe-test-clock.mjs",
+    "payments:reconcile-indexes": "node ./scripts/reconcile-payment-indexes.js",
     "migrate:legacy-gallery": "node ./scripts/migrateLegacyHaircutGallery.js"
   },
   "engines": {

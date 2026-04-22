@@ -36,6 +36,27 @@ const cashSessionSchema = new Schema(
       required: true,
       min: 0,
     },
+    openingSource: {
+      type: String,
+      enum: ["manual", "handoff"],
+      default: "manual",
+    },
+    openingReason: {
+      type: String,
+      enum: ["manual_start", "manual_adjustment", "handoff"],
+      default: "manual_start",
+    },
+    openingNote: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 500,
+    },
+    handoffFrom: {
+      type: Schema.Types.ObjectId,
+      ref: "CashSession",
+      default: null,
+    },
     closingExpected: {
       type: Number,
       default: 0,
@@ -71,6 +92,17 @@ const cashSessionSchema = new Schema(
     variance: {
       type: Number,
       default: 0,
+    },
+    varianceStatus: {
+      type: String,
+      enum: ["exact", "over", "short"],
+      default: "exact",
+    },
+    closingNote: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 500,
     },
     payments: [
       {

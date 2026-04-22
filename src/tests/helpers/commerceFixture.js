@@ -268,6 +268,9 @@ const openCashSessionForToken = async (app, token, overrides = {}) => {
         .send({
           openingFloat: overrides.openingFloat ?? 50,
           currency: overrides.currency || "EUR",
+          openingReason: overrides.openingReason || "manual_start",
+          openingNote: overrides.openingNote || "",
+          handoffFromSessionId: overrides.handoffFromSessionId || undefined,
         })
     : null;
 };

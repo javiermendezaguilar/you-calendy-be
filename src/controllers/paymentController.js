@@ -124,23 +124,36 @@ const recalculateCashSessionSummary = async (cashSessionId) => {
   const cashPayments = await Payment.find({
     cashSession: cashSession._id,
     method: "cash",
-    status: "captured",
+    status: { $in: ["captured", "refunded_partial", "refunded_full"] },
     ...buildCommercePaymentFilter(),
   });
 
-  const cashSalesTotal = cashPayments.reduce(
-    (sum, payment) => sum + (Number(payment.amount) || 0),
+  const summarizedPayments = cashPayments
+    .map((payment) => {
+      const amount = Number(payment.amount) || 0;
+      const refundedTotal = Number(payment.refundedTotal) || 0;
+      const netAmount = Math.max(amount - refundedTotal, 0);
+
+      return {
+        payment,
+        netAmount,
+      };
+    })
+    .filter(({ netAmount }) => netAmount > 0);
+
+  const cashSalesTotal = summarizedPayments.reduce(
+    (sum, { netAmount }) => sum + netAmount,
     0
   );
   const tipsTotal = cashPayments.reduce(
     (sum, payment) => sum + (Number(payment.tip) || 0),
     0
   );
-  const transactionCount = cashPayments.length;
+  const transactionCount = summarizedPayments.length;
   const expectedDrawerTotal =
     (Number(cashSession.openingFloat) || 0) + cashSalesTotal;
 
-  cashSession.payments = cashPayments.map((payment) => payment._id);
+  cashSession.payments = summarizedPayments.map(({ payment }) => payment._id);
   cashSession.closingExpected = expectedDrawerTotal;
   cashSession.summary = {
     cashSalesTotal,
@@ -355,6 +368,19 @@ const refundPayment = async (req, res) => {
       );
     }
 
+    if (payment.method === "cash" && payment.cashSession) {
+      const cashSession = await CashSession.findById(payment.cashSession);
+
+      if (cashSession && cashSession.status !== "open") {
+        return ErrorHandler(
+          "Cash payments from a closed cash session cannot be refunded",
+          409,
+          req,
+          res
+        );
+      }
+    }
+
     const refund = await Refund.create({
       payment: payment._id,
       checkout: payment.checkout,
@@ -389,6 +415,11 @@ const refundPayment = async (req, res) => {
         paymentStatus: "Refunded",
       });
     }
+
+    if (payment.method === "cash" && payment.cashSession) {
+      await recalculateCashSessionSummary(payment.cashSession);
+    }
+
     await recordDomainEvent({
       type: "payment_refunded",
       actorId: req.user._id || req.user.id,

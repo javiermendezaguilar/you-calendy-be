@@ -23,8 +23,8 @@ describe("Operational dashboard v1", () => {
     fixture = paymentFixture.fixture;
     checkout = paymentFixture.checkout;
     token = paymentFixture.token;
-    today = moment().format("YYYY-MM-DD");
-    const stuckAppointmentStart = moment().subtract(90, "minutes");
+    today = "2026-05-01";
+    const stuckAppointmentStart = moment(`${today} 08:00`, "YYYY-MM-DD HH:mm");
 
     await assignPrimaryServiceToStaff(fixture.staff, fixture.service, 30);
 
@@ -54,8 +54,9 @@ describe("Operational dashboard v1", () => {
     const waitlistWindowStart = "10:00";
     const waitlistWindowEnd = "12:00";
     const dashboardFromTime = "09:30";
+    const operationalTimestamp = new Date(`${today}T11:00:00.000Z`);
 
-    await request(app)
+    const walkInRes = await request(app)
       .post("/business/walk-ins")
       .set("Authorization", `Bearer ${token}`)
       .send({
@@ -65,8 +66,9 @@ describe("Operational dashboard v1", () => {
         date: today,
         startTime: queueStartTime,
       });
+    expect(walkInRes.status).toBe(201);
 
-    await request(app)
+    const waitlistRes = await request(app)
       .post("/business/waitlist")
       .set("Authorization", `Bearer ${token}`)
       .send({
@@ -78,6 +80,7 @@ describe("Operational dashboard v1", () => {
         timeWindowEnd: waitlistWindowEnd,
         notes: "dashboard fit",
       });
+    expect(waitlistRes.status).toBe(201);
 
     const cashSession = await CashSession.create({
       business: fixture.business._id,
@@ -91,7 +94,7 @@ describe("Operational dashboard v1", () => {
         transactionCount: 1,
         expectedDrawerTotal: 95,
       },
-      openedAt: new Date(),
+      openedAt: operationalTimestamp,
       openedBy: fixture.owner._id,
     });
 
@@ -99,7 +102,7 @@ describe("Operational dashboard v1", () => {
       method: "cash",
       amount: 40,
       tip: 5,
-      capturedAt: new Date(),
+      capturedAt: operationalTimestamp,
     });
 
     payment.cashSession = cashSession._id;

@@ -8,6 +8,12 @@ const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
 setupCommerceTestSuite();
 
+const buildFutureDate = (daysAhead = 7) => {
+  const date = new Date();
+  date.setDate(date.getDate() + daysAhead);
+  return date.toISOString().slice(0, 10);
+};
+
 describe("Domain event v1", () => {
   test("records checkout, payment, refund and rebooking events and exposes them by business", async () => {
     const fixture = await createOperationalCommerceFixture({
@@ -57,7 +63,7 @@ describe("Domain event v1", () => {
       .post(`/checkout/${checkoutId}/rebook`)
       .set("Authorization", `Bearer ${fixture.token}`)
       .send({
-        date: "2026-04-21",
+        date: buildFutureDate(),
         startTime: "12:00",
       });
 

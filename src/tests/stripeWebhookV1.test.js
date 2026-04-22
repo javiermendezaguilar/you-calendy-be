@@ -25,6 +25,101 @@ const {
 registerStripeBillingTestHooks({ clearLegacyWebhookSecrets: true });
 
 describe("Stripe webhook v1", () => {
+  test("logs structured outcome metadata for invoice.paid", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Outcome Owner",
+      ownerEmail: "stripe-outcome-owner@example.com",
+      businessName: "Stripe Outcome Shop",
+    });
+
+    const invoiceEvent = createInvoicePaidEvent({
+      eventId: "evt_invoice_paid_observed",
+      invoiceId: "in_paid_observed",
+      customerId: "cus_observed",
+      subscriptionId: "sub_observed",
+      businessId: fixture.business._id.toString(),
+      amountPaid: 2500,
+      currency: "eur",
+      paidAt: 1776556800,
+    });
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(invoiceEvent);
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    const res = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_observed" },
+      },
+      res
+    );
+
+    const outcomeCall = consoleSpy.mock.calls.find(
+      (call) => call[0] === "Stripe webhook outcome:"
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(outcomeCall).toBeDefined();
+    expect(outcomeCall[1]).toContain('"eventType":"invoice.paid"');
+    expect(outcomeCall[1]).toContain('"businessId"');
+    expect(outcomeCall[1]).toContain('"providerReference":"invoice:in_paid_observed"');
+
+    consoleSpy.mockRestore();
+  });
+
+  test("logs when a stale subscription event is ignored", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Stale Owner",
+      ownerEmail: "stripe-stale-owner@example.com",
+      businessName: "Stripe Stale Shop",
+    });
+
+    fixture.business.subscriptionStatus = "active";
+    fixture.business.stripeSubscriptionId = "sub_canonical";
+    fixture.business.stripeCustomerId = "cus_canonical";
+    await fixture.business.save();
+
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_stale",
+          status: "active",
+          customer: "cus_stale",
+          metadata: {
+            businessId: fixture.business._id.toString(),
+          },
+        },
+      },
+    });
+
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    const res = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_stale" },
+      },
+      res
+    );
+
+    const updatedBusiness = await Business.findById(fixture.business._id).lean();
+    const outcomeCall = consoleSpy.mock.calls.find(
+      (call) => call[0] === "Stripe webhook outcome:"
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Stale subscription event ignored");
+    expect(updatedBusiness.stripeSubscriptionId).toBe("sub_canonical");
+    expect(outcomeCall).toBeDefined();
+    expect(outcomeCall[1]).toContain('"stale":true');
+    expect(outcomeCall[1]).toContain('"reason":"stale_subscription_event"');
+
+    consoleSpy.mockRestore();
+  });
+
   test("keeps /webhook/stripe as the only supported public webhook route", async () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_canonical";
     delete process.env.WEBHOOK_SECRET_ONE;

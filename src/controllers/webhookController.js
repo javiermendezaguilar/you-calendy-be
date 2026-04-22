@@ -5,6 +5,21 @@ const {
   processStripeWebhookEvent,
 } = require("../services/billing/stripeWebhookService");
 
+const logStripeWebhookOutcome = (result) => {
+  if (!result || typeof result !== "object") {
+    return;
+  }
+
+  const meta = result.meta || {};
+  console.log(
+    "Stripe webhook outcome:",
+    JSON.stringify({
+      message: result.message,
+      ...meta,
+    })
+  );
+};
+
 // Stripe webhook to fulfill credit purchases and subscription payments
 const handleStripeWebhook = async (req, res) => {
   try {
@@ -30,8 +45,9 @@ const handleStripeWebhook = async (req, res) => {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    const message = await processStripeWebhookEvent(event);
-    return res.status(200).send(message);
+    const result = await processStripeWebhookEvent(event);
+    logStripeWebhookOutcome(result);
+    return res.status(200).send(result?.message || "Unhandled event");
   } catch (error) {
     console.error("Webhook processing error:", error);
     return ErrorHandler(error.message, 500, req, res);

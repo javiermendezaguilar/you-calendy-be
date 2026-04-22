@@ -5,6 +5,7 @@ const { createCommerceFixture } = require("./helpers/commerceFixture");
 const {
   mockStripe,
   createWebhookResponse,
+  createSubscriptionDeletedEvent,
   registerStripeBillingTestHooks,
 } = require("./helpers/stripeBillingTestHelper");
 
@@ -244,19 +245,13 @@ describe("Stripe webhook v1", () => {
     fixture.business.stripeCustomerId = "cus_previous";
     await fixture.business.save();
 
-    mockStripe.webhooks.constructEvent.mockReturnValue({
-      type: "customer.subscription.deleted",
-      data: {
-        object: {
-          id: "sub_previous",
-          status: "canceled",
-          customer: "cus_previous",
-          metadata: {
-            businessId: fixture.business._id.toString(),
-          },
-        },
-      },
-    });
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createSubscriptionDeletedEvent({
+        subscriptionId: "sub_previous",
+        customerId: "cus_previous",
+        businessId: fixture.business._id.toString(),
+      })
+    );
 
     const res = createWebhookResponse();
 

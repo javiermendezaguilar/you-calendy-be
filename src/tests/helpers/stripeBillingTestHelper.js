@@ -36,6 +36,24 @@ const createWebhookResponse = () => {
   return res;
 };
 
+const createSubscriptionDeletedEvent = ({
+  subscriptionId,
+  customerId,
+  businessId,
+}) => ({
+  type: "customer.subscription.deleted",
+  data: {
+    object: {
+      id: subscriptionId,
+      status: "canceled",
+      customer: customerId,
+      metadata: {
+        businessId,
+      },
+    },
+  },
+});
+
 const registerStripeBillingTestHooks = ({
   clearLegacyWebhookSecrets = false,
 } = {}) => {
@@ -65,5 +83,6 @@ const registerStripeBillingTestHooks = ({
 module.exports = {
   mockStripe,
   createWebhookResponse,
+  createSubscriptionDeletedEvent,
   registerStripeBillingTestHooks,
 };

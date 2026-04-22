@@ -7,6 +7,8 @@ const {
   mockStripe,
   createWebhookResponse,
   createInvoicePaidEvent,
+  createInvoicePaymentFailedEvent,
+  createInvoiceVoidedEvent,
   createSubscriptionDeletedEvent,
   registerStripeBillingTestHooks,
 } = require("./helpers/stripeBillingTestHelper");
@@ -335,5 +337,169 @@ describe("Stripe webhook v1", () => {
     expect(storedPayments[0].amount).toBe(39);
     expect(storedPayments[0].currency).toBe("EUR");
     expect(storedPayments[0].providerSubscriptionId).toBe("sub_invoice");
+  });
+
+  test("records invoice.payment_failed as failed platform billing and syncs negative subscription status", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Failed Invoice Owner",
+      ownerEmail: "stripe-failed-owner@example.com",
+      businessName: "Stripe Failed Invoice Shop",
+    });
+
+    fixture.business.subscriptionStatus = "active";
+    fixture.business.stripeSubscriptionId = "sub_failed_invoice";
+    fixture.business.stripeCustomerId = "cus_failed_invoice";
+    await fixture.business.save();
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createInvoicePaymentFailedEvent({
+        eventId: "evt_invoice_failed_once",
+        invoiceId: "in_failed_once",
+        customerId: "cus_failed_invoice",
+        subscriptionId: "sub_failed_invoice",
+        businessId: fixture.business._id.toString(),
+        amountDue: 4900,
+        currency: "eur",
+        status: "open",
+      })
+    );
+    mockStripe.subscriptions.retrieve.mockResolvedValue({
+      id: "sub_failed_invoice",
+      status: "past_due",
+      customer: "cus_failed_invoice",
+      metadata: {
+        businessId: fixture.business._id.toString(),
+      },
+    });
+
+    const res = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_failed" },
+      },
+      res
+    );
+
+    const storedPayment = await Payment.findOne({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "invoice:in_failed_once",
+    }).lean();
+    const updatedBusiness = await Business.findById(fixture.business._id).lean();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Invoice payment failure recorded");
+    expect(storedPayment).not.toBeNull();
+    expect(storedPayment.status).toBe("failed");
+    expect(storedPayment.amount).toBe(49);
+    expect(storedPayment.failureReason).toBe("open");
+    expect(updatedBusiness.subscriptionStatus).toBe("past_due");
+  });
+
+  test("records invoice.voided as voided platform billing without degrading a captured invoice", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Voided Invoice Owner",
+      ownerEmail: "stripe-voided-owner@example.com",
+      businessName: "Stripe Voided Invoice Shop",
+    });
+
+    mockStripe.webhooks.constructEvent
+      .mockReturnValueOnce(
+        createInvoicePaidEvent({
+          eventId: "evt_invoice_paid_before_void",
+          invoiceId: "in_paid_then_voided",
+          customerId: "cus_voided_invoice",
+          subscriptionId: "sub_voided_invoice",
+          businessId: fixture.business._id.toString(),
+          amountPaid: 3300,
+          currency: "eur",
+          paidAt: 1776556800,
+        })
+      )
+      .mockReturnValueOnce(
+        createInvoiceVoidedEvent({
+          eventId: "evt_invoice_voided_after_paid",
+          invoiceId: "in_paid_then_voided",
+          customerId: "cus_voided_invoice",
+          subscriptionId: "sub_voided_invoice",
+          businessId: fixture.business._id.toString(),
+          amountDue: 3300,
+          currency: "eur",
+        })
+      );
+
+    const paidRes = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_paid_before_void" },
+      },
+      paidRes
+    );
+
+    const voidedRes = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_voided_after_paid" },
+      },
+      voidedRes
+    );
+
+    const storedPayment = await Payment.findOne({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "invoice:in_paid_then_voided",
+    }).lean();
+
+    expect(paidRes.statusCode).toBe(200);
+    expect(voidedRes.statusCode).toBe(200);
+    expect(storedPayment).not.toBeNull();
+    expect(storedPayment.status).toBe("captured");
+    expect(storedPayment.amount).toBe(33);
+  });
+
+  test("creates a voided platform billing payment when invoice.voided arrives first", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe First Voided Invoice Owner",
+      ownerEmail: "stripe-first-voided-owner@example.com",
+      businessName: "Stripe First Voided Invoice Shop",
+    });
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createInvoiceVoidedEvent({
+        eventId: "evt_invoice_voided_first",
+        invoiceId: "in_voided_first",
+        customerId: "cus_voided_first",
+        subscriptionId: "sub_voided_first",
+        businessId: fixture.business._id.toString(),
+        amountDue: 2700,
+        currency: "eur",
+        status: "void",
+      })
+    );
+
+    const res = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_voided_first" },
+      },
+      res
+    );
+
+    const storedPayment = await Payment.findOne({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "invoice:in_voided_first",
+    }).lean();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Invoice void recorded");
+    expect(storedPayment).not.toBeNull();
+    expect(storedPayment.status).toBe("voided");
+    expect(storedPayment.amount).toBe(27);
+    expect(storedPayment.voidReason).toBe("void");
   });
 });

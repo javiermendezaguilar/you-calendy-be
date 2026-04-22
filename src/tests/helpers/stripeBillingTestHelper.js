@@ -88,6 +88,74 @@ const createInvoicePaidEvent = ({
   },
 });
 
+const createInvoicePaymentFailedEvent = ({
+  eventId = "evt_invoice_failed",
+  invoiceId = "in_test_failed",
+  customerId = "cus_test_failed",
+  subscriptionId = "sub_test_failed",
+  businessId,
+  amountDue = 2900,
+  currency = "eur",
+  created = 1776556800,
+  status = "open",
+}) => ({
+  id: eventId,
+  type: "invoice.payment_failed",
+  data: {
+    object: {
+      id: invoiceId,
+      customer: customerId,
+      subscription: subscriptionId,
+      amount_due: amountDue,
+      currency,
+      status,
+      number: `INV-${invoiceId}`,
+      created,
+      parent: {
+        subscription_details: {
+          metadata: {
+            businessId,
+          },
+        },
+      },
+    },
+  },
+});
+
+const createInvoiceVoidedEvent = ({
+  eventId = "evt_invoice_voided",
+  invoiceId = "in_test_voided",
+  customerId = "cus_test_voided",
+  subscriptionId = "sub_test_voided",
+  businessId,
+  amountDue = 2900,
+  currency = "eur",
+  created = 1776556800,
+  status = "void",
+}) => ({
+  id: eventId,
+  type: "invoice.voided",
+  data: {
+    object: {
+      id: invoiceId,
+      customer: customerId,
+      subscription: subscriptionId,
+      amount_due: amountDue,
+      currency,
+      status,
+      number: `INV-${invoiceId}`,
+      created,
+      parent: {
+        subscription_details: {
+          metadata: {
+            businessId,
+          },
+        },
+      },
+    },
+  },
+});
+
 const registerStripeBillingTestHooks = ({
   clearLegacyWebhookSecrets = false,
 } = {}) => {
@@ -119,5 +187,7 @@ module.exports = {
   createWebhookResponse,
   createSubscriptionDeletedEvent,
   createInvoicePaidEvent,
+  createInvoicePaymentFailedEvent,
+  createInvoiceVoidedEvent,
   registerStripeBillingTestHooks,
 };

@@ -51,7 +51,7 @@ const paymentSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["captured", "voided", "refunded_partial", "refunded_full"],
+      enum: ["captured", "failed", "voided", "refunded_partial", "refunded_full"],
       default: "captured",
     },
     method: {
@@ -124,6 +124,15 @@ const paymentSchema = new Schema(
       required() {
         return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
       },
+    },
+    failedAt: {
+      type: Date,
+      default: null,
+    },
+    failureReason: {
+      type: String,
+      trim: true,
+      default: "",
     },
     voidedAt: {
       type: Date,

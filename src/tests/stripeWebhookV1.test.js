@@ -55,7 +55,7 @@ describe("Stripe webhook v1", () => {
     expect(logger.error).not.toHaveBeenCalled();
   });
 
-  test("warns when the webhook runtime still depends on a legacy fallback", () => {
+  test("does not resolve legacy webhook secrets when canonical config is missing", () => {
     delete process.env.STRIPE_WEBHOOK_SECRET;
     process.env.WEBHOOK_SECRET_ONE = "whsec_legacy_one";
     delete process.env.WEBHOOK_SECRET_TWO;
@@ -69,15 +69,33 @@ describe("Stripe webhook v1", () => {
     const info = logStripeWebhookSecretMode(logger);
 
     expect(info).toEqual({
-      value: "whsec_legacy_one",
-      source: "WEBHOOK_SECRET_ONE",
-      usesLegacyFallback: true,
+      value: "",
+      source: null,
+      usesLegacyFallback: false,
     });
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Stripe webhook secret source: WEBHOOK_SECRET_ONE (legacy fallback still active)"
-    );
     expect(logger.log).not.toHaveBeenCalled();
-    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      "Stripe webhook secret is not configured"
+    );
+  });
+
+  test("rejects the webhook when only a legacy secret exists in the environment", async () => {
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.WEBHOOK_SECRET_ONE = "whsec_legacy_one";
+
+    const res = createWebhookResponse();
+
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_legacy_only" },
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.payload).toBe("Webhook secret not configured");
   });
 
   test("adds credits for a successful credit purchase checkout", async () => {

@@ -9,16 +9,8 @@ const {
   updateBusinessSubscriptionStatus,
 } = require("./subscriptionStatusService");
 
-const webhookSecretSources = [
-  "STRIPE_WEBHOOK_SECRET",
-  "WEBHOOK_SECRET_ONE",
-  "WEBHOOK_SECRET_TWO",
-];
-
 const getStripeWebhookSecretInfo = () => {
-  const source = webhookSecretSources.find((name) => process.env[name]);
-
-  if (!source) {
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
     return {
       value: "",
       source: null,
@@ -27,9 +19,9 @@ const getStripeWebhookSecretInfo = () => {
   }
 
   return {
-    value: process.env[source],
-    source,
-    usesLegacyFallback: source !== "STRIPE_WEBHOOK_SECRET",
+    value: process.env.STRIPE_WEBHOOK_SECRET,
+    source: "STRIPE_WEBHOOK_SECRET",
+    usesLegacyFallback: false,
   };
 };
 
@@ -40,13 +32,6 @@ const logStripeWebhookSecretMode = (logger = console) => {
 
   if (!info.source) {
     logger.error("Stripe webhook secret is not configured");
-    return info;
-  }
-
-  if (info.usesLegacyFallback) {
-    logger.warn(
-      `Stripe webhook secret source: ${info.source} (legacy fallback still active)`
-    );
     return info;
   }
 

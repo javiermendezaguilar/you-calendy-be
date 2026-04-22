@@ -1,14 +1,17 @@
 const CreditProduct = require("../models/creditProduct");
 const Business = require("../models/User/business");
+const request = require("supertest");
 const { createCommerceFixture } = require("./helpers/commerceFixture");
 const {
   mockStripe,
   createWebhookResponse,
+  createSubscriptionDeletedEvent,
   registerStripeBillingTestHooks,
 } = require("./helpers/stripeBillingTestHelper");
 
 jest.mock("../services/billing/stripeClient", () => mockStripe);
 
+const app = require("../app");
 const { handleStripeWebhook } = require("../controllers/webhookController");
 const {
   getStripeWebhookSecretInfo,
@@ -18,6 +21,27 @@ const {
 registerStripeBillingTestHooks({ clearLegacyWebhookSecrets: true });
 
 describe("Stripe webhook v1", () => {
+  test("keeps /webhook/stripe as the only supported public webhook route", async () => {
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_canonical";
+    delete process.env.WEBHOOK_SECRET_ONE;
+    delete process.env.WEBHOOK_SECRET_TWO;
+
+    const stripeRes = await request(app)
+      .post("/webhook/stripe")
+      .set("stripe-signature", "sig_invalid")
+      .set("Content-Type", "application/json")
+      .send("{}");
+
+    const legacyRes = await request(app)
+      .post("/webhook")
+      .set("stripe-signature", "sig_invalid")
+      .set("Content-Type", "application/json")
+      .send("{}");
+
+    expect(stripeRes.status).toBe(400);
+    expect(legacyRes.status).toBe(404);
+  });
+
   test("resolves the canonical webhook secret before legacy fallbacks", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_canonical";
     process.env.WEBHOOK_SECRET_ONE = "whsec_legacy_one";
@@ -221,19 +245,13 @@ describe("Stripe webhook v1", () => {
     fixture.business.stripeCustomerId = "cus_previous";
     await fixture.business.save();
 
-    mockStripe.webhooks.constructEvent.mockReturnValue({
-      type: "customer.subscription.deleted",
-      data: {
-        object: {
-          id: "sub_previous",
-          status: "canceled",
-          customer: "cus_previous",
-          metadata: {
-            businessId: fixture.business._id.toString(),
-          },
-        },
-      },
-    });
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createSubscriptionDeletedEvent({
+        subscriptionId: "sub_previous",
+        customerId: "cus_previous",
+        businessId: fixture.business._id.toString(),
+      })
+    );
 
     const res = createWebhookResponse();
 

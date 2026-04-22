@@ -50,6 +50,11 @@ describe("Operational dashboard v1", () => {
   });
 
   test("returns queue, waitlist, cash session, commerce summary and operational actions", async () => {
+    const queueStartTime = "10:00";
+    const waitlistWindowStart = "10:00";
+    const waitlistWindowEnd = "12:00";
+    const dashboardFromTime = "09:30";
+
     await request(app)
       .post("/business/walk-ins")
       .set("Authorization", `Bearer ${token}`)
@@ -58,7 +63,7 @@ describe("Operational dashboard v1", () => {
         serviceId: fixture.service._id,
         staffId: fixture.staff._id,
         date: today,
-        startTime: moment().add(20, "minutes").format("HH:mm"),
+        startTime: queueStartTime,
       });
 
     await request(app)
@@ -69,8 +74,8 @@ describe("Operational dashboard v1", () => {
         serviceId: fixture.service._id,
         staffId: fixture.staff._id,
         date: today,
-        timeWindowStart: moment().add(15, "minutes").format("HH:mm"),
-        timeWindowEnd: moment().add(120, "minutes").format("HH:mm"),
+        timeWindowStart: waitlistWindowStart,
+        timeWindowEnd: waitlistWindowEnd,
         notes: "dashboard fit",
       });
 
@@ -105,7 +110,7 @@ describe("Operational dashboard v1", () => {
       .set("Authorization", `Bearer ${token}`)
       .query({
         date: today,
-        fromTime: moment().format("HH:mm"),
+        fromTime: dashboardFromTime,
       });
 
     expect(res.status).toBe(200);

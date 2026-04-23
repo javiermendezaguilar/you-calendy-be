@@ -3,6 +3,7 @@ const request = require("supertest");
 const app = require("../app");
 const CashSession = require("../models/cashSession");
 const WaitlistEntry = require("../models/waitlistEntry");
+const Payment = require("../models/payment");
 const {
   createPaymentCommerceFixture,
   createCapturedPaymentForFixture,
@@ -11,6 +12,23 @@ const {
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
 setupCommerceTestSuite();
+
+const getOperationalDashboard = (token, query) =>
+  request(app)
+    .get("/business/operational-dashboard")
+    .set("Authorization", `Bearer ${token}`)
+    .query(query);
+
+const expectRetainedCommerceSummary = (res, expectedAmount) => {
+  expect(res.body.data.commerceToday.grossCaptured).toBe(expectedAmount);
+  expect(res.body.data.commerceToday.netCaptured).toBe(expectedAmount);
+  expect(res.body.data.commerceToday.transactionCount).toBe(1);
+  expect(res.body.data.commerceToday.staffBreakdown).toHaveLength(1);
+  expect(res.body.data.commerceToday.staffBreakdown[0].grossCaptured).toBe(
+    expectedAmount
+  );
+  expect(res.body.data.commerceToday.staffBreakdown[0].transactionCount).toBe(1);
+};
 
 describe("Operational dashboard v1", () => {
   let fixture;
@@ -108,13 +126,10 @@ describe("Operational dashboard v1", () => {
     payment.cashSession = cashSession._id;
     await payment.save();
 
-    const res = await request(app)
-      .get("/business/operational-dashboard")
-      .set("Authorization", `Bearer ${token}`)
-      .query({
-        date: today,
-        fromTime: dashboardFromTime,
-      });
+    const res = await getOperationalDashboard(token, {
+      date: today,
+      fromTime: dashboardFromTime,
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.data.queue.activeCount).toBe(1);
@@ -129,11 +144,7 @@ describe("Operational dashboard v1", () => {
     expect(res.body.data.cashSession.openingFloat).toBe(50);
     expect(res.body.data.cashSession.closing.ready).toBe(true);
     expect(res.body.data.cashSession.closing.transactionCount).toBe(1);
-    expect(res.body.data.commerceToday.grossCaptured).toBe(40);
-    expect(res.body.data.commerceToday.netCaptured).toBe(40);
-    expect(res.body.data.commerceToday.transactionCount).toBe(1);
-    expect(res.body.data.commerceToday.staffBreakdown).toHaveLength(1);
-    expect(res.body.data.commerceToday.staffBreakdown[0].grossCaptured).toBe(40);
+    expectRetainedCommerceSummary(res, 40);
     expect(res.body.data.stuckAppointments.length).toBeGreaterThanOrEqual(1);
     expect(
       res.body.data.stuckAppointments.some(
@@ -163,5 +174,47 @@ describe("Operational dashboard v1", () => {
     expect(
       res.body.data.alerts.some((item) => item.type === "no_cash_session")
     ).toBe(false);
+  });
+
+  test("does not count voided payments as retained commerce in the operational dashboard", async () => {
+    const operationalTimestamp = new Date(`${today}T11:00:00.000Z`);
+
+    await createCapturedPaymentForFixture(fixture, checkout, {
+      method: "cash",
+      amount: 40,
+      tip: 0,
+      capturedAt: operationalTimestamp,
+      reference: "dashboard-captured",
+    });
+
+    await Payment.create({
+      checkout: checkout._id,
+      appointment: fixture.appointment._id,
+      business: fixture.business._id,
+      client: fixture.client._id,
+      staff: fixture.staff._id,
+      status: "voided",
+      method: "cash",
+      currency: "EUR",
+      amount: 25,
+      tip: 0,
+      reference: "dashboard-voided",
+      capturedAt: operationalTimestamp,
+      capturedBy: fixture.owner._id,
+      snapshot: {
+        subtotal: 25,
+        discountTotal: 0,
+        total: 25,
+        sourcePrice: 25,
+      },
+    });
+
+    const res = await getOperationalDashboard(token, {
+      date: today,
+      fromTime: "09:30",
+    });
+
+    expect(res.status).toBe(200);
+    expectRetainedCommerceSummary(res, 40);
   });
 });

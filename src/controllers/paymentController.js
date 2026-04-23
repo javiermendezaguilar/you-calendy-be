@@ -424,6 +424,21 @@ const voidPayment = async (req, res) => {
     const { payment } = await getBusinessAndOwnedPayment(req, res);
     if (!payment) return;
 
+    const previousVoidedPayment = await Payment.findOne({
+      checkout: payment.checkout,
+      status: "voided",
+      _id: { $ne: payment._id },
+      ...buildCommercePaymentFilter(),
+    }).select("_id");
+    if (previousVoidedPayment) {
+      return ErrorHandler(
+        "This checkout already used its void correction cycle",
+        409,
+        req,
+        res
+      );
+    }
+
     const refundCount = await Refund.countDocuments({ payment: payment._id });
     if (refundCount > 0 || Number(payment.refundedTotal) > 0) {
       return ErrorHandler(

@@ -93,6 +93,44 @@ describe("Payment void v1", () => {
     expect(voidRes.body.message).toMatch(/refunds cannot be voided/i);
   });
 
+  test("blocks a second void on the same checkout after one void correction already happened", async () => {
+    const firstCapture = await captureCheckoutPaymentForToken(
+      app,
+      token,
+      checkout._id,
+      { method: "card_manual", amount: 40, reference: "void-cycle-first" }
+    );
+
+    expect(firstCapture.status).toBe(201);
+
+    const firstVoid = await request(app)
+      .post(`/payment/${firstCapture.body.data._id}/void`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ reason: "First correction" });
+
+    expect(firstVoid.status).toBe(200);
+
+    const recapture = await captureCheckoutPaymentForToken(
+      app,
+      token,
+      checkout._id,
+      { method: "other", amount: 40, reference: "void-cycle-recapture" }
+    );
+
+    expect(recapture.status).toBe(201);
+
+    const secondVoid = await request(app)
+      .post(`/payment/${recapture.body.data._id}/void`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ reason: "Second correction should fail" });
+
+    expect(secondVoid.status).toBe(409);
+    expect(secondVoid.body.message).toMatch(/void correction cycle/i);
+
+    const recapturedPayment = await Payment.findById(recapture.body.data._id).lean();
+    expect(recapturedPayment.status).toBe("captured");
+  });
+
   test("voids a cash payment in an open cash session and recalculates the drawer", async () => {
     const openRes = await openCashSessionForToken(app, token, {
       openingFloat: 50,

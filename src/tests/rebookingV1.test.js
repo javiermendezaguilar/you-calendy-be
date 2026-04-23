@@ -21,6 +21,11 @@ afterAll(async () => {
 });
 
 describe("Rebooking v1", () => {
+  const defaultRebookingPayload = {
+    date: "2026-05-02",
+    startTime: "11:30",
+  };
+
   let owner;
   let business;
   let client;
@@ -31,6 +36,12 @@ describe("Rebooking v1", () => {
   let appointment;
   let token;
   let paidCheckout;
+
+  const sendRebookingRequest = (payload = defaultRebookingPayload) =>
+    request(app)
+      .post(`/checkout/${paidCheckout._id}/rebook`)
+      .set("Authorization", `Bearer ${token}`)
+      .send(payload);
 
   beforeEach(async () => {
     const fixture = await createCommerceFixture({
@@ -157,13 +168,7 @@ describe("Rebooking v1", () => {
   });
 
   test("creates a rebooking from a paid checkout and persists traceability", async () => {
-    const rebookRes = await request(app)
-      .post(`/checkout/${paidCheckout._id}/rebook`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        date: "2026-05-02",
-        startTime: "11:30",
-      });
+    const rebookRes = await sendRebookingRequest();
 
     expect(rebookRes.status).toBe(201);
     expect(rebookRes.body.data.status).toBe("Confirmed");
@@ -217,13 +222,7 @@ describe("Rebooking v1", () => {
   });
 
   test("rejects a duplicate rebooking for the same checkout", async () => {
-    const firstRebook = await request(app)
-      .post(`/checkout/${paidCheckout._id}/rebook`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        date: "2026-05-02",
-        startTime: "11:30",
-      });
+    const firstRebook = await sendRebookingRequest();
 
     expect(firstRebook.status).toBe(201);
 
@@ -275,15 +274,30 @@ describe("Rebooking v1", () => {
     paidCheckout.status = "closed";
     await paidCheckout.save();
 
-    const rebookRes = await request(app)
-      .post(`/checkout/${paidCheckout._id}/rebook`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        date: "2026-05-02",
-        startTime: "11:30",
-      });
+    const rebookRes = await sendRebookingRequest();
 
     expect(rebookRes.status).toBe(409);
     expect(rebookRes.body.message).toMatch(/must be paid/i);
+  });
+
+  test("rejects rebooking when the source appointment is not completed", async () => {
+    appointment.status = "Confirmed";
+    appointment.bookingStatus = "confirmed";
+    appointment.visitStatus = "in_service";
+    await appointment.save();
+
+    const rebookRes = await sendRebookingRequest();
+
+    expect(rebookRes.status).toBe(409);
+    expect(rebookRes.body.message).toMatch(/source appointment must be completed/i);
+  });
+
+  test("rejects rebooking when checkout has no captured commerce payment", async () => {
+    await Payment.deleteMany({ checkout: paidCheckout._id });
+
+    const rebookRes = await sendRebookingRequest();
+
+    expect(rebookRes.status).toBe(409);
+    expect(rebookRes.body.message).toMatch(/captured payment/i);
   });
 });

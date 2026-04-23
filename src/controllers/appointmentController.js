@@ -1265,6 +1265,24 @@ const updateAppointmentStatus = async (req, res) => {
       );
     }
 
+    if (status === "Completed") {
+      const alreadyCompleted =
+        appointment.status === "Completed" &&
+        appointment.visitStatus === "completed";
+      if (alreadyCompleted) {
+        return SuccessHandler(appointment, 200, res);
+      }
+
+      if (appointment.visitStatus !== "in_service") {
+        return ErrorHandler(
+          "Appointment must be in service before marking it as Completed",
+          409,
+          req,
+          res
+        );
+      }
+    }
+
     // Clients can only cancel their own appointments
     if (status === "Canceled" && !isBusinessOwner && !isClient) {
       return ErrorHandler(

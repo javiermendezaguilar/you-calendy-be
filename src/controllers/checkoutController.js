@@ -1,6 +1,7 @@
 const Appointment = require("../models/appointment");
 const Business = require("../models/User/business");
 const Checkout = require("../models/checkout");
+const Payment = require("../models/payment");
 const Service = require("../models/service");
 const Staff = require("../models/staff");
 const SuccessHandler = require("../utils/SuccessHandler");
@@ -132,6 +133,18 @@ const openCheckout = async (req, res) => {
 
     if (!appointment) {
       return ErrorHandler("Appointment not found", 404, req, res);
+    }
+
+    const isCompletedVisit =
+      appointment.status === "Completed" &&
+      appointment.visitStatus === "completed";
+    if (!isCompletedVisit) {
+      return ErrorHandler(
+        "Checkout can only be opened for a completed visit",
+        409,
+        req,
+        res
+      );
     }
 
     const existingOpenCheckout = await Checkout.findOne({
@@ -338,6 +351,32 @@ const createRebooking = async (req, res) => {
     const sourceAppointment = checkout.appointment;
     if (!sourceAppointment) {
       return ErrorHandler("Source appointment not found", 404, req, res);
+    }
+
+    const sourceVisitCompleted =
+      sourceAppointment.status === "Completed" &&
+      sourceAppointment.visitStatus === "completed";
+    if (!sourceVisitCompleted) {
+      return ErrorHandler(
+        "Source appointment must be completed before creating a rebooking",
+        409,
+        req,
+        res
+      );
+    }
+
+    const capturedPayment = await Payment.findOne({
+      checkout: checkout._id,
+      status: "captured",
+      paymentScope: "commerce_checkout",
+    }).select("_id");
+    if (!capturedPayment) {
+      return ErrorHandler(
+        "Checkout requires a captured payment before creating a rebooking",
+        409,
+        req,
+        res
+      );
     }
 
     const targetServiceId = serviceId

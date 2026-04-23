@@ -24,6 +24,10 @@ const ClientModel = require("../models/client");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
 const { getComparablePhone } = require("../utils/index");
 const {
+  buildDateRangeClause,
+  getCanonicalRevenueProjection,
+} = require("../services/payment/revenueProjection");
+const {
   getEffectivePolicySnapshot,
   buildNoShowPenaltyFromPolicy,
 } = require("../services/appointment/policyService");
@@ -4250,11 +4254,16 @@ const getRevenueProjection = async (req, res) => {
     const userType = req.user.type;
     const { startDate, endDate, groupBy = "year", staffId } = req.query;
 
-    let query = {};
+    let appointmentQuery = {};
+    let paymentQuery = {
+      status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+    };
 
     if (userType === "client") {
       // Client user - get their appointments
-      query.client = userId;
+      const clientId = req.client?._id || userId;
+      appointmentQuery.client = clientId;
+      paymentQuery.client = clientId;
     } else {
       // Regular user - check if business owner
       const isBusinessOwner = await Business.exists({ owner: userId });
@@ -4270,226 +4279,52 @@ const getRevenueProjection = async (req, res) => {
             res
           );
         }
-        query.business = business._id;
+        appointmentQuery.business = business._id;
+        paymentQuery.business = business._id;
         
         // Add staff filter if provided
         if (staffId) {
-          query.staff = mongoose.Types.ObjectId.isValid(staffId)
+          const normalizedStaffId = mongoose.Types.ObjectId.isValid(staffId)
             ? new mongoose.Types.ObjectId(staffId)
             : staffId;
+          appointmentQuery.staff = normalizedStaffId;
+          paymentQuery.staff = normalizedStaffId;
         }
       } else {
         // Regular user (client) - fallback
-        query.client = userId;
+        const clientId = req.client?._id || userId;
+        appointmentQuery.client = clientId;
+        paymentQuery.client = clientId;
       }
     }
 
-    // Apply date range filter if provided
-    if (startDate || endDate) {
-      query.date = {};
-      if (startDate) {
-        query.date.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        query.date.$lte = new Date(endDate);
-      }
-    }
+    const appointmentDateClause = buildDateRangeClause("date", startDate, endDate);
+    const paymentDateClause = buildDateRangeClause("capturedAt", startDate, endDate);
 
-    // Build aggregation pipeline based on groupBy parameter
-    let groupStage = {};
-    let dateFormat = "";
-
-    switch (groupBy) {
-      case "year":
-        groupStage = {
-          year: { $year: "$date" },
-        };
-        dateFormat = "%Y";
-        break;
-      case "week":
-        groupStage = {
-          year: { $isoWeekYear: "$date" },
-          week: { $isoWeek: "$date" },
-        };
-        dateFormat = "ISO-WEEK"; // not used in new approach
-        break;
-      case "month":
-        groupStage = {
-          year: { $year: "$date" },
-          month: { $month: "$date" },
-        };
-        dateFormat = "%Y-%m";
-        break;
-      case "day":
-      default:
-        groupStage = {
-          year: { $year: "$date" },
-          month: { $month: "$date" },
-          day: { $dayOfMonth: "$date" },
-        };
-        dateFormat = "%Y-%m-%d";
-        break;
-    }
-
-    // Build a label expression directly from the source 'date' field to avoid nulls
-    let labelExpr;
-    switch (groupBy) {
-      case "year":
-        labelExpr = { $dateToString: { format: "%Y", date: "$date" } };
-        break;
-      case "month":
-        labelExpr = { $dateToString: { format: "%Y-%m", date: "$date" } };
-        break;
-      case "week":
-        // Use ISO week/year for stable week labels: YYYY-Www
-        labelExpr = {
-          $concat: [
-            { $toString: { $isoWeekYear: "$date" } },
-            "-W",
-            {
-              $let: {
-                vars: { w: { $isoWeek: "$date" } },
-                in: {
-                  $cond: [
-                    { $lt: ["$$w", 10] },
-                    { $concat: ["0", { $toString: "$$w" }] },
-                    { $toString: "$$w" },
-                  ],
-                },
-              },
-            },
-          ],
-        };
-        break;
-      case "day":
-      default:
-        labelExpr = { $dateToString: { format: "%Y-%m-%d", date: "$date" } };
-        break;
-    }
-
-    // Aggregation pipeline for revenue projection
-    const revenuePipeline = [
-      { $match: { ...query, date: { $ne: null } } },
-      { $addFields: { bucketLabel: labelExpr } },
-      {
-        $group: {
-          _id: "$bucketLabel",
-          revenue: { $sum: "$price" },
-          appointments: { $sum: 1 },
-          completedAppointments: {
-            $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
-          },
-          cancelledAppointments: {
-            $sum: { $cond: [{ $eq: ["$status", "Canceled"] }, 1, 0] },
-          },
-          noShowAppointments: {
-            $sum: { $cond: [{ $eq: ["$status", "No-Show"] }, 1, 0] },
-          },
-        },
+    appointmentQuery = {
+      ...appointmentQuery,
+      ...(appointmentDateClause || {}),
+      date: {
+        ...(appointmentDateClause?.date || {}),
+        $ne: null,
       },
-      { $sort: { _id: 1 } },
-      {
-        $project: {
-          _id: 0,
-          date: "$_id",
-          revenue: 1,
-          appointments: 1,
-          completedAppointments: 1,
-          cancelledAppointments: 1,
-          noShowAppointments: 1,
-        },
-      },
-    ];
-
-    // Execute aggregation
-    const revenueData = await Appointment.aggregate(revenuePipeline);
-
-    // Calculate summary statistics
-    const summaryPipeline = [
-      { $match: { ...query, date: { $ne: null } } },
-      {
-        $group: {
-          _id: null,
-          totalRevenue: { $sum: "$price" },
-          totalAppointments: { $sum: 1 },
-          completedAppointments: {
-            $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
-          },
-          cancelledAppointments: {
-            $sum: { $cond: [{ $eq: ["$status", "Canceled"] }, 1, 0] },
-          },
-          noShowAppointments: {
-            $sum: { $cond: [{ $eq: ["$status", "No-Show"] }, 1, 0] },
-          },
-        },
-      },
-    ];
-
-    const summaryResult = await Appointment.aggregate(summaryPipeline);
-    const summary = summaryResult[0] || {
-      totalRevenue: 0,
-      totalAppointments: 0,
-      completedAppointments: 0,
-      cancelledAppointments: 0,
-      noShowAppointments: 0,
+    };
+    paymentQuery = {
+      ...paymentQuery,
+      ...(paymentDateClause || {}),
     };
 
-    // Calculate additional metrics
-    const averageRevenuePerAppointment =
-      summary.totalAppointments > 0
-        ? (summary.totalRevenue / summary.totalAppointments).toFixed(2)
-        : 0;
+    const response = await getCanonicalRevenueProjection({
+      appointmentMatch: appointmentQuery,
+      paymentMatch: paymentQuery,
+      groupBy,
+    });
 
-    const completionRate =
-      summary.totalAppointments > 0
-        ? (
-          (summary.completedAppointments / summary.totalAppointments) *
-          100
-        ).toFixed(1)
-        : 0;
-
-    // Format response
-    const response = {
-      totalRevenue: summary.totalRevenue,
-      totalAppointments: summary.totalAppointments,
-      averageRevenuePerAppointment: parseFloat(averageRevenuePerAppointment),
-      revenueData: revenueData.map((item) => ({
-        date: item.date,
-        revenue: item.revenue,
-        appointments: item.appointments,
-        completedAppointments: item.completedAppointments,
-        cancelledAppointments: item.cancelledAppointments,
-        noShowAppointments: item.noShowAppointments,
-      })),
-      summary: {
-        totalRevenue: summary.totalRevenue,
-        totalAppointments: summary.totalAppointments,
-        averageRevenuePerAppointment: parseFloat(averageRevenuePerAppointment),
-        completionRate: parseFloat(completionRate),
-        cancelledRate:
-          summary.totalAppointments > 0
-            ? parseFloat(
-              (
-                (summary.cancelledAppointments / summary.totalAppointments) *
-                100
-              ).toFixed(1)
-            )
-            : 0,
-        noShowRate:
-          summary.totalAppointments > 0
-            ? parseFloat(
-              (
-                (summary.noShowAppointments / summary.totalAppointments) *
-                100
-              ).toFixed(1)
-            )
-            : 0,
-      },
-      filters: {
-        startDate: startDate || null,
-        endDate: endDate || null,
-        groupBy: groupBy,
-      },
+    response.filters = {
+      startDate: startDate || null,
+      endDate: endDate || null,
+      groupBy,
+      staffId: staffId || null,
     };
 
     return SuccessHandler(response, 200, res);

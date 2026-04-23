@@ -139,7 +139,7 @@ const appointmentSchema = new Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ["Pending", "Paid", "Refunded", "Failed"],
+      enum: ["Pending", "Paid", "Partially Refunded", "Refunded", "Failed"],
       default: "Pending",
     },
     operationalTimestamps: {

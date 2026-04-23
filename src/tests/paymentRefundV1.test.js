@@ -29,6 +29,18 @@ describe("Payment refunds v1", () => {
   let payment;
   let token;
 
+  const refundCapturedPayment = (amount, reason = "") =>
+    request(app)
+      .post(`/payment/${payment._id}/refund`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount, reason });
+
+  const recaptureCheckout = (payload = {}) =>
+    request(app)
+      .post(`/payment/checkout/${checkout._id}/capture`)
+      .set("Authorization", `Bearer ${token}`)
+      .send(payload);
+
   beforeEach(async () => {
     ({ fixture, checkout, token } = await createPaymentCommerceFixture({
       ownerName: "Refund Owner",
@@ -43,10 +55,7 @@ describe("Payment refunds v1", () => {
   });
 
   test("captures a partial refund and updates payment plus checkout summary", async () => {
-    const refundRes = await request(app)
-      .post(`/payment/${payment._id}/refund`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ amount: 10, reason: "Service issue" });
+    const refundRes = await refundCapturedPayment(10, "Service issue");
 
     expect(refundRes.status).toBe(201);
     expect(refundRes.body.data.amount).toBe(10);
@@ -67,10 +76,7 @@ describe("Payment refunds v1", () => {
   });
 
   test("captures a full refund and updates appointment payment status", async () => {
-    const refundRes = await request(app)
-      .post(`/payment/${payment._id}/refund`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ amount: 40, reason: "Full refund" });
+    const refundRes = await refundCapturedPayment(40, "Full refund");
 
     expect(refundRes.status).toBe(201);
 
@@ -91,18 +97,27 @@ describe("Payment refunds v1", () => {
     expect(refunds).toHaveLength(1);
   });
 
+  test("blocks recapturing a checkout after a full refund", async () => {
+    const refundRes = await refundCapturedPayment(40, "Full refund");
+
+    expect(refundRes.status).toBe(201);
+
+    const recaptureRes = await recaptureCheckout({
+      method: "card_manual",
+      amount: 40,
+      reference: "refund-full-recapture",
+    });
+
+    expect(recaptureRes.status).toBe(409);
+    expect(recaptureRes.body.message).toMatch(/terminal payment already exists/i);
+  });
+
   test("rejects refund amounts above the remaining captured total", async () => {
-    const firstRefund = await request(app)
-      .post(`/payment/${payment._id}/refund`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ amount: 15, reason: "Partial refund" });
+    const firstRefund = await refundCapturedPayment(15, "Partial refund");
 
     expect(firstRefund.status).toBe(201);
 
-    const excessiveRefund = await request(app)
-      .post(`/payment/${payment._id}/refund`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ amount: 30, reason: "Too much" });
+    const excessiveRefund = await refundCapturedPayment(30, "Too much");
 
     expect(excessiveRefund.status).toBe(409);
     expect(excessiveRefund.body.message).toMatch(/exceeds/i);

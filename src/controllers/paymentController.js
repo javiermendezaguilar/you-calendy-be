@@ -157,13 +157,13 @@ const capturePayment = async (req, res) => {
 
     const existingPayment = await Payment.findOne({
       checkout: checkout._id,
-      status: "captured",
+      status: { $in: ["captured", "refunded_partial", "refunded_full"] },
       ...buildCommercePaymentFilter(),
     });
 
     if (existingPayment) {
       return ErrorHandler(
-        "A captured payment already exists for this checkout",
+        "A terminal payment already exists for this checkout",
         409,
         req,
         res
@@ -256,7 +256,7 @@ const capturePayment = async (req, res) => {
   } catch (error) {
     if (error?.code === 11000) {
       return ErrorHandler(
-        "A captured payment already exists for this checkout",
+        "A terminal payment already exists for this checkout",
         409,
         req,
         res

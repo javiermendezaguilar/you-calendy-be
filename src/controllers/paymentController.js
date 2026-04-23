@@ -7,6 +7,9 @@ const { resolveBusinessOrReply } = require("./commerceShared");
 const { recordDomainEvent } = require("../services/domainEventService");
 const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
 const { buildCashSessionSnapshot } = require("../services/payment/cashSessionSummary");
+const {
+  COMMERCE_REPORTING_SCOPE,
+} = require("../services/payment/reportingScope");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -582,6 +585,7 @@ const getPaymentSummary = async (req, res) => {
     );
 
     const summary = {
+      moneyScope: COMMERCE_REPORTING_SCOPE,
       grossCaptured,
       refundedTotal,
       netCaptured: grossCaptured - refundedTotal,

@@ -5,6 +5,9 @@ const {
   buildDateRangeClause,
   getCanonicalRevenueProjection,
 } = require("../services/payment/revenueProjection");
+const {
+  COMMERCE_REPORTING_SCOPE,
+} = require("../services/payment/reportingScope");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -164,6 +167,7 @@ const getGlobalRevenueProjection = async (req, res) => {
       endDate,
       groupBy,
     };
+    response.moneyScope = COMMERCE_REPORTING_SCOPE;
 
     return SuccessHandler(response, 200, res);
   } catch (error) {

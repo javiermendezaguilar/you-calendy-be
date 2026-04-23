@@ -4,6 +4,7 @@ const CashSession = require("../../models/cashSession");
 const Payment = require("../../models/payment");
 const WaitlistEntry = require("../../models/waitlistEntry");
 const { buildCommercePaymentFilter } = require("../payment/paymentScope");
+const { COMMERCE_REPORTING_SCOPE } = require("../payment/reportingScope");
 const { getBusinessForOwner } = require("./shared");
 const {
   getQueueResponseForBusiness,
@@ -61,6 +62,7 @@ const buildPaymentSummary = async (businessId, bounds) => {
   );
 
   return {
+    moneyScope: COMMERCE_REPORTING_SCOPE,
     grossCaptured,
     refundedTotal,
     netCaptured: grossCaptured - refundedTotal,

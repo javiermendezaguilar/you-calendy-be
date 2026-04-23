@@ -62,6 +62,9 @@ const {
   getCanonicalRevenueTotalsByBusiness,
 } = require("../services/payment/revenueProjection");
 const {
+  PLATFORM_BILLING_SCOPE,
+} = require("../services/payment/reportingScope");
+const {
   createSubscriptionRequestSchema,
 } = require("../services/billing/subscriptionRuntimeSchemas");
 const {
@@ -1141,7 +1144,17 @@ const getSubscriptionStatus = async (req, res) => {
       save: saveMs,
       total: Date.now() - totalStart,
     });
-    return SuccessHandler({ status, daysLeft, message, source }, 200, res);
+    return SuccessHandler(
+      {
+        status,
+        daysLeft,
+        message,
+        source,
+        billingScope: PLATFORM_BILLING_SCOPE,
+      },
+      200,
+      res
+    );
   } catch (err) {
     return ErrorHandler(err.message, 500, req, res);
   }

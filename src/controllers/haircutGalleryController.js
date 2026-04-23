@@ -1,9 +1,281 @@
+const mongoose = require("mongoose");
 const HaircutGallery = require("../models/haircutGallery");
 const Client = require("../models/client");
 const Business = require("../models/User/business");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const { uploadToCloudinary, deleteImage } = require("../functions/cloudinary");
+
+const toValidatedObjectId = (value) => {
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  if (!mongoose.Types.ObjectId.isValid(value)) return null;
+  return new mongoose.Types.ObjectId(value);
+};
+
+const getAuthenticatedClientActorId = (req) => {
+  if (req.user?.type !== "client" || !req.client?._id) {
+    return null;
+  }
+
+  return req.client._id.toString();
+};
+
+const ensureClientGalleryActor = (req, res) => {
+  const clientActorId = getAuthenticatedClientActorId(req);
+  if (!clientActorId) {
+    ErrorHandler(
+      "Only authenticated clients can manage client gallery entries.",
+      403,
+      req,
+      res
+    );
+    return null;
+  }
+
+  return clientActorId;
+};
+
+const getOwnerBusiness = async (req, res) => {
+  const business = await Business.findOne({ owner: req.user.id });
+  if (!business) {
+    ErrorHandler("Business not found for this user.", 404, req, res);
+    return null;
+  }
+
+  return business;
+};
+
+const getBusinessClient = async (req, res, businessId, clientId) => {
+  const validatedBusinessId = toValidatedObjectId(businessId);
+  const validatedClientId = toValidatedObjectId(clientId);
+  if (!validatedBusinessId || !validatedClientId) {
+    ErrorHandler("Client not found.", 404, req, res);
+    return null;
+  }
+
+  const businessClients = await Client.find({ business: validatedBusinessId });
+  const client =
+    businessClients.find(
+      (candidate) => candidate._id.toString() === validatedClientId.toString()
+    ) || null;
+
+  if (!client || !client.business) {
+    ErrorHandler("Client not found.", 404, req, res);
+    return null;
+  }
+
+  return client;
+};
+
+const getBusinessGalleryEntry = async (
+  req,
+  res,
+  businessId,
+  galleryId,
+  requireActive = true
+) => {
+  const validatedBusinessId = toValidatedObjectId(businessId);
+  const validatedGalleryId = toValidatedObjectId(galleryId);
+  if (!validatedBusinessId || !validatedGalleryId) {
+    ErrorHandler("Gallery entry not found.", 404, req, res);
+    return null;
+  }
+
+  const businessGalleryEntries = await HaircutGallery.find({
+    business: validatedBusinessId,
+    ...(requireActive ? { isActive: true } : {}),
+  });
+  const galleryEntry =
+    businessGalleryEntries.find(
+      (candidate) => candidate._id.toString() === validatedGalleryId.toString()
+    ) || null;
+
+  if (!galleryEntry || !galleryEntry.business) {
+    ErrorHandler("Gallery entry not found.", 404, req, res);
+    return null;
+  }
+
+  return galleryEntry;
+};
+
+const getOwnerGalleryContext = async (
+  req,
+  res,
+  galleryId,
+  clientId,
+  requireActive = true
+) => {
+  const business = await getOwnerBusiness(req, res);
+  if (!business) {
+    return null;
+  }
+
+  const galleryEntry = await getBusinessGalleryEntry(
+    req,
+    res,
+    business._id,
+    galleryId,
+    requireActive
+  );
+  if (!galleryEntry) {
+    return null;
+  }
+
+  const client = await getBusinessClient(req, res, business._id, clientId);
+  if (!client) {
+    return null;
+  }
+
+  return { business, galleryEntry, client };
+};
+
+const getOwnedActiveGalleryEntry = async (req, res, galleryId, ownershipMessage) => {
+  const clientActorId = getAuthenticatedClientActorId(req);
+  const validatedBusinessId = toValidatedObjectId(req.client?.business);
+  if (!clientActorId || !validatedBusinessId) {
+    ErrorHandler(ownershipMessage, 403, req, res);
+    return null;
+  }
+
+  const validatedGalleryId = toValidatedObjectId(galleryId);
+  if (!validatedGalleryId) {
+    ErrorHandler("Gallery entry not found.", 404, req, res);
+    return null;
+  }
+
+  const businessActiveEntries = await HaircutGallery.find({
+    business: validatedBusinessId,
+    isActive: true,
+  });
+  const galleryEntry =
+    businessActiveEntries.find(
+      (candidate) => candidate._id.toString() === validatedGalleryId.toString()
+    ) || null;
+
+  if (!galleryEntry) {
+    ErrorHandler("Gallery entry not found.", 404, req, res);
+    return null;
+  }
+
+  if (galleryEntry.client.toString() !== clientActorId) {
+    ErrorHandler(ownershipMessage, 403, req, res);
+    return null;
+  }
+
+  return galleryEntry;
+};
+
+const uploadOptionalGalleryImage = async (req, folder, failureMessage) => {
+  if (!req.file) {
+    return { imageUrl: null, imagePublicId: null };
+  }
+
+  try {
+    const uploadResult = await uploadToCloudinary(req.file.buffer, folder);
+    return {
+      imageUrl: uploadResult.secure_url,
+      imagePublicId: uploadResult.public_id,
+    };
+  } catch (uploadError) {
+    console.error(failureMessage, uploadError.message);
+    throw new Error(failureMessage);
+  }
+};
+
+const addSuggestionToGallery = async (galleryEntry, note, createdBy, imageData) => {
+  const suggestionData = {
+    note,
+    createdBy,
+  };
+
+  if (imageData.imageUrl) {
+    suggestionData.imageUrl = imageData.imageUrl;
+    suggestionData.imagePublicId = imageData.imagePublicId;
+  }
+
+  galleryEntry.suggestions.push(suggestionData);
+  await galleryEntry.save();
+
+  return galleryEntry;
+};
+
+const addReportToGallery = async (
+  galleryEntry,
+  note,
+  reportType,
+  createdBy,
+  rating,
+  imageData
+) => {
+  const reportData = {
+    note,
+    reportType,
+    createdBy,
+  };
+
+  if (imageData.imageUrl) {
+    reportData.imageUrl = imageData.imageUrl;
+    reportData.imagePublicId = imageData.imagePublicId;
+  }
+
+  if (rating !== undefined) {
+    reportData.rating = parseInt(rating);
+  }
+
+  galleryEntry.reports.push(reportData);
+  await galleryEntry.save();
+
+  return galleryEntry;
+};
+
+const softDeleteGalleryEntry = async (galleryEntry) => {
+  if (galleryEntry.imagePublicId) {
+    try {
+      await deleteImage(galleryEntry.imagePublicId);
+    } catch (cloudinaryError) {
+      console.error(
+        "Failed to delete image from Cloudinary:",
+        cloudinaryError
+      );
+    }
+  }
+
+  galleryEntry.isActive = false;
+  await galleryEntry.save();
+};
+
+const deleteGalleryEntryAndRespond = async (galleryEntry, res) => {
+  await softDeleteGalleryEntry(galleryEntry);
+  return SuccessHandler(
+    { message: "Gallery image deleted successfully." },
+    200,
+    res
+  );
+};
+
+const validateOptionalRating = (req, res, rating) => {
+  if (rating === undefined) {
+    return true;
+  }
+
+  const ratingNum = parseInt(rating);
+  if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+    ErrorHandler("Rating must be a number between 1 and 5.", 400, req, res);
+    return false;
+  }
+
+  return true;
+};
+
+const handleGalleryUploadFailure = (error, req, res, fallbackMessage) => {
+  const isUploadFailure = error.message === fallbackMessage;
+  return ErrorHandler(
+    isUploadFailure ? `${fallbackMessage} Please try again.` : error.message,
+    500,
+    req,
+    res
+  );
+};
 
 /**
  * @desc Upload a new haircut image to the gallery
@@ -27,18 +299,15 @@ const uploadHaircutImage = async (req, res) => {
     const { title, description, haircutStyle, appointment, staff } = req.body;
 
     // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
+    const business = await getOwnerBusiness(req, res);
     if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+      return;
     }
 
     // Check if client exists and belongs to this business
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
+    const client = await getBusinessClient(req, res, business._id, clientId);
     if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
+      return;
     }
 
     // Check if image file exists
@@ -82,6 +351,19 @@ const uploadHaircutImageByClient = async (req, res) => {
   try {
     const { clientId } = req.params;
     const { title } = req.body; // Extract title from request body
+    const clientActorId = ensureClientGalleryActor(req, res);
+    if (!clientActorId) {
+      return;
+    }
+
+    if (clientActorId !== String(clientId)) {
+      return ErrorHandler(
+        "You can only upload photos to your own gallery.",
+        403,
+        req,
+        res
+      );
+    }
 
     // Validate file
     if (!req.file) {
@@ -89,7 +371,7 @@ const uploadHaircutImageByClient = async (req, res) => {
     }
 
     // Validate client exists and is active
-    const client = await Client.findById(clientId);
+    const client = await Client.findOne({ _id: clientActorId, isActive: true });
     if (!client || !client.isActive) {
       return ErrorHandler("Client not found or inactive.", 404, req, res);
     }
@@ -135,18 +417,15 @@ const getClientGallery = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
+    const business = await getOwnerBusiness(req, res);
     if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+      return;
     }
 
     // Check if client exists and belongs to this business
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
+    const client = await getBusinessClient(req, res, business._id, clientId);
     if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
+      return;
     }
 
     // Parse sort parameter
@@ -209,72 +488,26 @@ const addSuggestion = async (req, res) => {
       return ErrorHandler("Suggestion note is required.", 400, req, res);
     }
 
-    // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+    const ownerContext = await getOwnerGalleryContext(req, res, galleryId, clientId);
+    if (!ownerContext) {
+      return;
     }
+    const { galleryEntry } = ownerContext;
 
-    // Check if gallery entry exists and belongs to this business
-    const galleryEntry = await HaircutGallery.findOne({
-      _id: galleryId,
-      business: business._id,
-      isActive: true,
-    });
-    if (!galleryEntry) {
-      return ErrorHandler("Gallery entry not found.", 404, req, res);
-    }
+    const { imageUrl, imagePublicId } = await uploadOptionalGalleryImage(
+      req,
+      "haircut-suggestions",
+      "Failed to upload suggestion image."
+    );
 
-    // Check if client exists and belongs to this business
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Handle image upload if provided
-    let imageUrl = null;
-    let imagePublicId = null;
-    if (req.file) {
-      try {
-        const uploadResult = await uploadToCloudinary(
-          req.file.buffer,
-          "haircut-suggestions"
-        );
-        imageUrl = uploadResult.secure_url;
-        imagePublicId = uploadResult.public_id;
-      } catch (uploadError) {
-        console.error(
-          "Failed to upload suggestion image:",
-          uploadError.message
-        );
-        return ErrorHandler(
-          "Failed to upload suggestion image. Please try again.",
-          500,
-          req,
-          res
-        );
-      }
-    }
-
-    // Add suggestion with image if provided
-    const suggestionData = {
+    const updatedGalleryEntry = await addSuggestionToGallery(
+      galleryEntry,
       note,
-      createdBy: clientId,
-    };
+      clientId,
+      { imageUrl, imagePublicId }
+    );
 
-    if (imageUrl) {
-      suggestionData.imageUrl = imageUrl;
-      suggestionData.imagePublicId = imagePublicId;
-    }
-
-    galleryEntry.suggestions.push(suggestionData);
-
-    await galleryEntry.save();
-
-    return SuccessHandler(galleryEntry, 200, res);
+    return SuccessHandler(updatedGalleryEntry, 200, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -298,30 +531,11 @@ const editSuggestion = async (req, res) => {
     const { galleryId, suggestionId } = req.params;
     const { note, clientId } = req.body;
 
-    // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+    const ownerContext = await getOwnerGalleryContext(req, res, galleryId, clientId);
+    if (!ownerContext) {
+      return;
     }
-
-    // Check if gallery entry exists and belongs to this business
-    const galleryEntry = await HaircutGallery.findOne({
-      _id: galleryId,
-      business: business._id,
-      isActive: true,
-    });
-    if (!galleryEntry) {
-      return ErrorHandler("Gallery entry not found.", 404, req, res);
-    }
-
-    // Check if client exists and belongs to this business
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
+    const { galleryEntry } = ownerContext;
 
     // Find the suggestion to edit
     const suggestionToEdit = galleryEntry.suggestions.id(suggestionId);
@@ -337,29 +551,19 @@ const editSuggestion = async (req, res) => {
     // Handle image update if provided
     if (req.file) {
       try {
-        // Delete old image if exists
         if (suggestionToEdit.imagePublicId) {
           await deleteImage(suggestionToEdit.imagePublicId);
         }
 
-        // Upload new image
-        const uploadResult = await uploadToCloudinary(
-          req.file.buffer,
-          "haircut-suggestions"
-        );
-        suggestionToEdit.imageUrl = uploadResult.secure_url;
-        suggestionToEdit.imagePublicId = uploadResult.public_id;
-      } catch (uploadError) {
-        console.error(
-          "Failed to update suggestion image:",
-          uploadError.message
-        );
-        return ErrorHandler(
-          "Failed to update suggestion image. Please try again.",
-          500,
+        const uploadResult = await uploadOptionalGalleryImage(
           req,
-          res
+          "haircut-suggestions",
+          "Failed to update suggestion image."
         );
+        suggestionToEdit.imageUrl = uploadResult.imageUrl;
+        suggestionToEdit.imagePublicId = uploadResult.imagePublicId;
+      } catch (uploadError) {
+        return ErrorHandler(uploadError.message, 500, req, res);
       }
     }
 
@@ -398,87 +602,32 @@ const reportImage = async (req, res) => {
       return ErrorHandler("Report note is required.", 400, req, res);
     }
 
-    // Validate rating if provided
-    if (rating !== undefined) {
-      const ratingNum = parseInt(rating);
-      if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
-        return ErrorHandler(
-          "Rating must be a number between 1 and 5.",
-          400,
-          req,
-          res
-        );
-      }
+    if (!validateOptionalRating(req, res, rating)) {
+      return;
     }
 
-    // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
-    if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+    const ownerContext = await getOwnerGalleryContext(req, res, galleryId, clientId);
+    if (!ownerContext) {
+      return;
     }
+    const { galleryEntry } = ownerContext;
 
-    // Check if gallery entry exists and belongs to this business
-    const galleryEntry = await HaircutGallery.findOne({
-      _id: galleryId,
-      business: business._id,
-      isActive: true,
-    });
-    if (!galleryEntry) {
-      return ErrorHandler("Gallery entry not found.", 404, req, res);
-    }
+    const { imageUrl, imagePublicId } = await uploadOptionalGalleryImage(
+      req,
+      "haircut-reports",
+      "Failed to upload report image."
+    );
 
-    // Check if client exists and belongs to this business
-    const client = await Client.findOne({
-      _id: clientId,
-      business: business._id,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    // Handle image upload if provided
-    let imageUrl = null;
-    let imagePublicId = null;
-    if (req.file) {
-      try {
-        const uploadResult = await uploadToCloudinary(
-          req.file.buffer,
-          "haircut-reports"
-        );
-        imageUrl = uploadResult.secure_url;
-        imagePublicId = uploadResult.public_id;
-      } catch (uploadError) {
-        console.error("Failed to upload report image:", uploadError.message);
-        return ErrorHandler(
-          "Failed to upload report image. Please try again.",
-          500,
-          req,
-          res
-        );
-      }
-    }
-
-    // Add report with image and rating if provided
-    const reportData = {
+    const updatedGalleryEntry = await addReportToGallery(
+      galleryEntry,
       note,
       reportType,
-      createdBy: clientId,
-    };
+      clientId,
+      rating,
+      { imageUrl, imagePublicId }
+    );
 
-    if (imageUrl) {
-      reportData.imageUrl = imageUrl;
-      reportData.imagePublicId = imagePublicId;
-    }
-
-    if (rating !== undefined) {
-      reportData.rating = parseInt(rating);
-    }
-
-    galleryEntry.reports.push(reportData);
-
-    await galleryEntry.save();
-
-    return SuccessHandler(galleryEntry, 200, res);
+    return SuccessHandler(updatedGalleryEntry, 200, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -502,9 +651,9 @@ const getReportedImages = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
+    const business = await getOwnerBusiness(req, res);
     if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+      return;
     }
 
     let query = {
@@ -572,9 +721,9 @@ const reviewReport = async (req, res) => {
     }
 
     // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
+    const business = await getOwnerBusiness(req, res);
     if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+      return;
     }
 
     // Update the specific report
@@ -630,41 +779,24 @@ const deleteGalleryImage = async (req, res) => {
     const { galleryId } = req.params;
 
     // Check if business exists
-    const business = await Business.findOne({ owner: req.user.id });
+    const business = await getOwnerBusiness(req, res);
     if (!business) {
-      return ErrorHandler("Business not found for this user.", 404, req, res);
+      return;
     }
 
     // Check if gallery entry exists and belongs to this business
-    const galleryEntry = await HaircutGallery.findOne({
-      _id: galleryId,
-      business: business._id,
-    });
-    if (!galleryEntry) {
-      return ErrorHandler("Gallery entry not found.", 404, req, res);
-    }
-
-    // Delete image from Cloudinary if exists
-    if (galleryEntry.imagePublicId) {
-      try {
-        await deleteImage(galleryEntry.imagePublicId);
-      } catch (cloudinaryError) {
-        console.error(
-          "Failed to delete image from Cloudinary:",
-          cloudinaryError
-        );
-        // Continue with deletion even if Cloudinary deletion fails
-      }
-    }
-
-    // Soft delete
-    await HaircutGallery.findByIdAndUpdate(galleryId, { isActive: false });
-
-    return SuccessHandler(
-      { message: "Gallery image deleted successfully." },
-      200,
-      res
+    const galleryEntry = await getBusinessGalleryEntry(
+      req,
+      res,
+      business._id,
+      galleryId,
+      false
     );
+    if (!galleryEntry) {
+      return;
+    }
+
+    return deleteGalleryEntryAndRespond(galleryEntry, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -687,91 +819,46 @@ const addSuggestionByClient = async (req, res) => {
   try {
     const { galleryId } = req.params;
     const { note } = req.body;
-    const { invitationToken } = req.query;
-    let clientId = req.headers["x-client-id"];
+    const clientActorId = ensureClientGalleryActor(req, res);
+    if (!clientActorId) {
+      return;
+    }
 
     if (!note) {
       return ErrorHandler("Suggestion note is required.", 400, req, res);
     }
 
-    // If no client ID in header, try to get it from invitation token
-    if (!clientId && invitationToken) {
-      const client = await Client.findOne({ invitationToken });
-      if (client) {
-        clientId = client._id.toString();
-      }
-    }
-
-    if (!clientId) {
-      return ErrorHandler(
-        "Client ID is required in headers or invitation token in query.",
-        400,
-        req,
-        res
-      );
-    }
-
-    // Check if gallery entry exists and is active
-    const galleryEntry = await HaircutGallery.findOne({
-      _id: galleryId,
-      isActive: true,
-    });
+    const galleryEntry = await getOwnedActiveGalleryEntry(
+      req,
+      res,
+      galleryId,
+      "You can only suggest changes on your own photos."
+    );
     if (!galleryEntry) {
-      return ErrorHandler("Gallery entry not found.", 404, req, res);
+      return;
     }
 
-    // Check if client exists and belongs to the same business as the gallery
-    const client = await Client.findOne({
-      _id: clientId,
-      business: galleryEntry.business,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found or not authorized.", 404, req, res);
-    }
+    const { imageUrl, imagePublicId } = await uploadOptionalGalleryImage(
+      req,
+      "haircut-suggestions",
+      "Failed to upload suggestion image."
+    );
 
-    // Handle image upload if provided
-    let imageUrl = null;
-    let imagePublicId = null;
-    if (req.file) {
-      try {
-        const uploadResult = await uploadToCloudinary(
-          req.file.buffer,
-          "haircut-suggestions"
-        );
-        imageUrl = uploadResult.secure_url;
-        imagePublicId = uploadResult.public_id;
-      } catch (uploadError) {
-        console.error(
-          "Failed to upload suggestion image:",
-          uploadError.message
-        );
-        return ErrorHandler(
-          "Failed to upload suggestion image. Please try again.",
-          500,
-          req,
-          res
-        );
-      }
-    }
-
-    // Add suggestion with image if provided
-    const suggestionData = {
+    const updatedGalleryEntry = await addSuggestionToGallery(
+      galleryEntry,
       note,
-      createdBy: clientId,
-    };
+      clientActorId,
+      { imageUrl, imagePublicId }
+    );
 
-    if (imageUrl) {
-      suggestionData.imageUrl = imageUrl;
-      suggestionData.imagePublicId = imagePublicId;
-    }
-
-    galleryEntry.suggestions.push(suggestionData);
-
-    await galleryEntry.save();
-
-    return SuccessHandler(galleryEntry, 200, res);
+    return SuccessHandler(updatedGalleryEntry, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return handleGalleryUploadFailure(
+      error,
+      req,
+      res,
+      "Failed to upload suggestion image."
+    );
   }
 };
 
@@ -794,106 +881,52 @@ const reportImageByClient = async (req, res) => {
   try {
     const { galleryId } = req.params;
     const { note, reportType = "other", rating } = req.body;
-    const { invitationToken } = req.query;
-    let clientId = req.headers["x-client-id"];
+    const clientActorId = ensureClientGalleryActor(req, res);
+    if (!clientActorId) {
+      return;
+    }
 
     if (!note) {
       return ErrorHandler("Report note is required.", 400, req, res);
     }
 
-    // If no client ID in header, try to get it from invitation token
-    if (!clientId && invitationToken) {
-      const client = await Client.findOne({ invitationToken });
-      if (client) {
-        clientId = client._id.toString();
-      }
+    if (!validateOptionalRating(req, res, rating)) {
+      return;
     }
 
-    if (!clientId) {
-      return ErrorHandler(
-        "Client ID is required in headers or invitation token in query.",
-        400,
-        req,
-        res
-      );
-    }
-
-    // Validate rating if provided
-    if (rating !== undefined) {
-      const ratingNum = parseInt(rating);
-      if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
-        return ErrorHandler(
-          "Rating must be a number between 1 and 5.",
-          400,
-          req,
-          res
-        );
-      }
-    }
-
-    // Check if gallery entry exists and is active
-    const galleryEntry = await HaircutGallery.findOne({
-      _id: galleryId,
-      isActive: true,
-    });
+    const galleryEntry = await getOwnedActiveGalleryEntry(
+      req,
+      res,
+      galleryId,
+      "You can only report your own photos."
+    );
     if (!galleryEntry) {
-      return ErrorHandler("Gallery entry not found.", 404, req, res);
+      return;
     }
 
-    // Check if client exists and belongs to the same business as the gallery
-    const client = await Client.findOne({
-      _id: clientId,
-      business: galleryEntry.business,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found or not authorized.", 404, req, res);
-    }
+    const { imageUrl, imagePublicId } = await uploadOptionalGalleryImage(
+      req,
+      "haircut-reports",
+      "Failed to upload report image."
+    );
 
-    // Handle image upload if provided
-    let imageUrl = null;
-    let imagePublicId = null;
-    if (req.file) {
-      try {
-        const uploadResult = await uploadToCloudinary(
-          req.file.buffer,
-          "haircut-reports"
-        );
-        imageUrl = uploadResult.secure_url;
-        imagePublicId = uploadResult.public_id;
-      } catch (uploadError) {
-        console.error("Failed to upload report image:", uploadError.message);
-        return ErrorHandler(
-          "Failed to upload report image. Please try again.",
-          500,
-          req,
-          res
-        );
-      }
-    }
-
-    // Add report with image and rating if provided
-    const reportData = {
+    const updatedGalleryEntry = await addReportToGallery(
+      galleryEntry,
       note,
       reportType,
-      createdBy: clientId,
-    };
+      clientActorId,
+      rating,
+      { imageUrl, imagePublicId }
+    );
 
-    if (imageUrl) {
-      reportData.imageUrl = imageUrl;
-      reportData.imagePublicId = imagePublicId;
-    }
-
-    if (rating !== undefined) {
-      reportData.rating = parseInt(rating);
-    }
-
-    galleryEntry.reports.push(reportData);
-
-    await galleryEntry.save();
-
-    return SuccessHandler(galleryEntry, 200, res);
+    return SuccessHandler(updatedGalleryEntry, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return handleGalleryUploadFailure(
+      error,
+      req,
+      res,
+      "Failed to upload report image."
+    );
   }
 };
 
@@ -910,75 +943,22 @@ const deleteGalleryImageByClient = async (req, res) => {
     */
   try {
     const { galleryId } = req.params;
-    const { invitationToken } = req.query;
-    let clientId = req.headers["x-client-id"];
-
-    // If no client ID in header, try to get it from invitation token
-    if (!clientId && invitationToken) {
-      const client = await Client.findOne({ invitationToken });
-      if (client) {
-        clientId = client._id.toString();
-      }
+    const clientActorId = ensureClientGalleryActor(req, res);
+    if (!clientActorId) {
+      return;
     }
 
-    if (!clientId) {
-      return ErrorHandler(
-        "Client ID is required in headers or invitation token in query.",
-        400,
-        req,
-        res
-      );
-    }
-
-    // Check if gallery entry exists and is active
-    const galleryEntry = await HaircutGallery.findOne({
-      _id: galleryId,
-      isActive: true,
-    });
-    if (!galleryEntry) {
-      return ErrorHandler("Gallery entry not found.", 404, req, res);
-    }
-
-    // Check if client exists and belongs to the same business as the gallery
-    const client = await Client.findOne({
-      _id: clientId,
-      business: galleryEntry.business,
-    });
-    if (!client) {
-      return ErrorHandler("Client not found or not authorized.", 404, req, res);
-    }
-
-    // Verify that the gallery entry belongs to this client
-    if (galleryEntry.client.toString() !== clientId) {
-      return ErrorHandler(
-        "You can only delete your own photos.",
-        403,
-        req,
-        res
-      );
-    }
-
-    // Delete image from Cloudinary if exists
-    if (galleryEntry.imagePublicId) {
-      try {
-        await deleteImage(galleryEntry.imagePublicId);
-      } catch (cloudinaryError) {
-        console.error(
-          "Failed to delete image from Cloudinary:",
-          cloudinaryError
-        );
-        // Continue with deletion even if Cloudinary deletion fails
-      }
-    }
-
-    // Soft delete
-    await HaircutGallery.findByIdAndUpdate(galleryId, { isActive: false });
-
-    return SuccessHandler(
-      { message: "Gallery image deleted successfully." },
-      200,
-      res
+    const galleryEntry = await getOwnedActiveGalleryEntry(
+      req,
+      res,
+      galleryId,
+      "You can only delete your own photos."
     );
+    if (!galleryEntry) {
+      return;
+    }
+
+    return deleteGalleryEntryAndRespond(galleryEntry, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }

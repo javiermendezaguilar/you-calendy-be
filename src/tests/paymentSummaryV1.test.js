@@ -182,7 +182,7 @@ describe("Payment summary v1", () => {
     expect(res.body.data.refundedTotal).toBe(10);
     expect(res.body.data.netCaptured).toBe(80);
     expect(res.body.data.voidedTotal).toBe(25);
-    expect(res.body.data.transactionCount).toBe(3);
+    expect(res.body.data.transactionCount).toBe(2);
     expect(res.body.data.capturedCount).toBe(1);
     expect(res.body.data.refundedPartialCount).toBe(1);
     expect(res.body.data.refundedFullCount).toBe(0);

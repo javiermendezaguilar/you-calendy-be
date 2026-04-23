@@ -78,6 +78,11 @@ describe("Legacy revenue canonical phase 3", () => {
     );
 
     expect(res.status).toBe(200);
+    expect(res.body.data.semanticScope).toEqual({
+      entity: "owner_business_legacy",
+      revenue: "business",
+      activity: "business",
+    });
     expect(res.body.data.stats.totalRevenue).toBe(80);
     expect(res.body.data.stats.totalAppointments).toBe(6);
     expect(res.body.data.stats.completedAppointments).toBe(4);

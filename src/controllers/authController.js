@@ -16,6 +16,12 @@ const {
   getCanonicalRevenueTotalsByBusiness,
 } = require("../services/payment/revenueProjection");
 
+const LEGACY_BARBER_OWNER_SCOPE = Object.freeze({
+  entity: "owner_business_legacy",
+  revenue: "business",
+  activity: "business",
+});
+
 const sanitizeAuthUser = (userDoc) => {
   if (!userDoc) return userDoc;
 
@@ -741,13 +747,13 @@ const socialAuth = async (req, res) => {
 };
 
 /**
- * @desc Get all barbers with filtering, sorting, and pagination
+ * @desc Get legacy barber accounts with filtering, sorting, and pagination
  * @route GET /api/auth/barbers
  * @access Private (Admin)
  */
 const getBarber = async (req, res) => {
   // #swagger.tags = ['Auth']
-  /* #swagger.description = 'Get all users with role barber, with filtering, sorting, and pagination. Includes total revenue and appointment count for each barber.'
+  /* #swagger.description = 'Get legacy barber accounts. In the current model this surface represents owner/business accounts, not staff individual revenue. Includes business-level revenue and appointment count.'
      #swagger.security = [{ "Bearer": [] }]
      #swagger.parameters['status'] = { in: 'query', description: 'Filter by activation status (activated, deactivated)', type: 'string' }
      #swagger.parameters['sort'] = { in: 'query', description: 'Sort by field (e.g., name:asc, email:desc, phone:asc, totalRevenue:desc, totalAppointments:desc)', type: 'string' }
@@ -756,6 +762,11 @@ const getBarber = async (req, res) => {
      #swagger.responses[200] = {
         description: 'Barbers retrieved successfully with revenue and appointment data',
         schema: {
+          semanticScope: {
+            entity: 'owner_business_legacy',
+            revenue: 'business',
+            activity: 'business'
+          },
           barbers: [{
             _id: 'barber_id',
             name: 'John Doe',
@@ -899,6 +910,7 @@ const getBarber = async (req, res) => {
 
     return SuccessHandler(
       {
+        semanticScope: LEGACY_BARBER_OWNER_SCOPE,
         barbers: enhancedBarbers,
         pagination: {
           total,
@@ -958,13 +970,13 @@ const updateBarberStatus = async (req, res) => {
 };
 
 /**
- * @desc Get detailed info for a specific barber (admin or self)
+ * @desc Get detailed info for a legacy barber account (admin or self)
  * @route GET /api/auth/barbers/:id
  * @access Private (Admin or Barber themselves)
  */
 const getByID = async (req, res) => {
   // #swagger.tags = ['Auth']
-  /* #swagger.description = 'Get detailed info for a specific barber, including total appointments, revenue, client insights, and business details.'
+  /* #swagger.description = 'Get detailed info for a legacy barber account. In the current model this surface represents the owner/business account and returns business-level appointments and revenue, not staff individual production.'
      #swagger.security = [{ "Bearer": [] }]
      #swagger.parameters['id'] = { in: 'path', description: 'Barber user ID', required: true, type: 'string' }
   */
@@ -1031,6 +1043,7 @@ const getByID = async (req, res) => {
     // Response
     return SuccessHandler(
       {
+        semanticScope: LEGACY_BARBER_OWNER_SCOPE,
         barber,
         business,
         totalAppointments,

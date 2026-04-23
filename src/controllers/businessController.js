@@ -2122,13 +2122,13 @@ const checkCampaignCredits = async (req, res) => {
 };
 
 /**
- * @desc Get barber profile by link token (public access)
+ * @desc Get legacy public barber profile by link token (public access)
  * @route GET /api/barber/profile/:linkToken
  * @access Public
  */
 const getBarberProfileByLink = async (req, res) => {
   // #swagger.tags = ['Barber Profile']
-  /* #swagger.description = 'Get comprehensive barber profile information using link token (public access)'
+  /* #swagger.description = 'Get the legacy public barber profile using link token. In the current model this surface behaves as an owner/business public profile and exposes business-level stats, not staff individual production.'
      #swagger.parameters['linkToken'] = {
         in: 'path',
         description: 'Barber link token',
@@ -2138,6 +2138,11 @@ const getBarberProfileByLink = async (req, res) => {
      #swagger.responses[200] = {
         description: 'Barber profile retrieved successfully',
         schema: {
+          semanticScope: {
+            entity: 'owner_business_legacy',
+            revenue: 'business',
+            activity: 'business'
+          },
           barber: {
             _id: 'barber_id',
             name: 'John Doe',
@@ -2252,6 +2257,11 @@ const getBarberProfileByLink = async (req, res) => {
 
     // Prepare comprehensive barber profile data
     const barberProfile = {
+      semanticScope: {
+        entity: "owner_business_legacy",
+        revenue: "business",
+        activity: "business",
+      },
       barber: {
         _id: business.owner._id,
         name: business.owner.name,

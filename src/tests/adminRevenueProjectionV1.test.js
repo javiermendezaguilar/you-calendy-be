@@ -125,6 +125,11 @@ describe("Admin revenue projection v1", () => {
     expect(listRes.body.data.barbers[0]._id.toString()).toBe(
       fixture.owner._id.toString()
     );
+    expect(listRes.body.data.semanticScope).toEqual({
+      entity: "owner_business_legacy",
+      revenue: "business",
+      activity: "business",
+    });
 
     const detailRes = await request(app)
       .get(`/auth/barbers/${fixture.owner._id}`)
@@ -134,5 +139,10 @@ describe("Admin revenue projection v1", () => {
     expect(detailRes.body.data.totalRevenue).toBe(80);
     expect(detailRes.body.data.totalAppointments).toBe(6);
     expect(detailRes.body.data.business.name).toBe("Revenue Projection Shop");
+    expect(detailRes.body.data.semanticScope).toEqual({
+      entity: "owner_business_legacy",
+      revenue: "business",
+      activity: "business",
+    });
   });
 });

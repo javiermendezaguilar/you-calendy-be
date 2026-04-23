@@ -577,12 +577,16 @@ const getPaymentSummary = async (req, res) => {
         { cash: 0, card_manual: 0, other: 0 }
       );
 
+    const retainedPayments = payments.filter((payment) =>
+      capturedStatuses.includes(payment.status)
+    );
+
     const summary = {
       grossCaptured,
       refundedTotal,
       netCaptured: grossCaptured - refundedTotal,
       voidedTotal,
-      transactionCount: payments.length,
+      transactionCount: retainedPayments.length,
       capturedCount: payments.filter((payment) => payment.status === "captured").length,
       refundedPartialCount: payments.filter(
         (payment) => payment.status === "refunded_partial"

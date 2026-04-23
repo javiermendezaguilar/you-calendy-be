@@ -31,6 +31,18 @@ const createNoPromotionState = () => ({
   originalPrice: 0,
 });
 
+const buildFixtureServiceClientSnapshot = (fixture) => ({
+  service: {
+    id: fixture.service._id,
+    name: fixture.service.name,
+  },
+  client: {
+    id: fixture.client._id,
+    firstName: fixture.client.firstName,
+    lastName: fixture.client.lastName,
+  },
+});
+
 const stopCommerceTestServer = async () => {
   if (!mongoServer) {
     return;
@@ -241,15 +253,7 @@ const createClosedCheckoutForFixture = async (fixture, overrides = {}) => {
       appointmentStatus: fixture.appointment.status,
       bookingStatus: fixture.appointment.bookingStatus,
       visitStatus: fixture.appointment.visitStatus,
-      service: {
-        id: fixture.service._id,
-        name: fixture.service.name,
-      },
-      client: {
-        id: fixture.client._id,
-        firstName: fixture.client.firstName,
-        lastName: fixture.client.lastName,
-      },
+      ...buildFixtureServiceClientSnapshot(fixture),
       discounts: {
         promotion: { applied: false, id: null, amount: 0 },
         flashSale: { applied: false, id: null, amount: 0 },
@@ -314,15 +318,7 @@ const createCapturedPaymentForFixture = async (fixture, checkout, overrides = {}
       discountTotal: overrides.discountTotal ?? 0,
       total: overrides.total ?? 40,
       sourcePrice: overrides.sourcePrice ?? 35,
-      service: {
-        id: fixture.service._id,
-        name: fixture.service.name,
-      },
-      client: {
-        id: fixture.client._id,
-        firstName: fixture.client.firstName,
-        lastName: fixture.client.lastName,
-      },
+      ...buildFixtureServiceClientSnapshot(fixture),
       discounts: {
         promotionAmount: 0,
         flashSaleAmount: 0,

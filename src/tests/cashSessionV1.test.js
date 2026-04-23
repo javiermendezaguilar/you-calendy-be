@@ -28,6 +28,46 @@ describe("CashSession v1", () => {
   let checkout;
   let foreignOwnerToken;
 
+  const getActiveCashSessionForToken = (authToken = token, query = {}) =>
+    request(app)
+      .get("/cash-sessions/active")
+      .set("Authorization", `Bearer ${authToken}`)
+      .query(query);
+
+  const closeCashSessionForToken = (
+    sessionId,
+    payload,
+    authToken = token
+  ) =>
+    request(app)
+      .post(`/cash-sessions/${sessionId}/close`)
+      .set("Authorization", `Bearer ${authToken}`)
+      .send(payload);
+
+  const openCaptureAndCloseCashSession = async ({
+    openingFloat = 50,
+    amount = 40,
+    reference,
+    closingDeclared,
+    checkoutId = checkout._id,
+  }) => {
+    const openRes = await openCashSessionForToken(app, token, {
+      openingFloat,
+    });
+
+    await captureCheckoutPaymentForToken(app, token, checkoutId, {
+      method: "cash",
+      amount,
+      reference,
+    });
+
+    const closeRes = await closeCashSessionForToken(openRes.body.data._id, {
+      closingDeclared,
+    });
+
+    return { openRes, closeRes };
+  };
+
   beforeEach(async () => {
     fixture = await createCommerceFixture({
       ownerName: "Cash Owner",
@@ -88,9 +128,7 @@ describe("CashSession v1", () => {
     expect(openRes.body.data.openingFloat).toBe(50);
     expect(openRes.body.data.openingReason).toBe("manual_start");
 
-    const activeRes = await request(app)
-      .get("/cash-sessions/active")
-      .set("Authorization", `Bearer ${token}`);
+    const activeRes = await getActiveCashSessionForToken();
 
     expect(activeRes.status).toBe(200);
     expect(activeRes.body.data._id).toBe(openRes.body.data._id);
@@ -118,10 +156,10 @@ describe("CashSession v1", () => {
       reference: "cash-register-001-handoff",
     });
 
-    const firstCloseRes = await request(app)
-      .post(`/cash-sessions/${firstOpenRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 90 });
+    const firstCloseRes = await closeCashSessionForToken(
+      firstOpenRes.body.data._id,
+      { closingDeclared: 90 }
+    );
 
     expect(firstCloseRes.status).toBe(200);
 
@@ -140,9 +178,7 @@ describe("CashSession v1", () => {
     expect(secondOpenRes.body.data.handoffFrom._id).toBe(firstOpenRes.body.data._id);
     expect(secondOpenRes.body.data.handoffFrom.closingDeclared).toBe(90);
 
-    const activeRes = await request(app)
-      .get("/cash-sessions/active")
-      .set("Authorization", `Bearer ${token}`);
+    const activeRes = await getActiveCashSessionForToken();
 
     expect(activeRes.status).toBe(200);
     expect(activeRes.body.data.opening.source).toBe("handoff");
@@ -165,10 +201,10 @@ describe("CashSession v1", () => {
       reference: "cash-register-001-handoff-mismatch",
     });
 
-    const firstCloseRes = await request(app)
-      .post(`/cash-sessions/${firstOpenRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 90 });
+    const firstCloseRes = await closeCashSessionForToken(
+      firstOpenRes.body.data._id,
+      { closingDeclared: 90 }
+    );
 
     expect(firstCloseRes.status).toBe(200);
 
@@ -229,9 +265,7 @@ describe("CashSession v1", () => {
       "Adjusted drawer after manual recount before opening"
     );
 
-    const activeRes = await request(app)
-      .get("/cash-sessions/active")
-      .set("Authorization", `Bearer ${token}`);
+    const activeRes = await getActiveCashSessionForToken();
 
     expect(activeRes.status).toBe(200);
     expect(activeRes.body.data.opening.source).toBe("manual");
@@ -253,12 +287,9 @@ describe("CashSession v1", () => {
       reference: "cash-register-007",
     });
 
-    const activeRes = await request(app)
-      .get("/cash-sessions/active")
-      .set("Authorization", `Bearer ${token}`)
-      .query({
-        closingDeclaredPreview: 85,
-      });
+    const activeRes = await getActiveCashSessionForToken(token, {
+      closingDeclaredPreview: 85,
+    });
 
     expect(activeRes.status).toBe(200);
     expect(activeRes.body.data.closing.expectedDrawerTotal).toBe(90);
@@ -294,9 +325,7 @@ describe("CashSession v1", () => {
 
     expect(refundRes.status).toBe(201);
 
-    const activeRes = await request(app)
-      .get("/cash-sessions/active")
-      .set("Authorization", `Bearer ${token}`);
+    const activeRes = await getActiveCashSessionForToken();
 
     expect(activeRes.status).toBe(200);
     expect(activeRes.body.data.summary.cashSalesTotal).toBe(30);
@@ -345,10 +374,9 @@ describe("CashSession v1", () => {
 
     expect(refundRes.status).toBe(201);
 
-    const closeRes = await request(app)
-      .post(`/cash-sessions/${openRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 80 });
+    const closeRes = await closeCashSessionForToken(openRes.body.data._id, {
+      closingDeclared: 80,
+    });
 
     expect(closeRes.status).toBe(200);
     expect(closeRes.body.data.closingExpected).toBe(80);
@@ -374,10 +402,9 @@ describe("CashSession v1", () => {
       reference: "cash-register-003",
     });
 
-    const closeRes = await request(app)
-      .post(`/cash-sessions/${openRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 90 });
+    const closeRes = await closeCashSessionForToken(openRes.body.data._id, {
+      closingDeclared: 90,
+    });
 
     expect(closeRes.status).toBe(200);
     expect(closeRes.body.data.status).toBe("closed");
@@ -399,10 +426,9 @@ describe("CashSession v1", () => {
     expect(storedSession.summary.expectedDrawerTotal).toBe(90);
     expect(storedSession.variance).toBe(0);
 
-    const duplicateClose = await request(app)
-      .post(`/cash-sessions/${openRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 90 });
+    const duplicateClose = await closeCashSessionForToken(openRes.body.data._id, {
+      closingDeclared: 90,
+    });
 
     expect(duplicateClose.status).toBe(409);
     expect(duplicateClose.body.message).toMatch(/already closed/i);
@@ -417,21 +443,21 @@ describe("CashSession v1", () => {
       reference: "cash-register-006",
     });
 
-    const closeWithoutNoteRes = await request(app)
-      .post(`/cash-sessions/${openRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 95 });
+    const closeWithoutNoteRes = await closeCashSessionForToken(
+      openRes.body.data._id,
+      { closingDeclared: 95 }
+    );
 
     expect(closeWithoutNoteRes.status).toBe(400);
     expect(closeWithoutNoteRes.body.message).toMatch(/closingNote is required/i);
 
-    const closeWithNoteRes = await request(app)
-      .post(`/cash-sessions/${openRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({
+    const closeWithNoteRes = await closeCashSessionForToken(
+      openRes.body.data._id,
+      {
         closingDeclared: 95,
         closingNote: "Counted extra cash from prior shift adjustment",
-      });
+      }
+    );
 
     expect(closeWithNoteRes.status).toBe(200);
     expect(closeWithNoteRes.body.data.variance).toBe(5);
@@ -449,20 +475,13 @@ describe("CashSession v1", () => {
   });
 
   test("lists recent cash sessions with status filter and operational closing summary", async () => {
-    const firstOpenRes = await openCashSessionForToken(app, token, {
-      openingFloat: 50,
-    });
-
-    await captureCheckoutPaymentForToken(app, token, checkout._id, {
-      method: "cash",
-      amount: 40,
-      reference: "cash-register-004",
-    });
-
-    const firstCloseRes = await request(app)
-      .post(`/cash-sessions/${firstOpenRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 90 });
+    const { openRes: firstOpenRes, closeRes: firstCloseRes } =
+      await openCaptureAndCloseCashSession({
+        openingFloat: 50,
+        amount: 40,
+        reference: "cash-register-004",
+        closingDeclared: 90,
+      });
 
     expect(firstCloseRes.status).toBe(200);
 
@@ -472,20 +491,14 @@ describe("CashSession v1", () => {
       sourcePrice: 25,
     });
 
-    const secondOpenRes = await openCashSessionForToken(app, token, {
-      openingFloat: 30,
-    });
-
-    await captureCheckoutPaymentForToken(app, token, secondCheckout._id, {
-      method: "cash",
-      amount: 25,
-      reference: "cash-register-005",
-    });
-
-    const secondCloseRes = await request(app)
-      .post(`/cash-sessions/${secondOpenRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ closingDeclared: 55 });
+    const { openRes: secondOpenRes, closeRes: secondCloseRes } =
+      await openCaptureAndCloseCashSession({
+        openingFloat: 30,
+        amount: 25,
+        reference: "cash-register-005",
+        closingDeclared: 55,
+        checkoutId: secondCheckout._id,
+      });
 
     expect(secondCloseRes.status).toBe(200);
 
@@ -530,10 +543,11 @@ describe("CashSession v1", () => {
     expect(getRes.status).toBe(404);
     expect(getRes.body.message).toMatch(/cash session not found/i);
 
-    const closeRes = await request(app)
-      .post(`/cash-sessions/${openRes.body.data._id}/close`)
-      .set("Authorization", `Bearer ${foreignOwnerToken}`)
-      .send({ closingDeclared: 50 });
+    const closeRes = await closeCashSessionForToken(
+      openRes.body.data._id,
+      { closingDeclared: 50 },
+      foreignOwnerToken
+    );
 
     expect(closeRes.status).toBe(404);
     expect(closeRes.body.message).toMatch(/cash session not found/i);

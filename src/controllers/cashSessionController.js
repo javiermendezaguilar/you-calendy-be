@@ -3,6 +3,7 @@ const CashSession = require("../models/cashSession");
 const Payment = require("../models/payment");
 const { resolveBusinessOrReply } = require("./commerceShared");
 const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
+const { buildCashSessionSnapshot } = require("../services/payment/cashSessionSummary");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -42,53 +43,6 @@ const getOpenCashSessionPayments = async (businessId, cashSessionId) =>
     .select("amount tip method status reference capturedAt refundedTotal")
     .sort({ capturedAt: 1 })
     .lean();
-
-const summarizeCashSessionPayments = (cashSession, payments) => {
-  const summarizedPayments = payments
-    .map((payment) => {
-      const amount = Number(payment.amount) || 0;
-      const refundedTotal = Number(payment.refundedTotal) || 0;
-      const netAmount = Math.max(amount - refundedTotal, 0);
-
-      return {
-        payment,
-        netAmount,
-      };
-    })
-    .filter(({ netAmount }) => netAmount > 0);
-
-  const cashSalesTotal = summarizedPayments.reduce(
-    (sum, { netAmount }) => sum + netAmount,
-    0
-  );
-  const tipsTotal = payments.reduce(
-    (sum, payment) => sum + (Number(payment.tip) || 0),
-    0
-  );
-  const transactionCount = summarizedPayments.length;
-  const expectedDrawerTotal =
-    (Number(cashSession.openingFloat) || 0) + cashSalesTotal;
-  const closingDeclared = Number(cashSession.closingDeclared) || 0;
-
-  return {
-    paymentIds: summarizedPayments.map(({ payment }) => payment._id),
-    payments: summarizedPayments.map(({ payment }) => payment),
-    summary: {
-      cashSalesTotal,
-      tipsTotal,
-      transactionCount,
-      expectedDrawerTotal,
-    },
-    closingExpected: expectedDrawerTotal,
-    variance: closingDeclared - expectedDrawerTotal,
-    closing: {
-      ready: transactionCount > 0,
-      transactionCount,
-      cashSalesTotal,
-      expectedDrawerTotal,
-    },
-  };
-};
 
 const buildVariancePreview = (expectedDrawerTotal, closingDeclaredPreview) => {
   if (
@@ -150,7 +104,7 @@ const buildCashSessionReadModel = async (cashSession, options = {}) => {
   }
 
   const payments = await getOpenCashSessionPayments(base.business, base._id);
-  const snapshot = summarizeCashSessionPayments(base, payments);
+  const snapshot = buildCashSessionSnapshot(base, payments);
 
   return {
     ...base,
@@ -184,6 +138,30 @@ const getOwnedCashSession = async (businessId, cashSessionId, hydrated = false) 
       path: "payments",
       select: "amount tip method status reference capturedAt",
     });
+};
+
+const getBusinessAndOwnedCashSession = async (
+  req,
+  res,
+  { hydrated = false } = {}
+) => {
+  const business = req.business || (await resolveBusinessOrReply(req, res));
+  if (!business) {
+    return {};
+  }
+
+  const cashSession = await getOwnedCashSession(
+    business._id,
+    req.params.id,
+    hydrated
+  );
+
+  if (!cashSession) {
+    ErrorHandler("Cash session not found", 404, req, res);
+    return { business };
+  }
+
+  return { business, cashSession };
 };
 
 const openCashSession = async (req, res) => {
@@ -374,18 +352,10 @@ const listCashSessions = async (req, res) => {
 
 const getCashSessionById = async (req, res) => {
   try {
-    const business = req.business || (await resolveBusinessOrReply(req, res));
-    if (!business) return;
-
-    const cashSession = await getOwnedCashSession(
-      business._id,
-      req.params.id,
-      true
-    );
-
-    if (!cashSession) {
-      return ErrorHandler("Cash session not found", 404, req, res);
-    }
+    const { cashSession } = await getBusinessAndOwnedCashSession(req, res, {
+      hydrated: true,
+    });
+    if (!cashSession) return;
 
     const readModel = await buildCashSessionReadModel(cashSession);
     return SuccessHandler(readModel, 200, res);
@@ -396,14 +366,11 @@ const getCashSessionById = async (req, res) => {
 
 const closeCashSession = async (req, res) => {
   try {
-    const business = req.business || (await resolveBusinessOrReply(req, res));
-    if (!business) return;
-
-    const cashSession = await getOwnedCashSession(business._id, req.params.id);
-
-    if (!cashSession) {
-      return ErrorHandler("Cash session not found", 404, req, res);
-    }
+    const { business, cashSession } = await getBusinessAndOwnedCashSession(
+      req,
+      res
+    );
+    if (!business || !cashSession) return;
 
     if (cashSession.status !== "open") {
       return ErrorHandler("Cash session is already closed", 409, req, res);
@@ -420,7 +387,7 @@ const closeCashSession = async (req, res) => {
     }
 
     const payments = await getOpenCashSessionPayments(business._id, cashSession._id);
-    const snapshot = summarizeCashSessionPayments(
+    const snapshot = buildCashSessionSnapshot(
       {
         ...cashSession.toObject(),
         closingDeclared,

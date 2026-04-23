@@ -6,6 +6,7 @@ const Refund = require("../models/refund");
 const { resolveBusinessOrReply } = require("./commerceShared");
 const { recordDomainEvent } = require("../services/domainEventService");
 const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
+const { buildCashSessionSnapshot } = require("../services/payment/cashSessionSummary");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -128,41 +129,12 @@ const recalculateCashSessionSummary = async (cashSessionId) => {
     ...buildCommercePaymentFilter(),
   });
 
-  const summarizedPayments = cashPayments
-    .map((payment) => {
-      const amount = Number(payment.amount) || 0;
-      const refundedTotal = Number(payment.refundedTotal) || 0;
-      const netAmount = Math.max(amount - refundedTotal, 0);
+  const snapshot = buildCashSessionSnapshot(cashSession, cashPayments);
 
-      return {
-        payment,
-        netAmount,
-      };
-    })
-    .filter(({ netAmount }) => netAmount > 0);
-
-  const cashSalesTotal = summarizedPayments.reduce(
-    (sum, { netAmount }) => sum + netAmount,
-    0
-  );
-  const tipsTotal = cashPayments.reduce(
-    (sum, payment) => sum + (Number(payment.tip) || 0),
-    0
-  );
-  const transactionCount = summarizedPayments.length;
-  const expectedDrawerTotal =
-    (Number(cashSession.openingFloat) || 0) + cashSalesTotal;
-
-  cashSession.payments = summarizedPayments.map(({ payment }) => payment._id);
-  cashSession.closingExpected = expectedDrawerTotal;
-  cashSession.summary = {
-    cashSalesTotal,
-    tipsTotal,
-    transactionCount,
-    expectedDrawerTotal,
-  };
-  cashSession.variance =
-    (Number(cashSession.closingDeclared) || 0) - expectedDrawerTotal;
+  cashSession.payments = snapshot.paymentIds;
+  cashSession.closingExpected = snapshot.closingExpected;
+  cashSession.summary = snapshot.summary;
+  cashSession.variance = snapshot.variance;
 
   await cashSession.save();
   return cashSession;

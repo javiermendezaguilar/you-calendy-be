@@ -125,6 +125,16 @@ describe("Appointment permissions v1", () => {
   });
 
   test("allows the assigned staff user to mark their own appointment as completed", async () => {
+    await Appointment.findByIdAndUpdate(appointment._id, {
+      visitStatus: "in_service",
+      operationalTimestamps: {
+        checkedInAt: new Date(),
+        checkedInBy: owner._id,
+        serviceStartedAt: new Date(),
+        serviceStartedBy: owner._id,
+      },
+    });
+
     const res = await request(app)
       .put(`/appointments/${appointment._id}/status`)
       .set("Authorization", `Bearer ${assignedStaffToken}`)

@@ -24,6 +24,18 @@ describe("Appointment event map v2", () => {
   });
 
   test("records service_completed when an owner marks an appointment completed", async () => {
+    const checkInRes = await request(app)
+      .post(`/appointments/${appointment._id}/check-in`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(checkInRes.status).toBe(200);
+
+    const startServiceRes = await request(app)
+      .post(`/appointments/${appointment._id}/start-service`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(startServiceRes.status).toBe(200);
+
     const res = await request(app)
       .put(`/appointments/${appointment._id}/status`)
       .set("Authorization", `Bearer ${token}`)

@@ -94,6 +94,27 @@ const getCanonicalRevenueTotalsByBusiness = async ({
   ]);
 };
 
+const getCanonicalRevenueTotalByAppointmentIds = async ({
+  appointmentIds = [],
+  paymentMatch = {},
+} = {}) => {
+  if (!Array.isArray(appointmentIds) || appointmentIds.length === 0) {
+    return 0;
+  }
+
+  const revenueAgg = await Payment.aggregate([
+    {
+      $match: buildCommercePaymentFilter({
+        ...paymentMatch,
+        appointment: { $in: appointmentIds },
+      }),
+    },
+    buildRevenueGroupStage(null),
+  ]);
+
+  return Number(revenueAgg[0]?.totalRevenue) || 0;
+};
+
 const getCanonicalRevenueProjection = async ({
   appointmentMatch = {},
   paymentMatch = {},
@@ -254,6 +275,7 @@ const getCanonicalRevenueProjection = async ({
 
 module.exports = {
   buildDateRangeClause,
+  getCanonicalRevenueTotalByAppointmentIds,
   getCanonicalRevenueTotalsByBusiness,
   getCanonicalRevenueProjection,
 };

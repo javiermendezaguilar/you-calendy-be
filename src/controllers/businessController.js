@@ -59,6 +59,9 @@ const {
   getDomainEventsForOwner,
 } = require("../services/domainEventService");
 const {
+  getCanonicalRevenueTotalsByBusiness,
+} = require("../services/payment/revenueProjection");
+const {
   createSubscriptionRequestSchema,
 } = require("../services/billing/subscriptionRuntimeSchemas");
 const {
@@ -2217,28 +2220,32 @@ const getBarberProfileByLink = async (req, res) => {
       isActive: true,
     }).populate("services", "name");
 
-    // Get appointment statistics
-    const appointmentStats = await Appointment.aggregate([
-      { $match: { business: business._id } },
-      {
-        $group: {
-          _id: null,
-          totalAppointments: { $sum: 1 },
-          completedAppointments: {
-            $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
-          },
-          totalRevenue: {
-            $sum: { $cond: [{ $eq: ["$status", "Completed"] }, "$price", 0] },
+    const [appointmentStats, revenueAgg] = await Promise.all([
+      Appointment.aggregate([
+        { $match: { business: business._id } },
+        {
+          $group: {
+            _id: null,
+            totalAppointments: { $sum: 1 },
+            completedAppointments: {
+              $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
+            },
           },
         },
-      },
+      ]),
+      getCanonicalRevenueTotalsByBusiness({
+        businessIds: [business._id],
+        paymentMatch: {
+          status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+        },
+      }),
     ]);
 
     const stats = appointmentStats[0] || {
       totalAppointments: 0,
       completedAppointments: 0,
-      totalRevenue: 0,
     };
+    stats.totalRevenue = Number(revenueAgg[0]?.totalRevenue) || 0;
 
     // Calculate average rating (if you have a rating system)
     const averageRating = 4.5; // Placeholder - implement rating system if needed

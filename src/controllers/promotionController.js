@@ -6,6 +6,9 @@ const Service = require("../models/service");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const moment = require("moment");
+const {
+  getCanonicalRevenueTotalByAppointmentIds,
+} = require("../services/payment/revenueProjection");
 
 /**
  * @desc Create a new promotion (Happy Hours)
@@ -750,17 +753,19 @@ const getPromotionStats = async (req, res) => {
       isActive: true,
     });
 
-    // Get appointments with promotions (you might need to add a promotion field to appointments)
+    // Activity stays on appointments, but money must come from canonical payments.
     const promotionAppointments = await Appointment.find({
       business: business._id,
-      // Add logic to identify appointments with promotions
-    });
+      "promotion.applied": true,
+    }).select("_id");
 
     const totalBookings = promotionAppointments.length;
-    const totalRevenue = promotionAppointments.reduce(
-      (sum, appt) => sum + appt.price,
-      0
-    );
+    const totalRevenue = await getCanonicalRevenueTotalByAppointmentIds({
+      appointmentIds: promotionAppointments.map((appointment) => appointment._id),
+      paymentMatch: {
+        status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+      },
+    });
 
     // Calculate average discount
     const promotions = await Promotion.find({ business: business._id });

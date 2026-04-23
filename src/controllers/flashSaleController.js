@@ -5,6 +5,9 @@ const Appointment = require("../models/appointment");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const moment = require("moment");
+const {
+  getCanonicalRevenueTotalByAppointmentIds,
+} = require("../services/payment/revenueProjection");
 
 /**
  * Helper function to check if a flash sale date range overlaps with active promotions
@@ -740,13 +743,15 @@ const getFlashSaleStats = async (req, res) => {
     const flashSaleAppointments = await Appointment.find({
       business: business._id,
       "flashSale.applied": true,
-    });
+    }).select("_id");
 
     const totalBookings = flashSaleAppointments.length;
-    const totalRevenue = flashSaleAppointments.reduce(
-      (sum, appt) => sum + appt.price,
-      0
-    );
+    const totalRevenue = await getCanonicalRevenueTotalByAppointmentIds({
+      appointmentIds: flashSaleAppointments.map((appointment) => appointment._id),
+      paymentMatch: {
+        status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+      },
+    });
 
     // Calculate average discount
     const flashSales = await FlashSale.find({ business: business._id });

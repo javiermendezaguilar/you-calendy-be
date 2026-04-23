@@ -1,8 +1,46 @@
 const Appointment = require("../models/appointment");
+const Payment = require("../models/payment");
 const Staff = require("../models/staff");
 const User = require("../models/User/user");
+const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
+
+const getDateBucketProjection = (fieldName, groupBy) => {
+  const dateField = `$${fieldName}`;
+
+  switch (groupBy) {
+    case "year":
+      return {
+        $dateToString: {
+          format: "%Y",
+          date: dateField,
+        },
+      };
+    case "week":
+      return {
+        $dateToString: {
+          format: "%Y-W%U",
+          date: dateField,
+        },
+      };
+    case "month":
+      return {
+        $dateToString: {
+          format: "%Y-%m",
+          date: dateField,
+        },
+      };
+    case "day":
+    default:
+      return {
+        $dateToString: {
+          format: "%Y-%m-%d",
+          date: dateField,
+        },
+      };
+  }
+};
 
 /**
  * @desc Get monthly appointment trends for a given year
@@ -139,62 +177,47 @@ const getGlobalRevenueProjection = async (req, res) => {
   try {
     const { startDate, endDate, groupBy = "year" } = req.query;
 
-    let query = {};
+    let appointmentQuery = {};
+    let paymentQuery = buildCommercePaymentFilter({
+      status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+    });
 
     // Apply date range filter if provided
     if (startDate || endDate) {
-      query.date = {};
+      appointmentQuery.date = {};
+      paymentQuery.capturedAt = {};
       if (startDate) {
-        query.date.$gte = new Date(startDate);
+        const parsedStartDate = new Date(startDate);
+        appointmentQuery.date.$gte = parsedStartDate;
+        paymentQuery.capturedAt.$gte = parsedStartDate;
       }
       if (endDate) {
-        query.date.$lte = new Date(endDate);
+        const parsedEndDate = new Date(endDate);
+        appointmentQuery.date.$lte = parsedEndDate;
+        paymentQuery.capturedAt.$lte = parsedEndDate;
       }
     }
-
-    // Build aggregation pipeline based on groupBy parameter
-    let groupStage = {};
-    let dateFormat = "";
-
-    switch (groupBy) {
-      case "year":
-        groupStage = {
-          year: { $year: "$date" },
-        };
-        dateFormat = "%Y";
-        break;
-      case "week":
-        groupStage = {
-          year: { $year: "$date" },
-          week: { $week: "$date" },
-        };
-        dateFormat = "%Y-W%U";
-        break;
-      case "month":
-        groupStage = {
-          year: { $year: "$date" },
-          month: { $month: "$date" },
-        };
-        dateFormat = "%Y-%m";
-        break;
-      case "day":
-      default:
-        groupStage = {
-          year: { $year: "$date" },
-          month: { $month: "$date" },
-          day: { $dayOfMonth: "$date" },
-        };
-        dateFormat = "%Y-%m-%d";
-        break;
+    if (appointmentQuery.date && Object.keys(appointmentQuery.date).length === 0) {
+      delete appointmentQuery.date;
+    }
+    if (paymentQuery.capturedAt && Object.keys(paymentQuery.capturedAt).length === 0) {
+      delete paymentQuery.capturedAt;
     }
 
+    const appointmentBucketProjection = getDateBucketProjection("date", groupBy);
+    const paymentBucketProjection = getDateBucketProjection("capturedAt", groupBy);
+
     // Aggregation pipeline for revenue projection
-    const revenuePipeline = [
-      { $match: query },
+    const appointmentProjectionPipeline = [
+      { $match: appointmentQuery },
+      {
+        $addFields: {
+          bucket: appointmentBucketProjection,
+        },
+      },
       {
         $group: {
-          _id: groupStage,
-          revenue: { $sum: "$price" },
+          _id: "$bucket",
           appointments: { $sum: 1 },
           completedAppointments: {
             $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
@@ -208,45 +231,45 @@ const getGlobalRevenueProjection = async (req, res) => {
         },
       },
       {
-        $addFields: {
-          date: {
-            $dateToString: {
-              format: dateFormat,
-              date: {
-                $dateFromParts: {
-                  year: "$_id.year",
-                  month: "$_id.month",
-                  day: "$_id.day",
-                },
-              },
-            },
-          },
-        },
-      },
-      { $sort: { date: 1 } },
-      {
-        $project: {
-          _id: 0,
-          date: 1,
-          revenue: 1,
-          appointments: 1,
-          completedAppointments: 1,
-          cancelledAppointments: 1,
-          noShowAppointments: 1,
-        },
+        $sort: { _id: 1 },
       },
     ];
 
-    // Execute aggregation
-    const revenueData = await Appointment.aggregate(revenuePipeline);
+    const paymentProjectionPipeline = [
+      { $match: paymentQuery },
+      {
+        $addFields: {
+          bucket: paymentBucketProjection,
+          retainedRevenue: {
+            $max: [
+              {
+                $subtract: [
+                  { $ifNull: ["$amount", 0] },
+                  { $ifNull: ["$refundedTotal", 0] },
+                ],
+              },
+              0,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$bucket",
+          revenue: { $sum: "$retainedRevenue" },
+        },
+      },
+      {
+        $sort: { _id: 1 },
+      },
+    ];
 
     // Calculate summary statistics
     const summaryPipeline = [
-      { $match: query },
+      { $match: appointmentQuery },
       {
         $group: {
           _id: null,
-          totalRevenue: { $sum: "$price" },
           totalAppointments: { $sum: 1 },
           completedAppointments: {
             $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
@@ -261,19 +284,71 @@ const getGlobalRevenueProjection = async (req, res) => {
       },
     ];
 
-    const summaryResult = await Appointment.aggregate(summaryPipeline);
+    const [appointmentBuckets, paymentBuckets, summaryResult, revenueSummary] =
+      await Promise.all([
+        Appointment.aggregate(appointmentProjectionPipeline),
+        Payment.aggregate(paymentProjectionPipeline),
+        Appointment.aggregate(summaryPipeline),
+        Payment.aggregate([
+          { $match: paymentQuery },
+          {
+            $group: {
+              _id: null,
+              totalRevenue: {
+                $sum: {
+                  $max: [
+                    {
+                      $subtract: [
+                        { $ifNull: ["$amount", 0] },
+                        { $ifNull: ["$refundedTotal", 0] },
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              },
+            },
+          },
+        ]),
+      ]);
+
     const summary = summaryResult[0] || {
-      totalRevenue: 0,
       totalAppointments: 0,
       completedAppointments: 0,
       cancelledAppointments: 0,
       noShowAppointments: 0,
     };
+    const totalRevenue = Number(revenueSummary[0]?.totalRevenue) || 0;
+
+    const paymentBucketMap = new Map(
+      paymentBuckets.map((bucket) => [bucket._id, Number(bucket.revenue) || 0])
+    );
+    const appointmentBucketMap = new Map(
+      appointmentBuckets.map((bucket) => [bucket._id, bucket])
+    );
+    const allBuckets = Array.from(
+      new Set([
+        ...appointmentBuckets.map((bucket) => bucket._id),
+        ...paymentBuckets.map((bucket) => bucket._id),
+      ])
+    ).sort();
+
+    const revenueData = allBuckets.map((bucketKey) => {
+      const appointmentBucket = appointmentBucketMap.get(bucketKey);
+      return {
+        date: bucketKey,
+        revenue: paymentBucketMap.get(bucketKey) || 0,
+        appointments: appointmentBucket?.appointments || 0,
+        completedAppointments: appointmentBucket?.completedAppointments || 0,
+        cancelledAppointments: appointmentBucket?.cancelledAppointments || 0,
+        noShowAppointments: appointmentBucket?.noShowAppointments || 0,
+      };
+    });
 
     // Calculate additional metrics
     const averageRevenuePerAppointment =
       summary.totalAppointments > 0
-        ? (summary.totalRevenue / summary.totalAppointments).toFixed(2)
+        ? (totalRevenue / summary.totalAppointments).toFixed(2)
         : 0;
 
     const completionRate =
@@ -286,19 +361,12 @@ const getGlobalRevenueProjection = async (req, res) => {
 
     // Format response
     const response = {
-      totalRevenue: summary.totalRevenue,
+      totalRevenue,
       totalAppointments: summary.totalAppointments,
       averageRevenuePerAppointment: parseFloat(averageRevenuePerAppointment),
-      revenueData: revenueData.map((item) => ({
-        date: item.date,
-        revenue: item.revenue,
-        appointments: item.appointments,
-        completedAppointments: item.completedAppointments,
-        cancelledAppointments: item.cancelledAppointments,
-        noShowAppointments: item.noShowAppointments,
-      })),
+      revenueData,
       summary: {
-        totalRevenue: summary.totalRevenue,
+        totalRevenue,
         totalAppointments: summary.totalAppointments,
         averageRevenuePerAppointment: parseFloat(averageRevenuePerAppointment),
         completionRate: parseFloat(completionRate),

@@ -897,24 +897,35 @@ const getAppointments = async (req, res) => {
       limit,
     });
 
-    // Determine if user is business owner
-    const isBusinessOwner = await Business.exists({ owner: userId });
+    const isClientUser = req.user.type === "client";
+    const normalizedUserEmail = normalizeEmail(req.user.email);
+    const ownerBusiness = isClientUser
+      ? null
+      : await Business.findOne({ owner: userId }).select("_id");
+    const isBusinessOwner = Boolean(ownerBusiness);
     console.log("Is business owner:", isBusinessOwner);
 
     // Build query
     let query = {};
-    let business = null;
+    let assignedStaffRecords = [];
 
     if (isBusinessOwner) {
-      // Get user's business
-      business = await Business.findOne({ owner: userId });
-      console.log("Business found:", business?._id);
-      if (business) {
-        query.business = business._id;
-      }
-    } else {
-      // Regular user (client)
+      query.business = ownerBusiness._id;
+      console.log("Business found:", ownerBusiness._id);
+    } else if (isClientUser) {
       query.client = userId;
+    } else {
+      assignedStaffRecords = await Staff.find({
+        email: normalizedUserEmail,
+      }).select("_id business");
+
+      if (!assignedStaffRecords.length) {
+        return ErrorHandler("Not authorized to view appointments", 403, req, res);
+      }
+
+      query.business = {
+        $in: assignedStaffRecords.map((record) => record.business),
+      };
     }
 
     // Apply filters
@@ -926,12 +937,39 @@ const getAppointments = async (req, res) => {
     if (staffId && staffId !== 'all') {
       // Convert staffId string to ObjectId for proper MongoDB matching
       try {
-        query.staff = new mongoose.Types.ObjectId(staffId);
+        const requestedStaffId = new mongoose.Types.ObjectId(staffId);
+
+        if (!isBusinessOwner && !isClientUser) {
+          const canReadRequestedStaff = assignedStaffRecords.some((record) =>
+            record._id.equals(requestedStaffId)
+          );
+
+          if (!canReadRequestedStaff) {
+            return SuccessHandler(
+              {
+                appointments: [],
+                pagination: {
+                  total: 0,
+                  page: parseInt(page),
+                  pages: 0,
+                },
+              },
+              200,
+              res
+            );
+          }
+        }
+
+        query.staff = requestedStaffId;
         console.log('Applied staff filter as ObjectId:', staffId);
       } catch (err) {
         console.error('Invalid staffId format:', staffId);
         return ErrorHandler("Invalid staff ID format", 400, req, res);
       }
+    } else if (!isBusinessOwner && !isClientUser) {
+      query.staff = {
+        $in: assignedStaffRecords.map((record) => record._id),
+      };
     }
 
     console.log('Final query before date:', JSON.stringify(query, null, 2));
@@ -1128,14 +1166,12 @@ const getAppointmentById = async (req, res) => {
       return ErrorHandler("Appointment not found", 404, req, res);
     }
 
-    // Check if user is authorized (either client or business owner)
     const userId = req.user.id;
-    const business = await Business.findById(appointment.business);
+    const isClient = appointment.client?._id?.toString() === String(userId);
+    const { isBusinessOwner, isAssignedStaff } =
+      await getOperationalAppointmentContext(appointment, req.user);
 
-    if (
-      appointment.client._id.toString() !== userId &&
-      business.owner.toString() !== userId
-    ) {
+    if (!isClient && !isBusinessOwner && !isAssignedStaff) {
       return ErrorHandler(
         "Not authorized to view this appointment",
         403,

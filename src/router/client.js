@@ -51,21 +51,25 @@ router.patch(
 router.get("/gallery/:clientId", clientController.getClientGalleryByClient);
 router.post(
   "/gallery/:clientId",
+  isAuthenticated,
   uploader.single("image"),
   haircutGalleryController.uploadHaircutImageByClient
 );
 router.post(
   "/gallery/:galleryId/suggestions",
+  isAuthenticated,
   uploader.single("image"),
   haircutGalleryController.addSuggestionByClient
 );
 router.post(
   "/gallery/:galleryId/reports",
+  isAuthenticated,
   uploader.single("image"),
   haircutGalleryController.reportImageByClient
 );
 router.delete(
   "/gallery/:galleryId",
+  isAuthenticated,
   haircutGalleryController.deleteGalleryImageByClient
 );
 

@@ -104,7 +104,7 @@ router.patch(
 
 router.get("/barbers/:id", isAuthenticated, getByID);
 
-router.delete("/barbers/:id", isAuthenticated, deleteBarber);
+router.delete("/barbers/:id", isAuthenticated, isAdmin, deleteBarber);
 
 router.post("/subadmins", isAuthenticated, isAdmin, createSubadmin);
 router.get("/subadmins", isAuthenticated, isAdmin, getAllSubadmins);

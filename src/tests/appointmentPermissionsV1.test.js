@@ -134,6 +134,25 @@ describe("Appointment permissions v1", () => {
     expect(res.body.data.status).toBe("Completed");
   });
 
+  test("allows the assigned staff user to list their assigned appointments", async () => {
+    const res = await request(app)
+      .get("/appointments")
+      .set("Authorization", `Bearer ${assignedStaffToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.appointments).toHaveLength(1);
+    expect(res.body.data.appointments[0]._id).toBe(appointment._id.toString());
+  });
+
+  test("allows the assigned staff user to read their assigned appointment detail", async () => {
+    const res = await request(app)
+      .get(`/appointments/${appointment._id}`)
+      .set("Authorization", `Bearer ${assignedStaffToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data._id).toBe(appointment._id.toString());
+  });
+
   test("rejects the assigned staff user when marking no-show", async () => {
     const res = await request(app)
       .put(`/appointments/${appointment._id}/status`)
@@ -161,6 +180,24 @@ describe("Appointment permissions v1", () => {
 
     expect(res.status).toBe(403);
     expect(res.body.message).toMatch(/only the business owner/i);
+  });
+
+  test("rejects a foreign barber listing appointments from another business", async () => {
+    const res = await request(app)
+      .get("/appointments")
+      .set("Authorization", `Bearer ${foreignBarberToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/not authorized/i);
+  });
+
+  test("rejects a foreign barber reading an appointment from another business", async () => {
+    const res = await request(app)
+      .get(`/appointments/${appointment._id}`)
+      .set("Authorization", `Bearer ${foreignBarberToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/not authorized/i);
   });
 
   test("allows the client to cancel their own appointment", async () => {

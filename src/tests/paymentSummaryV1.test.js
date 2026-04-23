@@ -8,6 +8,9 @@ const {
   createCapturedPaymentForFixture,
 } = require("./helpers/commerceFixture");
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
+const {
+  COMMERCE_REPORTING_SCOPE,
+} = require("../services/payment/reportingScope");
 
 setupCommerceTestSuite();
 
@@ -178,6 +181,7 @@ describe("Payment summary v1", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
+    expect(res.body.data.moneyScope).toEqual(COMMERCE_REPORTING_SCOPE);
     expect(res.body.data.grossCaptured).toBe(90);
     expect(res.body.data.refundedTotal).toBe(10);
     expect(res.body.data.netCaptured).toBe(80);

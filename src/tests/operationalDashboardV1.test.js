@@ -10,6 +10,9 @@ const {
   assignPrimaryServiceToStaff,
 } = require("./helpers/commerceFixture");
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
+const {
+  COMMERCE_REPORTING_SCOPE,
+} = require("../services/payment/reportingScope");
 
 setupCommerceTestSuite();
 
@@ -20,6 +23,7 @@ const getOperationalDashboard = (token, query) =>
     .query(query);
 
 const expectRetainedCommerceSummary = (res, expectedAmount) => {
+  expect(res.body.data.commerceToday.moneyScope).toEqual(COMMERCE_REPORTING_SCOPE);
   expect(res.body.data.commerceToday.grossCaptured).toBe(expectedAmount);
   expect(res.body.data.commerceToday.netCaptured).toBe(expectedAmount);
   expect(res.body.data.commerceToday.transactionCount).toBe(1);

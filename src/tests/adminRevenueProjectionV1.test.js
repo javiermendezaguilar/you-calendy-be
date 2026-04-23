@@ -10,6 +10,9 @@ const {
   noPromotionState,
   seedCanonicalRevenueScenario,
 } = require("./helpers/revenueProjectionFixture");
+const {
+  COMMERCE_REPORTING_SCOPE,
+} = require("../services/payment/reportingScope");
 
 setupCommerceTestSuite();
 
@@ -66,6 +69,7 @@ describe("Admin revenue projection v1", () => {
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
+    expect(res.body.data.moneyScope).toEqual(COMMERCE_REPORTING_SCOPE);
     expect(res.body.data.totalRevenue).toBe(80);
     expect(res.body.data.totalAppointments).toBe(6);
     expect(res.body.data.averageRevenuePerAppointment).toBeCloseTo(13.33, 2);

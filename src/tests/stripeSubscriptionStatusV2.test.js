@@ -7,6 +7,9 @@ const {
   createSubscriptionDeletedEvent,
   registerStripeBillingTestHooks,
 } = require("./helpers/stripeBillingTestHelper");
+const {
+  PLATFORM_BILLING_SCOPE,
+} = require("../services/payment/reportingScope");
 
 jest.mock("../services/billing/stripeClient", () => mockStripe);
 
@@ -45,6 +48,7 @@ describe("Stripe subscription status v2", () => {
       .set("Authorization", `Bearer ${fixture.token}`);
 
     expect(res.status).toBe(200);
+    expect(res.body.data.billingScope).toEqual(PLATFORM_BILLING_SCOPE);
     expect(res.body.data.status).toBe("active");
     expect(res.body.data.source).toBe("stripe");
 

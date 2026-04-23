@@ -59,6 +59,11 @@ describe("Payment refunds v1", () => {
     const updatedCheckout = await Checkout.findById(checkout._id).lean();
     expect(updatedCheckout.refundSummary.refundedTotal).toBe(10);
     expect(updatedCheckout.refundSummary.status).toBe("partial");
+
+    const updatedAppointment = await Appointment.findById(
+      fixture.appointment._id
+    ).lean();
+    expect(updatedAppointment.paymentStatus).toBe("Partially Refunded");
   });
 
   test("captures a full refund and updates appointment payment status", async () => {

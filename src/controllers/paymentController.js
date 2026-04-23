@@ -387,11 +387,10 @@ const refundPayment = async (req, res) => {
       await checkout.save();
     }
 
-    if (refundStatus === "full") {
-      await Appointment.findByIdAndUpdate(payment.appointment, {
-        paymentStatus: "Refunded",
-      });
-    }
+    await Appointment.findByIdAndUpdate(payment.appointment, {
+      paymentStatus:
+        refundStatus === "full" ? "Refunded" : "Partially Refunded",
+    });
 
     if (payment.method === "cash" && payment.cashSession) {
       await recalculateCashSessionSummary(payment.cashSession);

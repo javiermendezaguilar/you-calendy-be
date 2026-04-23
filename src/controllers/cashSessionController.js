@@ -1,18 +1,124 @@
+const mongoose = require("mongoose");
 const CashSession = require("../models/cashSession");
 const Payment = require("../models/payment");
 const { resolveBusinessOrReply } = require("./commerceShared");
 const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
+const { buildCashSessionSnapshot } = require("../services/payment/cashSessionSummary");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
+
+const CASH_CLOSING_PAYMENT_STATUSES = [
+  "captured",
+  "refunded_partial",
+  "refunded_full",
+];
+
+const getVarianceStatus = (variance) => {
+  if (variance === 0) {
+    return "exact";
+  }
+
+  return variance > 0 ? "over" : "short";
+};
 
 const hydrateCashSession = async (cashSessionId) => {
   return CashSession.findById(cashSessionId)
     .populate("openedBy", "name email")
     .populate("closedBy", "name email")
+    .populate("handoffFrom", "closingDeclared closedAt variance varianceStatus")
     .populate({
       path: "payments",
       select: "amount tip method status reference capturedAt",
     });
+};
+
+const getOpenCashSessionPayments = async (businessId, cashSessionId) =>
+  Payment.find({
+    business: businessId,
+    cashSession: cashSessionId,
+    method: "cash",
+    status: { $in: CASH_CLOSING_PAYMENT_STATUSES },
+    ...buildCommercePaymentFilter(),
+  })
+    .select("amount tip method status reference capturedAt refundedTotal")
+    .sort({ capturedAt: 1 })
+    .lean();
+
+const buildVariancePreview = (expectedDrawerTotal, closingDeclaredPreview) => {
+  if (
+    closingDeclaredPreview === undefined ||
+    closingDeclaredPreview === null ||
+    closingDeclaredPreview === ""
+  ) {
+    return null;
+  }
+
+  const normalizedPreview = Number(closingDeclaredPreview);
+  if (Number.isNaN(normalizedPreview) || normalizedPreview < 0) {
+    return null;
+  }
+
+  const variance = normalizedPreview - (Number(expectedDrawerTotal) || 0);
+
+  return {
+    closingDeclared: normalizedPreview,
+    variance,
+    varianceStatus: getVarianceStatus(variance),
+  };
+};
+
+const buildCashSessionReadModel = async (cashSession, options = {}) => {
+  const base =
+    typeof cashSession.toObject === "function" ? cashSession.toObject() : cashSession;
+
+  const opening = {
+    source: base?.openingSource || "manual",
+    reason: base?.openingReason || "manual_start",
+    note: base?.openingNote || "",
+    float: Number(base?.openingFloat) || 0,
+    openedAt: base?.openedAt || null,
+    openedBy: base?.openedBy || null,
+    handoffFrom: base?.handoffFrom || null,
+  };
+
+  if (!base || base.status !== "open") {
+    const expectedDrawerTotal =
+      Number(base?.summary?.expectedDrawerTotal) ||
+      Number(base?.closingExpected) ||
+      0;
+
+    return {
+      ...base,
+      opening,
+      closing: {
+        ready: Number(base?.summary?.transactionCount) > 0,
+        transactionCount: Number(base?.summary?.transactionCount) || 0,
+        cashSalesTotal: Number(base?.summary?.cashSalesTotal) || 0,
+        expectedDrawerTotal,
+      },
+      variancePreview: buildVariancePreview(
+        expectedDrawerTotal,
+        options.closingDeclaredPreview
+      ),
+    };
+  }
+
+  const payments = await getOpenCashSessionPayments(base.business, base._id);
+  const snapshot = buildCashSessionSnapshot(base, payments);
+
+  return {
+    ...base,
+    opening,
+    payments: snapshot.payments,
+    summary: snapshot.summary,
+    closingExpected: snapshot.closingExpected,
+    variance: snapshot.variance,
+    closing: snapshot.closing,
+    variancePreview: buildVariancePreview(
+      snapshot.closing.expectedDrawerTotal,
+      options.closingDeclaredPreview
+    ),
+  };
 };
 
 const getOwnedCashSession = async (businessId, cashSessionId, hydrated = false) => {
@@ -34,9 +140,33 @@ const getOwnedCashSession = async (businessId, cashSessionId, hydrated = false) 
     });
 };
 
+const getBusinessAndOwnedCashSession = async (
+  req,
+  res,
+  { hydrated = false } = {}
+) => {
+  const business = req.business || (await resolveBusinessOrReply(req, res));
+  if (!business) {
+    return {};
+  }
+
+  const cashSession = await getOwnedCashSession(
+    business._id,
+    req.params.id,
+    hydrated
+  );
+
+  if (!cashSession) {
+    ErrorHandler("Cash session not found", 404, req, res);
+    return { business };
+  }
+
+  return { business, cashSession };
+};
+
 const openCashSession = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
+    const business = req.business || (await resolveBusinessOrReply(req, res));
     if (!business) return;
 
     const existingSession = await CashSession.findOne({
@@ -63,11 +193,79 @@ const openCashSession = async (req, res) => {
       );
     }
 
+    let openingSource = "manual";
+    let openingReason = req.body.openingReason || "manual_start";
+    let openingNote = String(req.body.openingNote || "").trim();
+    let handoffFrom = null;
+
+    if (req.body.handoffFromSessionId) {
+      if (!mongoose.Types.ObjectId.isValid(req.body.handoffFromSessionId)) {
+        return ErrorHandler(
+          "handoffFromSessionId must be a valid cash session id",
+          400,
+          req,
+          res
+        );
+      }
+
+      handoffFrom = await CashSession.findOne({
+        _id: req.body.handoffFromSessionId,
+        business: business._id,
+        status: "closed",
+      });
+
+      if (!handoffFrom) {
+        return ErrorHandler(
+          "Closed handoff cash session not found",
+          404,
+          req,
+          res
+        );
+      }
+
+      if (Number(handoffFrom.closingDeclared) !== openingFloat) {
+        return ErrorHandler(
+          "openingFloat must match the closingDeclared amount of the handoff session",
+          409,
+          req,
+          res
+        );
+      }
+
+      openingSource = "handoff";
+      openingReason = "handoff";
+    } else {
+      if (
+        openingReason !== "manual_start" &&
+        openingReason !== "manual_adjustment"
+      ) {
+        return ErrorHandler(
+          "openingReason must be manual_start or manual_adjustment for manual cash sessions",
+          400,
+          req,
+          res
+        );
+      }
+
+      if (openingReason === "manual_adjustment" && !openingNote) {
+        return ErrorHandler(
+          "openingNote is required when openingReason is manual_adjustment",
+          400,
+          req,
+          res
+        );
+      }
+    }
+
     const cashSession = await CashSession.create({
       business: business._id,
       status: "open",
       currency: req.body.currency || "EUR",
       openingFloat,
+      openingSource,
+      openingReason,
+      openingNote,
+      handoffFrom: handoffFrom?._id || null,
       openedAt: new Date(),
       openedBy: req.user._id || req.user.id,
     });
@@ -90,7 +288,7 @@ const openCashSession = async (req, res) => {
 
 const getActiveCashSession = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
+    const business = req.business || (await resolveBusinessOrReply(req, res));
     if (!business) return;
 
     const cashSession = await CashSession.findOne({
@@ -99,6 +297,7 @@ const getActiveCashSession = async (req, res) => {
     })
       .populate("openedBy", "name email")
       .populate("closedBy", "name email")
+      .populate("handoffFrom", "closingDeclared closedAt variance varianceStatus")
       .populate({
         path: "payments",
         select: "amount tip method status reference capturedAt",
@@ -108,7 +307,44 @@ const getActiveCashSession = async (req, res) => {
       return ErrorHandler("Active cash session not found", 404, req, res);
     }
 
-    return SuccessHandler(cashSession, 200, res);
+    const readModel = await buildCashSessionReadModel(cashSession, {
+      closingDeclaredPreview: req.query.closingDeclaredPreview,
+    });
+    return SuccessHandler(readModel, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
+const listCashSessions = async (req, res) => {
+  try {
+    const business = req.business || (await resolveBusinessOrReply(req, res));
+    if (!business) return;
+
+    const statusFilter =
+      req.query.status === "open" || req.query.status === "closed"
+        ? { status: req.query.status }
+        : {};
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isNaN(rawLimit)
+      ? 10
+      : Math.min(Math.max(rawLimit, 1), 20);
+
+    const cashSessions = await CashSession.find({
+      business: business._id,
+      ...statusFilter,
+    })
+      .populate("openedBy", "name email")
+      .populate("closedBy", "name email")
+      .populate("handoffFrom", "closingDeclared closedAt variance varianceStatus")
+      .sort({ openedAt: -1 })
+      .limit(limit);
+
+    const readModels = await Promise.all(
+      cashSessions.map((cashSession) => buildCashSessionReadModel(cashSession))
+    );
+
+    return SuccessHandler(readModels, 200, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -116,20 +352,13 @@ const getActiveCashSession = async (req, res) => {
 
 const getCashSessionById = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
+    const { cashSession } = await getBusinessAndOwnedCashSession(req, res, {
+      hydrated: true,
+    });
+    if (!cashSession) return;
 
-    const cashSession = await getOwnedCashSession(
-      business._id,
-      req.params.id,
-      true
-    );
-
-    if (!cashSession) {
-      return ErrorHandler("Cash session not found", 404, req, res);
-    }
-
-    return SuccessHandler(cashSession, 200, res);
+    const readModel = await buildCashSessionReadModel(cashSession);
+    return SuccessHandler(readModel, 200, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -137,14 +366,11 @@ const getCashSessionById = async (req, res) => {
 
 const closeCashSession = async (req, res) => {
   try {
-    const business = await resolveBusinessOrReply(req, res);
-    if (!business) return;
-
-    const cashSession = await getOwnedCashSession(business._id, req.params.id);
-
-    if (!cashSession) {
-      return ErrorHandler("Cash session not found", 404, req, res);
-    }
+    const { business, cashSession } = await getBusinessAndOwnedCashSession(
+      req,
+      res
+    );
+    if (!business || !cashSession) return;
 
     if (cashSession.status !== "open") {
       return ErrorHandler("Cash session is already closed", 409, req, res);
@@ -160,40 +386,36 @@ const closeCashSession = async (req, res) => {
       );
     }
 
-    const payments = await Payment.find({
-      business: business._id,
-      cashSession: cashSession._id,
-      status: "captured",
-      method: "cash",
-      ...buildCommercePaymentFilter(),
-    }).sort({ capturedAt: 1 });
+    const payments = await getOpenCashSessionPayments(business._id, cashSession._id);
+    const snapshot = buildCashSessionSnapshot(
+      {
+        ...cashSession.toObject(),
+        closingDeclared,
+      },
+      payments
+    );
+    const closingNote = String(req.body.closingNote || "").trim();
+    const varianceStatus = getVarianceStatus(snapshot.variance);
 
-    const cashSalesTotal = payments.reduce(
-      (sum, payment) => sum + (Number(payment.amount) || 0),
-      0
-    );
-    const tipsTotal = payments.reduce(
-      (sum, payment) => sum + (Number(payment.tip) || 0),
-      0
-    );
-    const transactionCount = payments.length;
-    const expectedDrawerTotal =
-      (Number(cashSession.openingFloat) || 0) + cashSalesTotal;
-    const variance = closingDeclared - expectedDrawerTotal;
+    if (snapshot.variance !== 0 && !closingNote) {
+      return ErrorHandler(
+        "closingNote is required when closingDeclared differs from closingExpected",
+        400,
+        req,
+        res
+      );
+    }
 
     cashSession.status = "closed";
     cashSession.closedAt = new Date();
     cashSession.closedBy = req.user._id || req.user.id;
-    cashSession.closingExpected = expectedDrawerTotal;
+    cashSession.closingExpected = snapshot.closingExpected;
     cashSession.closingDeclared = closingDeclared;
-    cashSession.summary = {
-      cashSalesTotal,
-      tipsTotal,
-      transactionCount,
-      expectedDrawerTotal,
-    };
-    cashSession.variance = variance;
-    cashSession.payments = payments.map((payment) => payment._id);
+    cashSession.summary = snapshot.summary;
+    cashSession.variance = snapshot.variance;
+    cashSession.varianceStatus = varianceStatus;
+    cashSession.closingNote = closingNote;
+    cashSession.payments = snapshot.paymentIds;
     await cashSession.save();
 
     const hydrated = await hydrateCashSession(cashSession._id);
@@ -206,6 +428,7 @@ const closeCashSession = async (req, res) => {
 module.exports = {
   openCashSession,
   getActiveCashSession,
+  listCashSessions,
   getCashSessionById,
   closeCashSession,
 };

@@ -82,7 +82,11 @@ describe("Commerce permissions v2", () => {
     const res = await request(app)
       .post("/cash-sessions/open")
       .set("Authorization", `Bearer ${foreignBarberToken}`)
-      .send({ openingFloat: 50, currency: "EUR" });
+      .send({
+        openingFloat: 50,
+        currency: "EUR",
+        openingReason: "manual_start",
+      });
 
     expect(res.status).toBe(403);
     expect(res.body.message).toMatch(/business owner/i);
@@ -92,7 +96,11 @@ describe("Commerce permissions v2", () => {
     const openRes = await request(app)
       .post("/cash-sessions/open")
       .set("Authorization", `Bearer ${token}`)
-      .send({ openingFloat: 50, currency: "EUR" });
+      .send({
+        openingFloat: 50,
+        currency: "EUR",
+        openingReason: "manual_start",
+      });
 
     expect(openRes.status).toBe(201);
 

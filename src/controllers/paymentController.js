@@ -6,6 +6,7 @@ const Refund = require("../models/refund");
 const { resolveBusinessOrReply } = require("./commerceShared");
 const { recordDomainEvent } = require("../services/domainEventService");
 const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
+const { buildCashSessionSnapshot } = require("../services/payment/cashSessionSummary");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -124,32 +125,16 @@ const recalculateCashSessionSummary = async (cashSessionId) => {
   const cashPayments = await Payment.find({
     cashSession: cashSession._id,
     method: "cash",
-    status: "captured",
+    status: { $in: ["captured", "refunded_partial", "refunded_full"] },
     ...buildCommercePaymentFilter(),
   });
 
-  const cashSalesTotal = cashPayments.reduce(
-    (sum, payment) => sum + (Number(payment.amount) || 0),
-    0
-  );
-  const tipsTotal = cashPayments.reduce(
-    (sum, payment) => sum + (Number(payment.tip) || 0),
-    0
-  );
-  const transactionCount = cashPayments.length;
-  const expectedDrawerTotal =
-    (Number(cashSession.openingFloat) || 0) + cashSalesTotal;
+  const snapshot = buildCashSessionSnapshot(cashSession, cashPayments);
 
-  cashSession.payments = cashPayments.map((payment) => payment._id);
-  cashSession.closingExpected = expectedDrawerTotal;
-  cashSession.summary = {
-    cashSalesTotal,
-    tipsTotal,
-    transactionCount,
-    expectedDrawerTotal,
-  };
-  cashSession.variance =
-    (Number(cashSession.closingDeclared) || 0) - expectedDrawerTotal;
+  cashSession.payments = snapshot.paymentIds;
+  cashSession.closingExpected = snapshot.closingExpected;
+  cashSession.summary = snapshot.summary;
+  cashSession.variance = snapshot.variance;
 
   await cashSession.save();
   return cashSession;
@@ -355,6 +340,19 @@ const refundPayment = async (req, res) => {
       );
     }
 
+    if (payment.method === "cash" && payment.cashSession) {
+      const cashSession = await CashSession.findById(payment.cashSession);
+
+      if (cashSession && cashSession.status !== "open") {
+        return ErrorHandler(
+          "Cash payments from a closed cash session cannot be refunded",
+          409,
+          req,
+          res
+        );
+      }
+    }
+
     const refund = await Refund.create({
       payment: payment._id,
       checkout: payment.checkout,
@@ -389,6 +387,11 @@ const refundPayment = async (req, res) => {
         paymentStatus: "Refunded",
       });
     }
+
+    if (payment.method === "cash" && payment.cashSession) {
+      await recalculateCashSessionSummary(payment.cashSession);
+    }
+
     await recordDomainEvent({
       type: "payment_refunded",
       actorId: req.user._id || req.user.id,

@@ -300,4 +300,27 @@ describe("Rebooking v1", () => {
     expect(rebookRes.status).toBe(409);
     expect(rebookRes.body.message).toMatch(/captured payment/i);
   });
+
+  test("rejects rebooking when the checkout has any refund applied", async () => {
+    paidCheckout.refundSummary = {
+      refundedTotal: 10,
+      status: "partial",
+    };
+    await paidCheckout.save();
+
+    await Payment.updateOne(
+      { checkout: paidCheckout._id, paymentScope: "commerce_checkout" },
+      {
+        $set: {
+          status: "refunded_partial",
+          refundedTotal: 10,
+        },
+      }
+    );
+
+    const rebookRes = await sendRebookingRequest();
+
+    expect(rebookRes.status).toBe(409);
+    expect(rebookRes.body.message).toMatch(/refunded checkout/i);
+  });
 });

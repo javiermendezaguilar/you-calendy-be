@@ -379,6 +379,11 @@ const refundPayment = async (req, res) => {
         refundedTotal: newRefundedTotal,
         status: refundStatus,
       };
+
+      if (refundStatus === "full") {
+        checkout.status = "closed";
+      }
+
       await checkout.save();
     }
 

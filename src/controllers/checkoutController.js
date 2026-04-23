@@ -116,6 +116,10 @@ const toValidatedObjectId = (value) => {
   return new mongoose.Types.ObjectId(value);
 };
 
+const hasTerminalRefund = (checkout) =>
+  Boolean(checkout?.refundSummary?.status) &&
+  checkout.refundSummary.status !== "none";
+
 const openCheckout = async (req, res) => {
   try {
     const business = await getBusinessForOwner(req.user.id);
@@ -154,6 +158,20 @@ const openCheckout = async (req, res) => {
 
     if (existingOpenCheckout) {
       return ErrorHandler("An open checkout already exists for this appointment", 409, req, res);
+    }
+
+    const existingTerminalCheckout = await Checkout.findOne({
+      appointment: appointment._id,
+      status: { $in: ["closed", "paid"] },
+    }).select("_id status refundSummary");
+
+    if (existingTerminalCheckout) {
+      return ErrorHandler(
+        "A terminal checkout already exists for this appointment",
+        409,
+        req,
+        res
+      );
     }
 
     const checkout = await Checkout.create(buildCheckoutPayload(appointment));
@@ -328,6 +346,15 @@ const createRebooking = async (req, res) => {
 
     if (!checkout) {
       return ErrorHandler("Checkout not found", 404, req, res);
+    }
+
+    if (hasTerminalRefund(checkout)) {
+      return ErrorHandler(
+        "Rebooking is not allowed after a refunded checkout",
+        409,
+        req,
+        res
+      );
     }
 
     if (checkout.status !== "paid") {

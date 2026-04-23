@@ -78,6 +78,10 @@ describe("Payment refunds v1", () => {
     ).lean();
     expect(updatedAppointment.paymentStatus).toBe("Refunded");
 
+    const updatedCheckout = await Checkout.findById(checkout._id).lean();
+    expect(updatedCheckout.status).toBe("closed");
+    expect(updatedCheckout.refundSummary.status).toBe("full");
+
     const refunds = await Refund.find({ payment: payment._id }).lean();
     expect(refunds).toHaveLength(1);
   });

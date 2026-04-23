@@ -66,6 +66,34 @@ const buildRetainedRevenueExpression = () => ({
 const getPercentage = (numerator, denominator) =>
   denominator > 0 ? Number(((numerator / denominator) * 100).toFixed(1)) : 0;
 
+const buildRevenueGroupStage = (groupId) => ({
+  $group: {
+    _id: groupId,
+    totalRevenue: {
+      $sum: buildRetainedRevenueExpression(),
+    },
+  },
+});
+
+const getCanonicalRevenueTotalsByBusiness = async ({
+  businessIds = [],
+  paymentMatch = {},
+} = {}) => {
+  if (!Array.isArray(businessIds) || businessIds.length === 0) {
+    return [];
+  }
+
+  return Payment.aggregate([
+    {
+      $match: buildCommercePaymentFilter({
+        ...paymentMatch,
+        business: { $in: businessIds },
+      }),
+    },
+    buildRevenueGroupStage("$business"),
+  ]);
+};
+
 const getCanonicalRevenueProjection = async ({
   appointmentMatch = {},
   paymentMatch = {},
@@ -146,14 +174,7 @@ const getCanonicalRevenueProjection = async ({
 
   const revenueSummaryPipeline = [
     { $match: buildCommercePaymentFilter(paymentMatch) },
-    {
-      $group: {
-        _id: null,
-        totalRevenue: {
-          $sum: buildRetainedRevenueExpression(),
-        },
-      },
-    },
+    buildRevenueGroupStage(null),
   ];
 
   const [appointmentBuckets, paymentBuckets, appointmentSummary, revenueSummary] =
@@ -233,5 +254,6 @@ const getCanonicalRevenueProjection = async ({
 
 module.exports = {
   buildDateRangeClause,
+  getCanonicalRevenueTotalsByBusiness,
   getCanonicalRevenueProjection,
 };

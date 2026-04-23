@@ -49,10 +49,13 @@ const buildPaymentSummary = async (businessId, bounds) => {
     ...buildCommercePaymentFilter(),
   }).lean();
 
-  const grossCaptured = payments
-    .filter((payment) => payment.status !== "voided")
+  const retainedPayments = payments.filter(
+    (payment) => payment.status !== "voided"
+  );
+
+  const grossCaptured = retainedPayments
     .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
-  const refundedTotal = payments.reduce(
+  const refundedTotal = retainedPayments.reduce(
     (sum, payment) => sum + (Number(payment.refundedTotal) || 0),
     0
   );
@@ -61,8 +64,8 @@ const buildPaymentSummary = async (businessId, bounds) => {
     grossCaptured,
     refundedTotal,
     netCaptured: grossCaptured - refundedTotal,
-    transactionCount: payments.length,
-    staffBreakdown: buildCommerceStaffBreakdown(payments),
+    transactionCount: retainedPayments.length,
+    staffBreakdown: buildCommerceStaffBreakdown(retainedPayments),
   };
 };
 

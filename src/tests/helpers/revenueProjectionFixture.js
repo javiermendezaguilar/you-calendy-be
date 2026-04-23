@@ -153,6 +153,150 @@ const createPlatformBillingPayment = async (fixture, overrides = {}) =>
     },
   });
 
+const seedCanonicalRevenueScenario = async (
+  fixture,
+  { includeCanceled = true, includeNoShow = true } = {}
+) => {
+  fixture.appointment.date = new Date("2026-04-19T00:00:00.000Z");
+  fixture.appointment.status = "Completed";
+  fixture.appointment.visitStatus = "completed";
+  fixture.appointment.price = 999;
+  await fixture.appointment.save();
+
+  const appointmentEntries = [
+    ["dayOneCompleted", { price: 888, paymentStatus: "Partially Refunded" }],
+    [
+      "dayTwoRefunded",
+      {
+        date: new Date("2026-04-20T00:00:00.000Z"),
+        startTime: "12:00",
+        endTime: "12:45",
+        price: 777,
+        paymentStatus: "Refunded",
+      },
+    ],
+    [
+      "dayTwoVoided",
+      {
+        date: new Date("2026-04-20T00:00:00.000Z"),
+        startTime: "14:00",
+        endTime: "14:45",
+        price: 666,
+      },
+    ],
+  ];
+
+  if (includeCanceled) {
+    appointmentEntries.push([
+      "dayTwoCanceled",
+      {
+        date: new Date("2026-04-20T00:00:00.000Z"),
+        startTime: "16:00",
+        endTime: "16:45",
+        status: "Canceled",
+        bookingStatus: "cancelled",
+        visitStatus: "cancelled",
+        price: 555,
+      },
+    ]);
+  }
+
+  if (includeNoShow) {
+    appointmentEntries.push([
+      "dayTwoNoShow",
+      {
+        date: new Date("2026-04-20T00:00:00.000Z"),
+        startTime: "18:00",
+        endTime: "18:45",
+        status: "No-Show",
+        visitStatus: "no_show",
+        price: 444,
+      },
+    ]);
+  }
+
+  const appointments = await createProjectionAppointments(fixture, appointmentEntries);
+
+  const checkouts = await Promise.all([
+    buildCheckoutForAppointment(fixture, fixture.appointment, {
+      total: 40,
+      sourcePrice: 999,
+    }),
+    buildCheckoutForAppointment(fixture, appointments.dayOneCompleted, {
+      total: 50,
+      sourcePrice: 888,
+    }),
+    buildCheckoutForAppointment(fixture, appointments.dayTwoRefunded, {
+      status: "closed",
+      total: 25,
+      sourcePrice: 777,
+    }),
+    buildCheckoutForAppointment(fixture, appointments.dayTwoVoided, {
+      status: "closed",
+      total: 30,
+      sourcePrice: 666,
+    }),
+  ]);
+
+  await createProjectionPayments(fixture, [
+    {
+      appointment: fixture.appointment,
+      checkout: checkouts[0],
+      overrides: {
+        status: "captured",
+        method: "cash",
+        amount: 40,
+        reference: "projection-captured",
+        capturedAt: new Date("2026-04-19T09:10:00.000Z"),
+        sourcePrice: 999,
+      },
+    },
+    {
+      appointment: appointments.dayOneCompleted,
+      checkout: checkouts[1],
+      overrides: {
+        status: "refunded_partial",
+        method: "card_manual",
+        amount: 50,
+        reference: "projection-refunded-partial",
+        capturedAt: new Date("2026-04-19T10:10:00.000Z"),
+        refundedTotal: 10,
+        sourcePrice: 888,
+      },
+    },
+    {
+      appointment: appointments.dayTwoRefunded,
+      checkout: checkouts[2],
+      overrides: {
+        status: "refunded_full",
+        amount: 25,
+        reference: "projection-refunded-full",
+        capturedAt: new Date("2026-04-20T09:10:00.000Z"),
+        refundedTotal: 25,
+        sourcePrice: 777,
+      },
+    },
+    {
+      appointment: appointments.dayTwoVoided,
+      checkout: checkouts[3],
+      overrides: {
+        status: "voided",
+        amount: 30,
+        reference: "projection-voided",
+        capturedAt: new Date("2026-04-20T10:10:00.000Z"),
+        sourcePrice: 666,
+      },
+    },
+  ]);
+
+  await createPlatformBillingPayment(fixture);
+
+  return {
+    appointments,
+    appointmentCount: 1 + appointmentEntries.length,
+  };
+};
+
 module.exports = {
   noPromotionState,
   buildAppointmentPayload,
@@ -161,4 +305,5 @@ module.exports = {
   createProjectionAppointments,
   createProjectionPayments,
   createPlatformBillingPayment,
+  seedCanonicalRevenueScenario,
 };

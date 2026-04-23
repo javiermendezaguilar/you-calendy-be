@@ -12,6 +12,9 @@ const Staff = require("../models/staff");
 const { uploadToCloudinary, deleteImage } = require("../functions/cloudinary");
 const BarberLink = require("../models/barberLink");
 const { generateInvitationToken } = require("../utils/index");
+const {
+  getCanonicalRevenueTotalsByBusiness,
+} = require("../services/payment/revenueProjection");
 
 const sanitizeAuthUser = (userDoc) => {
   if (!userDoc) return userDoc;
@@ -815,64 +818,71 @@ const getBarber = async (req, res) => {
     // Get total count for pagination
     const total = await User.countDocuments(baseQuery);
 
-    // Enhance each barber with revenue and appointment data
-    const enhancedBarbers = await Promise.all(
-      barbers.map(async (barber) => {
-        try {
-          // Find business for this barber
-          const business = await Business.findOne({ owner: barber._id });
+    const businesses = await Business.find({
+      owner: { $in: barbers.map((barber) => barber._id) },
+    }).select("_id owner name contactInfo");
 
-          let totalAppointments = 0;
-          let totalRevenue = 0;
+    const businessIds = businesses.map((business) => business._id);
 
-          if (business) {
-            // Calculate total appointments for this business
-            totalAppointments = await Appointment.countDocuments({
-              business: business._id,
-            });
-
-            // Calculate total revenue from completed appointments for this business
-            const revenueAgg = await Appointment.aggregate([
-              {
-                $match: {
-                  business: business._id,
-                  status: "Completed",
-                },
+    const [appointmentCounts, revenueTotals] = await Promise.all([
+      businessIds.length > 0
+        ? Appointment.aggregate([
+            {
+              $match: {
+                business: { $in: businessIds },
               },
-              {
-                $group: {
-                  _id: null,
-                  totalRevenue: { $sum: "$price" },
-                },
+            },
+            {
+              $group: {
+                _id: "$business",
+                totalAppointments: { $sum: 1 },
               },
-            ]);
-            totalRevenue = revenueAgg[0]?.totalRevenue || 0;
-          }
+            },
+          ])
+        : [],
+      getCanonicalRevenueTotalsByBusiness({
+        businessIds,
+        paymentMatch: {
+          status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+        },
+      }),
+    ]);
 
-          return {
-            ...barber.toObject(),
-            totalRevenue,
-            totalAppointments,
-            business: business
-              ? {
-                  _id: business._id,
-                  name: business.name,
-                  contactInfo: business.contactInfo,
-                }
-              : null,
-          };
-        } catch (error) {
-          console.error(`Error processing barber ${barber._id}:`, error);
-          // Return barber data without revenue/appointment info if there's an error
-          return {
-            ...barber.toObject(),
-            totalRevenue: 0,
-            totalAppointments: 0,
-            business: null,
-          };
-        }
-      })
+    const businessByOwnerMap = new Map(
+      businesses.map((business) => [business.owner.toString(), business])
     );
+    const appointmentCountMap = new Map(
+      appointmentCounts.map((entry) => [
+        entry._id.toString(),
+        entry.totalAppointments || 0,
+      ])
+    );
+    const revenueTotalMap = new Map(
+      revenueTotals.map((entry) => [
+        entry._id.toString(),
+        Number(entry.totalRevenue) || 0,
+      ])
+    );
+
+    const enhancedBarbers = barbers.map((barber) => {
+      const business = businessByOwnerMap.get(barber._id.toString()) || null;
+      const businessId = business?._id?.toString();
+
+      return {
+        ...barber.toObject(),
+        totalRevenue: businessId ? revenueTotalMap.get(businessId) || 0 : 0,
+        totalAppointments: businessId
+          ? appointmentCountMap.get(businessId) || 0
+          : 0,
+        business: business
+          ? {
+              _id: business._id,
+              name: business.name,
+              contactInfo: business.contactInfo,
+            }
+          : null,
+      };
+    });
 
     // Handle sorting by revenue or appointments if specified
     if (
@@ -981,22 +991,13 @@ const getByID = async (req, res) => {
         business: business._id,
       });
 
-      // Total revenue (sum of price for completed appointments)
-      const revenueAgg = await Appointment.aggregate([
-        {
-          $match: {
-            business: business._id,
-            status: "Completed",
-          },
+      const revenueAgg = await getCanonicalRevenueTotalsByBusiness({
+        businessIds: [business._id],
+        paymentMatch: {
+          status: { $in: ["captured", "refunded_partial", "refunded_full"] },
         },
-        {
-          $group: {
-            _id: null,
-            totalRevenue: { $sum: "$price" },
-          },
-        },
-      ]);
-      totalRevenue = revenueAgg[0]?.totalRevenue || 0;
+      });
+      totalRevenue = Number(revenueAgg[0]?.totalRevenue) || 0;
     }
     // Client insights: unique clients and top clients
     let clientAgg = [];

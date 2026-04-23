@@ -8,12 +8,7 @@ const {
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 const {
   noPromotionState,
-  buildAppointmentPayload,
-  buildCheckoutForAppointment,
-  buildCommercePaymentPayload,
-  createProjectionAppointments,
-  createProjectionPayments,
-  createPlatformBillingPayment,
+  seedCanonicalRevenueScenario,
 } = require("./helpers/revenueProjectionFixture");
 
 setupCommerceTestSuite();
@@ -59,129 +54,10 @@ describe("Admin revenue projection v1", () => {
       process.env.JWT_SECRET
     );
 
-    fixture.appointment.date = new Date("2026-04-19T00:00:00.000Z");
-    fixture.appointment.status = "Completed";
-    fixture.appointment.visitStatus = "completed";
-    fixture.appointment.price = 999;
-    await fixture.appointment.save();
-
-    const appointments = await createProjectionAppointments(fixture, [
-      ["dayOneCompleted", { price: 888, paymentStatus: "Partially Refunded" }],
-      [
-        "dayTwoRefunded",
-        {
-          date: new Date("2026-04-20T00:00:00.000Z"),
-          price: 777,
-          paymentStatus: "Refunded",
-        },
-      ],
-      [
-        "dayTwoVoided",
-        {
-          date: new Date("2026-04-20T00:00:00.000Z"),
-          startTime: "12:00",
-          endTime: "12:45",
-          price: 666,
-        },
-      ],
-      [
-        "dayTwoCanceled",
-        {
-          date: new Date("2026-04-20T00:00:00.000Z"),
-          startTime: "14:00",
-          endTime: "14:45",
-          status: "Canceled",
-          bookingStatus: "cancelled",
-          visitStatus: "cancelled",
-          price: 555,
-        },
-      ],
-      [
-        "dayTwoNoShow",
-        {
-          date: new Date("2026-04-20T00:00:00.000Z"),
-          startTime: "16:00",
-          endTime: "16:45",
-          status: "No-Show",
-          visitStatus: "no_show",
-          price: 444,
-        },
-      ],
-    ]);
-
-    const checkouts = await Promise.all([
-      buildCheckoutForAppointment(fixture, fixture.appointment, {
-        total: 40,
-        sourcePrice: 999,
-      }),
-      buildCheckoutForAppointment(fixture, appointments.dayOneCompleted, {
-        total: 50,
-        sourcePrice: 888,
-      }),
-      buildCheckoutForAppointment(fixture, appointments.dayTwoRefunded, {
-        status: "closed",
-        total: 25,
-        sourcePrice: 777,
-      }),
-      buildCheckoutForAppointment(fixture, appointments.dayTwoVoided, {
-        status: "closed",
-        total: 30,
-        sourcePrice: 666,
-      }),
-    ]);
-
-    await createProjectionPayments(fixture, [
-      {
-        appointment: fixture.appointment,
-        checkout: checkouts[0],
-        overrides: {
-          status: "captured",
-          method: "cash",
-          amount: 40,
-          reference: "projection-captured",
-          capturedAt: new Date("2026-04-19T09:10:00.000Z"),
-          sourcePrice: 999,
-        },
-      },
-      {
-        appointment: appointments.dayOneCompleted,
-        checkout: checkouts[1],
-        overrides: {
-          status: "refunded_partial",
-          method: "card_manual",
-          amount: 50,
-          reference: "projection-refunded-partial",
-          capturedAt: new Date("2026-04-19T10:10:00.000Z"),
-          refundedTotal: 10,
-          sourcePrice: 888,
-        },
-      },
-      {
-        appointment: appointments.dayTwoRefunded,
-        checkout: checkouts[2],
-        overrides: {
-          status: "refunded_full",
-          amount: 25,
-          reference: "projection-refunded-full",
-          capturedAt: new Date("2026-04-20T09:10:00.000Z"),
-          refundedTotal: 25,
-          sourcePrice: 777,
-        },
-      },
-      {
-        appointment: appointments.dayTwoVoided,
-        checkout: checkouts[3],
-        overrides: {
-          status: "voided",
-          amount: 30,
-          reference: "projection-voided",
-          capturedAt: new Date("2026-04-20T10:10:00.000Z"),
-          sourcePrice: 666,
-        },
-      },
-    ]);
-
-    await createPlatformBillingPayment(fixture);
+    await seedCanonicalRevenueScenario(fixture, {
+      includeCanceled: true,
+      includeNoShow: true,
+    });
   });
 
   test("uses canonical payment revenue while keeping appointment activity stats", async () => {
@@ -216,5 +92,47 @@ describe("Admin revenue projection v1", () => {
         noShowAppointments: 1,
       },
     ]);
+  });
+
+  test("uses canonical payment revenue in auth barber list and detail", async () => {
+    const otherBarber = await User.create({
+      name: "Other Barber",
+      email: "other-barber@example.com",
+      password: "password123",
+      role: "barber",
+      isActive: true,
+    });
+
+    const listRes = await request(app)
+      .get("/auth/barbers?sort=totalRevenue:desc")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.data.pagination.total).toBeGreaterThanOrEqual(2);
+
+    const ownerEntry = listRes.body.data.barbers.find(
+      (barber) => barber._id.toString() === fixture.owner._id.toString()
+    );
+    const otherEntry = listRes.body.data.barbers.find(
+      (barber) => barber._id.toString() === otherBarber._id.toString()
+    );
+
+    expect(ownerEntry.totalRevenue).toBe(80);
+    expect(ownerEntry.totalAppointments).toBe(6);
+    expect(ownerEntry.business.name).toBe("Revenue Projection Shop");
+    expect(otherEntry.totalRevenue).toBe(0);
+    expect(otherEntry.totalAppointments).toBe(0);
+    expect(listRes.body.data.barbers[0]._id.toString()).toBe(
+      fixture.owner._id.toString()
+    );
+
+    const detailRes = await request(app)
+      .get(`/auth/barbers/${fixture.owner._id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.data.totalRevenue).toBe(80);
+    expect(detailRes.body.data.totalAppointments).toBe(6);
+    expect(detailRes.body.data.business.name).toBe("Revenue Projection Shop");
   });
 });

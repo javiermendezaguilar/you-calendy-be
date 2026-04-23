@@ -49,16 +49,6 @@ describe("Domain event v1", () => {
     expect(captureRes.status).toBe(201);
     const paymentId = captureRes.body.data._id;
 
-    const refundRes = await request(app)
-      .post(`/payment/${paymentId}/refund`)
-      .set("Authorization", `Bearer ${fixture.token}`)
-      .send({
-        amount: 10,
-        reason: "partial-refund",
-      });
-
-    expect(refundRes.status).toBe(201);
-
     const rebookRes = await request(app)
       .post(`/checkout/${checkoutId}/rebook`)
       .set("Authorization", `Bearer ${fixture.token}`)
@@ -68,6 +58,16 @@ describe("Domain event v1", () => {
       });
 
     expect(rebookRes.status).toBe(201);
+
+    const refundRes = await request(app)
+      .post(`/payment/${paymentId}/refund`)
+      .set("Authorization", `Bearer ${fixture.token}`)
+      .send({
+        amount: 10,
+        reason: "partial-refund",
+      });
+
+    expect(refundRes.status).toBe(201);
 
     const eventsRes = await request(app)
       .get("/business/domain-events")

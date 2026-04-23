@@ -24,7 +24,9 @@ describe("Checkout v1", () => {
       ownerName: "Checkout Owner",
       ownerEmail: "checkout-owner@example.com",
       businessName: "Checkout Shop",
-      appointmentStatus: "Confirmed",
+      appointmentStatus: "Completed",
+      bookingStatus: "confirmed",
+      visitStatus: "completed",
     });
 
     appointment = fixture.appointment;

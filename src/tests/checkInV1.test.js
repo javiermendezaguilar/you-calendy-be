@@ -79,4 +79,14 @@ describe("Check-in v1", () => {
     expect(startRes.status).toBe(409);
     expect(startRes.body.message).toMatch(/must be checked in/i);
   });
+
+  test("rejects marking an appointment as completed before service has started", async () => {
+    const completedRes = await request(app)
+      .put(`/appointments/${appointment._id}/status`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "Completed" });
+
+    expect(completedRes.status).toBe(409);
+    expect(completedRes.body.message).toMatch(/must be in service/i);
+  });
 });

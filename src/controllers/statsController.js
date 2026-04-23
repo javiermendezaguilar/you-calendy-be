@@ -4,6 +4,7 @@ const User = require("../models/User/user");
 const {
   buildDateRangeClause,
   getCanonicalRevenueProjection,
+  getCanonicalRevenueTotalsByStaff,
 } = require("../services/payment/revenueProjection");
 const {
   COMMERCE_REPORTING_SCOPE,
@@ -72,13 +73,13 @@ const getMonthlyAppointmentTrends = async (req, res) => {
 };
 
 /**
- * @desc Get top barbers by completed appointments for a given year
+ * @desc Get top staff by completed appointments for a given year
  * @route GET /api/admin/stats/top-barbers?year=2024
  * @access Private (Admin only)
  */
 const getTopBarberTrend = async (req, res) => {
   // #swagger.tags = ['Admin Stats']
-  /* #swagger.description = 'Get top barbers ranked by completed appointments for a given year.'
+  /* #swagger.description = 'Get top staff ranked by completed appointments for a given year. Keeps ranking by completed appointments and adds canonical commerce revenue attributed to each staff member.'
      #swagger.security = [{ "Bearer": [] }]
      #swagger.parameters['year'] = { in: 'query', description: 'Year to filter by', required: false, type: 'integer' }
   */
@@ -112,24 +113,42 @@ const getTopBarberTrend = async (req, res) => {
 
     // Populate staff info
     const staffIds = topBarbers.map((b) => b._id);
-    const staffDocs = await Staff.find({ _id: { $in: staffIds } }).select(
-      "firstName lastName email"
-    );
+    const [staffDocs, staffRevenue] = await Promise.all([
+      Staff.find({ _id: { $in: staffIds } }).select("firstName lastName email"),
+      getCanonicalRevenueTotalsByStaff({
+        staffIds,
+        paymentMatch: {
+          capturedAt: { $gte: start, $lt: end },
+          status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+        },
+      }),
+    ]);
+
     const staffMap = {};
     staffDocs.forEach((s) => {
       staffMap[s._id.toString()] = s;
     });
+    const staffRevenueMap = new Map(
+      staffRevenue.map((entry) => [
+        entry._id?.toString(),
+        Number(entry.totalRevenue) || 0,
+      ])
+    );
 
-    const result = topBarbers.map((b) => ({
-      barberId: b._id,
-      name: staffMap[b._id?.toString()]
-        ? `${staffMap[b._id.toString()].firstName} ${
-            staffMap[b._id.toString()].lastName
-          }`
-        : "Unknown",
-      email: staffMap[b._id?.toString()]?.email || null,
-      completedAppointments: b.completedAppointments,
-    }));
+    const result = topBarbers.map((b) => {
+      const staffId = b._id?.toString();
+      return {
+        barberId: b._id,
+        name: staffMap[staffId]
+          ? `${staffMap[staffId].firstName} ${staffMap[staffId].lastName}`
+          : "Unknown",
+        email: staffMap[staffId]?.email || null,
+        completedAppointments: b.completedAppointments,
+        commerceRevenue: staffRevenueMap.get(staffId) || 0,
+        moneyScope: COMMERCE_REPORTING_SCOPE,
+        attributionScope: "staff_individual_canonical",
+      };
+    });
 
     return SuccessHandler(result, 200, res);
   } catch (error) {

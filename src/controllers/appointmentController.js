@@ -31,6 +31,13 @@ const {
   getEffectivePolicySnapshot,
   buildNoShowPenaltyFromPolicy,
 } = require("../services/appointment/policyService");
+const {
+  findCapacityConflict,
+  runWithCapacityGuard,
+} = require("../services/appointment/capacityGuard");
+const {
+  resolveCanonicalServiceForBusiness,
+} = require("../services/business/serviceService");
 const { recordDomainEvent } = require("../services/domainEventService");
 
 const buildAppointmentSemanticState = (status, overrides = {}) =>
@@ -308,8 +315,10 @@ const createAppointment = async (req, res) => {
     }
 
 
-    // Get service from business's embedded services array
-    const service = business.services.id(serviceId);
+    const service = await resolveCanonicalServiceForBusiness(
+      business,
+      serviceId
+    );
     if (!service) {
       return ErrorHandler(
         "Service not found or doesn't belong to this business",
@@ -466,28 +475,19 @@ const createAppointment = async (req, res) => {
         .toString()
         .padStart(2, "0")}`;
 
-    // Update Availability Check
-    const conflictQuery = {
-      business: businessId,
-      date: { $eq: new Date(date).toISOString().split("T")[0] },
-      status: { $nin: ["Canceled", "No-Show"] },
-      $or: [
-        { startTime: { $lt: endTime }, endTime: { $gt: startTime } },
-        { startTime: { $gte: startTime, $lt: endTime } },
-      ],
-    };
-
-    if (staffId) {
-      conflictQuery.staff = staffId;
-    }
-
-    const conflictingAppointment = await Appointment.findOne(conflictQuery);
+    const capacityConflictMessage = staffId
+      ? "This staff member is not available at the selected time."
+      : "This time slot is not available.";
+    const conflictingAppointment = await findCapacityConflict({
+      businessId,
+      staffId: staffId || null,
+      date,
+      startTime,
+      endTime,
+    });
 
     if (conflictingAppointment) {
-      const message = staffId
-        ? "This staff member is not available at the selected time."
-        : "This time slot is not available.";
-      return ErrorHandler(message, 409, req, res);
+      return ErrorHandler(capacityConflictMessage, 409, req, res);
     }
 
     // Handle reference photos if any
@@ -705,7 +705,21 @@ const createAppointment = async (req, res) => {
       }
     }
 
-    const newAppointment = await Appointment.create(newAppointmentData);
+    const newAppointment = await runWithCapacityGuard({
+      businessId,
+      staffId: staffId || null,
+      date,
+      startTime,
+      endTime,
+      conflictMessage: capacityConflictMessage,
+      operation: async ({ session }) => {
+        const [createdAppointment] = await Appointment.create(
+          [newAppointmentData],
+          { session }
+        );
+        return createdAppointment;
+      },
+    });
     await recordDomainEvent({
       type: "booking_created",
       actorId: req.user._id || req.user.id,
@@ -722,23 +736,12 @@ const createAppointment = async (req, res) => {
       .populate("business", "name contactInfo.phone")
       .populate("staff", "firstName lastName");
 
-    // Manually add service information from business embedded services
-    if (populatedAppointment.business) {
-      const businessWithServices = await Business.findById(
-        populatedAppointment.business._id
-      );
-      const serviceInfo = businessWithServices.services.id(
-        populatedAppointment.service
-      );
-      if (serviceInfo) {
-        populatedAppointment.service = {
-          _id: serviceInfo._id,
-          name: serviceInfo.name,
-          duration: serviceInfo.duration,
-          price: serviceInfo.price,
-        };
-      }
-    }
+    populatedAppointment.service = {
+      _id: service._id,
+      name: service.name,
+      duration: service.duration,
+      price: service.price,
+    };
 
     // Send notification to the client (using Client model, not User)
     // This works for clients who book via the public booking page
@@ -854,7 +857,7 @@ const createAppointment = async (req, res) => {
     return SuccessHandler(populatedAppointment, 201, res);
   } catch (error) {
     console.error("Create appointment error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -2481,7 +2484,10 @@ const getAvailableTimeSlots = async (req, res) => {
     if (!business) {
       return ErrorHandler("Business not found", 404, req, res);
     }
-    const serviceInBusiness = business.services.id(serviceId);
+    const serviceInBusiness = await resolveCanonicalServiceForBusiness(
+      business,
+      serviceId
+    );
     if (!serviceInBusiness) {
       return ErrorHandler(
         "Service not found or doesn't belong to this business",
@@ -2601,16 +2607,13 @@ const getAvailableTimeSlots = async (req, res) => {
       return SuccessHandler({ availableSlots: [] }, 200, res); // Closed on this day
     }
 
-    if (!staffId) {
-      const svc = business.services.id(serviceId);
-      if (svc && svc.duration) {
-        if (typeof svc.duration === "number") {
-          serviceDuration = svc.duration;
-        } else if (typeof svc.duration === "object") {
-          const h = parseInt(svc.duration.hours || 0, 10) || 0;
-          const m = parseInt(svc.duration.minutes || 0, 10) || 0;
-          serviceDuration = h * 60 + m;
-        }
+    if (!staffId && serviceInBusiness.duration) {
+      if (typeof serviceInBusiness.duration === "number") {
+        serviceDuration = serviceInBusiness.duration;
+      } else if (typeof serviceInBusiness.duration === "object") {
+        const h = parseInt(serviceInBusiness.duration.hours || 0, 10) || 0;
+        const m = parseInt(serviceInBusiness.duration.minutes || 0, 10) || 0;
+        serviceDuration = h * 60 + m;
       }
     }
 
@@ -3191,8 +3194,10 @@ const createAppointmentByBarber = async (req, res) => {
     // may not have email addresses, which made isProfileComplete=false and blocked booking.
     // Only client self-booking should enforce profile completeness.
 
-    // Validate service exists and belongs to this business
-    const service = business.services.id(serviceId);
+    const service = await resolveCanonicalServiceForBusiness(
+      business,
+      serviceId
+    );
     if (!service) {
       return ErrorHandler(
         "Service not found or doesn't belong to this business",
@@ -3293,22 +3298,17 @@ const createAppointmentByBarber = async (req, res) => {
       }
     }
 
-    // Check for time conflicts
-    const conflictQuery = {
-      business: business._id,
-      staff: staffId,
-      date: { $eq: moment(date, "YYYY-MM-DD").startOf("day").toDate() },
-      status: { $nin: ["Canceled", "No-Show"] },
-      // The robust query to find any overlap:
-      // (StartA < EndB) and (EndA > StartB)
-      startTime: { $lt: endTime },
-      endTime: { $gt: startTime },
-    };
-
-    const conflictingAppointment = await Appointment.findOne(conflictQuery);
+    const capacityConflictMessage =
+      "This staff member is not available at the selected time";
+    const conflictingAppointment = await findCapacityConflict({
+      businessId: business._id,
+      staffId,
+      date,
+      startTime,
+      endTime,
+    });
     if (conflictingAppointment) {
-      const message = "This staff member is not available at the selected time";
-      return ErrorHandler(message, 409, req, res);
+      return ErrorHandler(capacityConflictMessage, 409, req, res);
     }
 
     // Handle reference photos if any
@@ -3528,7 +3528,21 @@ const createAppointmentByBarber = async (req, res) => {
       }
     }
 
-    const newAppointment = await Appointment.create(newAppointmentData);
+    const newAppointment = await runWithCapacityGuard({
+      businessId: business._id,
+      staffId,
+      date,
+      startTime,
+      endTime,
+      conflictMessage: capacityConflictMessage,
+      operation: async ({ session }) => {
+        const [createdAppointment] = await Appointment.create(
+          [newAppointmentData],
+          { session }
+        );
+        return createdAppointment;
+      },
+    });
     await recordDomainEvent({
       type: "booking_created",
       actorId: req.user._id || req.user.id,
@@ -3640,7 +3654,7 @@ const createAppointmentByBarber = async (req, res) => {
     return SuccessHandler(populatedAppointment, 201, res);
   } catch (error) {
     console.error("Create appointment by barber error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

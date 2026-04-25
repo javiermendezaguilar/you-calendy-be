@@ -123,6 +123,77 @@ describe("Payment refunds v1", () => {
     expect(excessiveRefund.body.message).toMatch(/exceeds/i);
   });
 
+  test("returns the existing refund when an idempotency key is retried", async () => {
+    const firstRefund = await request(app)
+      .post(`/payment/${payment._id}/refund`)
+      .set("Authorization", `Bearer ${token}`)
+      .set("Idempotency-Key", "refund-retry-key")
+      .send({ amount: 10, reason: "Retry-safe refund" });
+
+    const retriedRefund = await request(app)
+      .post(`/payment/${payment._id}/refund`)
+      .set("Authorization", `Bearer ${token}`)
+      .set("Idempotency-Key", "refund-retry-key")
+      .send({ amount: 10, reason: "Retry-safe refund" });
+
+    const updatedPayment = await Payment.findById(payment._id).lean();
+    const refunds = await Refund.find({ payment: payment._id }).lean();
+
+    expect(firstRefund.status).toBe(201);
+    expect(retriedRefund.status).toBe(200);
+    expect(String(retriedRefund.body.data._id)).toBe(
+      String(firstRefund.body.data._id)
+    );
+    expect(updatedPayment.refundedTotal).toBe(10);
+    expect(refunds).toHaveLength(1);
+  });
+
+  test("rejects reusing an idempotency key with a different refund amount", async () => {
+    const firstRefund = await request(app)
+      .post(`/payment/${payment._id}/refund`)
+      .set("Authorization", `Bearer ${token}`)
+      .set("Idempotency-Key", "refund-conflict-key")
+      .send({ amount: 10, reason: "Retry-safe refund" });
+
+    const conflictingRetry = await request(app)
+      .post(`/payment/${payment._id}/refund`)
+      .set("Authorization", `Bearer ${token}`)
+      .set("Idempotency-Key", "refund-conflict-key")
+      .send({ amount: 15, reason: "Wrong retry amount" });
+
+    const updatedPayment = await Payment.findById(payment._id).lean();
+    const refunds = await Refund.find({ payment: payment._id }).lean();
+
+    expect(firstRefund.status).toBe(201);
+    expect(conflictingRetry.status).toBe(409);
+    expect(conflictingRetry.body.message).toMatch(/different refund amount/i);
+    expect(updatedPayment.refundedTotal).toBe(10);
+    expect(refunds).toHaveLength(1);
+  });
+
+  test("rejects concurrent refunds that would exceed the captured total", async () => {
+    const [firstRefund, secondRefund] = await Promise.all([
+      request(app)
+        .post(`/payment/${payment._id}/refund`)
+        .set("Authorization", `Bearer ${token}`)
+        .set("Idempotency-Key", "refund-concurrent-a")
+        .send({ amount: 30, reason: "Concurrent A" }),
+      request(app)
+        .post(`/payment/${payment._id}/refund`)
+        .set("Authorization", `Bearer ${token}`)
+        .set("Idempotency-Key", "refund-concurrent-b")
+        .send({ amount: 30, reason: "Concurrent B" }),
+    ]);
+
+    const statuses = [firstRefund.status, secondRefund.status].sort();
+    const updatedPayment = await Payment.findById(payment._id).lean();
+    const refunds = await Refund.find({ payment: payment._id }).lean();
+
+    expect(statuses).toEqual([201, 409]);
+    expect(updatedPayment.refundedTotal).toBe(30);
+    expect(refunds).toHaveLength(1);
+  });
+
   test("recalculates an open cash session after a partial cash refund", async () => {
     const cashCheckout = await createClosedCheckoutForFixture(fixture, {
       total: 40,

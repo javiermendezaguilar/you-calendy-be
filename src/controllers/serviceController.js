@@ -5,6 +5,9 @@ const ErrorHandler = require("../utils/ErrorHandler");
 const { uploadFiles, deleteFile } = require("../utils/aws");
 const { uploadToCloudinary, deleteImage } = require("../functions/cloudinary");
 const Auditing = require("../models/auditing");
+const {
+  syncBusinessServicesShadow,
+} = require("../services/business/serviceService");
 
 /**
  * @desc Get all services for a business
@@ -124,6 +127,8 @@ const createService = async (req, res) => {
       isActive: true,
     });
 
+    await syncBusinessServicesShadow(business._id);
+
     return SuccessHandler(newService, 201, res);
   } catch (error) {
     console.error("Create service error:", error.message);
@@ -224,6 +229,8 @@ const updateService = async (req, res) => {
       { new: true }
     );
 
+    await syncBusinessServicesShadow(business._id);
+
     return SuccessHandler(updatedService, 200, res);
   } catch (error) {
     console.error("Update service error:", error.message);
@@ -291,6 +298,7 @@ const deleteService = async (req, res) => {
 
     // Delete service
     await Service.findByIdAndDelete(serviceId);
+    await syncBusinessServicesShadow(business._id);
     await Auditing.create({
       entityType: "Service",
       entityId: serviceId,

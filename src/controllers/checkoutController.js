@@ -7,6 +7,10 @@ const Staff = require("../models/staff");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const { recordDomainEvent } = require("../services/domainEventService");
+const {
+  findCapacityConflict,
+  runWithCapacityGuard,
+} = require("../services/appointment/capacityGuard");
 const moment = require("moment");
 const mongoose = require("mongoose");
 
@@ -477,73 +481,138 @@ const createRebooking = async (req, res) => {
     }
 
     const endTime = getRebookingEndTime(startTime, targetDuration);
-    const conflictingAppointment = await Appointment.findOne({
-      business: business._id,
-      staff: staff._id,
-      date: { $eq: moment(date, "YYYY-MM-DD").startOf("day").toDate() },
-      status: { $nin: ["Canceled", "No-Show"] },
-      startTime: { $lt: endTime },
-      endTime: { $gt: startTime },
+    const capacityConflictMessage =
+      "This staff member is not available at the selected time";
+    const targetDate = moment(date, "YYYY-MM-DD").startOf("day").toDate();
+    const conflictingAppointment = await findCapacityConflict({
+      businessId: business._id,
+      staffId: staff._id,
+      date: targetDate,
+      startTime,
+      endTime,
     });
 
     if (conflictingAppointment) {
-      return ErrorHandler(
-        "This staff member is not available at the selected time",
-        409,
-        req,
-        res
-      );
+      return ErrorHandler(capacityConflictMessage, 409, req, res);
     }
 
-    const rebookedAppointment = await Appointment.create({
-      client: sourceAppointment.client,
-      business: sourceAppointment.business,
-      service: service._id,
-      staff: staff._id,
-      date: moment(date, "YYYY-MM-DD").startOf("day").toDate(),
+    const rebookedAppointment = await runWithCapacityGuard({
+      businessId: business._id,
+      staffId: staff._id,
+      date: targetDate,
       startTime,
       endTime,
-      duration: targetDuration,
-      status: "Confirmed",
-      bookingStatus: "booked",
-      visitStatus: "not_started",
-      visitType: "appointment",
-      paymentStatus: "Pending",
-      price: Number(service.price) || 0,
-      notes: sourceAppointment.notes || "",
-      clientNotes: sourceAppointment.clientNotes || "",
-      promotion: {
-        applied: false,
-        promotionId: null,
-        originalPrice: 0,
-        discountAmount: 0,
-        discountPercentage: 0,
-      },
-      flashSale: {
-        applied: false,
-        flashSaleId: null,
-        originalPrice: 0,
-        discountAmount: 0,
-        discountPercentage: 0,
-      },
-      rebookingOrigin: {
-        checkout: checkout._id,
-        appointment: sourceAppointment._id,
-        createdAt: new Date(),
-        createdBy: req.user._id,
-      },
-      policySnapshot: sourceAppointment.policySnapshot || undefined,
-    });
+      conflictMessage: capacityConflictMessage,
+      operation: async ({ session }) => {
+        const checkoutForUpdate = await Checkout.findOne({
+          _id: checkout._id,
+          business: business._id,
+        }).session(session);
 
-    checkout.rebooking = {
-      status: "booked",
-      appointment: rebookedAppointment._id,
-      service: service._id,
-      staff: staff._id,
-      createdAt: new Date(),
-      createdBy: req.user._id,
-    };
-    await checkout.save();
+        if (!checkoutForUpdate) {
+          const error = new Error("Checkout not found");
+          error.statusCode = 404;
+          throw error;
+        }
+
+        if (hasTerminalRefund(checkoutForUpdate)) {
+          const error = new Error(
+            "Rebooking is not allowed after a refunded checkout"
+          );
+          error.statusCode = 409;
+          throw error;
+        }
+
+        if (checkoutForUpdate.status !== "paid") {
+          const error = new Error(
+            "Checkout must be paid before creating a rebooking"
+          );
+          error.statusCode = 409;
+          throw error;
+        }
+
+        if (
+          checkoutForUpdate?.rebooking?.status === "booked" &&
+          checkoutForUpdate?.rebooking?.appointment
+        ) {
+          const error = new Error("A rebooking already exists for this checkout");
+          error.statusCode = 409;
+          throw error;
+        }
+
+        const capturedPaymentForUpdate = await Payment.findOne({
+          checkout: checkoutForUpdate._id,
+          status: "captured",
+          paymentScope: "commerce_checkout",
+        })
+          .select("_id")
+          .session(session);
+        if (!capturedPaymentForUpdate) {
+          const error = new Error(
+            "Checkout requires a captured payment before creating a rebooking"
+          );
+          error.statusCode = 409;
+          throw error;
+        }
+
+        const [createdAppointment] = await Appointment.create(
+          [
+            {
+              client: sourceAppointment.client,
+              business: sourceAppointment.business,
+              service: service._id,
+              staff: staff._id,
+              date: targetDate,
+              startTime,
+              endTime,
+              duration: targetDuration,
+              status: "Confirmed",
+              bookingStatus: "booked",
+              visitStatus: "not_started",
+              visitType: "appointment",
+              paymentStatus: "Pending",
+              price: Number(service.price) || 0,
+              notes: sourceAppointment.notes || "",
+              clientNotes: sourceAppointment.clientNotes || "",
+              promotion: {
+                applied: false,
+                promotionId: null,
+                originalPrice: 0,
+                discountAmount: 0,
+                discountPercentage: 0,
+              },
+              flashSale: {
+                applied: false,
+                flashSaleId: null,
+                originalPrice: 0,
+                discountAmount: 0,
+                discountPercentage: 0,
+              },
+              rebookingOrigin: {
+                checkout: checkout._id,
+                appointment: sourceAppointment._id,
+                createdAt: new Date(),
+                createdBy: req.user._id || req.user.id,
+              },
+              policySnapshot: sourceAppointment.policySnapshot || undefined,
+            },
+          ],
+          { session }
+        );
+
+        checkoutForUpdate.rebooking = {
+          status: "booked",
+          appointment: createdAppointment._id,
+          service: service._id,
+          staff: staff._id,
+          createdAt: new Date(),
+          createdBy: req.user._id || req.user.id,
+        };
+        await checkoutForUpdate.save({ session });
+
+        return createdAppointment;
+      },
+    });
     await recordDomainEvent({
       type: "rebook_created",
       actorId: req.user._id || req.user.id,
@@ -568,7 +637,7 @@ const createRebooking = async (req, res) => {
 
     return SuccessHandler(hydratedAppointment, 201, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

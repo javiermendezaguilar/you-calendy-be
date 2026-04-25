@@ -19,10 +19,12 @@ const WaitlistEntry = require("../../models/waitlistEntry");
 const CashSession = require("../../models/cashSession");
 const Refund = require("../../models/refund");
 const DomainEvent = require("../../models/domainEvent");
+const CapacityLock = require("../../models/capacityLock");
 
 let mongoServer;
 let mongoServerUri;
 let stopTimer = null;
+const externalMongoUri = process.env.TEST_MONGO_URI || "";
 
 const createNoPromotionState = () => ({
   applied: false,
@@ -61,9 +63,13 @@ const connectCommerceTestDatabase = async () => {
     stopTimer = null;
   }
 
-  if (!mongoServer) {
-    mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
-    mongoServerUri = mongoServer.getUri();
+  if (!mongoServer && !mongoServerUri) {
+    if (externalMongoUri) {
+      mongoServerUri = externalMongoUri;
+    } else {
+      mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+      mongoServerUri = mongoServer.getUri();
+    }
   }
 
   if (mongoose.connection.readyState !== 0) {
@@ -93,6 +99,7 @@ const resetCommerceCollections = async () => {
     WaitlistEntry.deleteMany({}),
     CashSession.deleteMany({}),
     DomainEvent.deleteMany({}),
+    CapacityLock.deleteMany({}),
   ]);
 };
 

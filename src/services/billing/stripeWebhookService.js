@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const stripe = require("./stripeClient");
 const CreditProduct = require("../../models/creditProduct");
 const Business = require("../../models/User/business");
@@ -92,16 +93,21 @@ const upsertPlatformBillingPayment = async ({
   failureReason = "",
   voidedAt = null,
   voidReason = "",
+  mongoSession = null,
 }) => {
   if (!providerReference) {
     throw new Error("Platform billing payments require a provider reference");
   }
 
-  const existingPayment = await Payment.findOne({
+  const existingPaymentQuery = Payment.findOne({
     paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
     provider: PAYMENT_PROVIDER.STRIPE,
     providerReference,
   });
+  if (mongoSession) {
+    existingPaymentQuery.session(mongoSession);
+  }
+  const existingPayment = await existingPaymentQuery;
 
   if (existingPayment) {
     if (existingPayment.status === "captured" && status !== "captured") {
@@ -145,14 +151,16 @@ const upsertPlatformBillingPayment = async ({
       existingPayment.voidReason = voidReason || "";
     }
 
-    await existingPayment.save();
+    await existingPayment.save(
+      mongoSession ? { session: mongoSession } : undefined
+    );
     return {
       payment: existingPayment,
       action: "updated_existing_payment",
     };
   }
 
-  const payment = await Payment.create({
+  const paymentPayload = {
     paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
     business: business._id,
     status,
@@ -173,7 +181,11 @@ const upsertPlatformBillingPayment = async ({
     voidedAt,
     voidReason,
     snapshot: buildPlatformBillingSnapshot(amount),
-  });
+  };
+
+  const payment = mongoSession
+    ? (await Payment.create([paymentPayload], { session: mongoSession }))[0]
+    : await Payment.create(paymentPayload);
 
   return {
     payment,
@@ -256,33 +268,65 @@ const processCreditPurchaseSession = async (session) => {
     throw new Error("Business owner mismatch");
   }
 
-  business.smsCredits = (business.smsCredits || 0) + (productDoc.smsCredits || 0);
-  business.emailCredits =
-    (business.emailCredits || 0) + (productDoc.emailCredits || 0);
+  const smsCreditsToAdd = productDoc.smsCredits || 0;
+  const emailCreditsToAdd = productDoc.emailCredits || 0;
+  const mongoSession = await mongoose.startSession();
+  let payment;
+  let action;
+  let creditsApplied = false;
 
-  await business.save();
-  const { payment, action } = await upsertPlatformBillingPayment({
-    business,
-    status: "captured",
-    amount:
-      typeof session.amount_total === "number"
-        ? normalizeStripeAmount(session.amount_total)
-        : Number(productDoc.amount) || 0,
-    currency: session.currency || productDoc.currency || "USD",
-    providerReference: `checkout_session:${session.id}`,
-    providerEventId: session.id,
-    reference: session.id,
-  });
+  try {
+    await mongoSession.withTransaction(async () => {
+      const result = await upsertPlatformBillingPayment({
+        business,
+        status: "captured",
+        amount:
+          typeof session.amount_total === "number"
+            ? normalizeStripeAmount(session.amount_total)
+            : Number(productDoc.amount) || 0,
+        currency: session.currency || productDoc.currency || "USD",
+        providerReference: `checkout_session:${session.id}`,
+        providerEventId: session.id,
+        reference: session.id,
+        mongoSession,
+      });
 
-  return createWebhookProcessingResult("Credits added successfully", {
-    eventType: "checkout.session.completed",
-    businessId: String(business._id),
-    paymentId: String(payment._id),
-    paymentScope: payment.paymentScope,
-    paymentStatus: payment.status,
-    providerReference: payment.providerReference,
-    action,
-  });
+      payment = result.payment;
+      action = result.action;
+      creditsApplied = action === "created_payment";
+
+      if (!creditsApplied) {
+        return;
+      }
+
+      await Business.updateOne(
+        { _id: business._id },
+        {
+          $inc: {
+            smsCredits: smsCreditsToAdd,
+            emailCredits: emailCreditsToAdd,
+          },
+        },
+        { session: mongoSession }
+      );
+    });
+  } finally {
+    await mongoSession.endSession();
+  }
+
+  return createWebhookProcessingResult(
+    creditsApplied ? "Credits added successfully" : "Credits already processed",
+    {
+      eventType: "checkout.session.completed",
+      businessId: String(business._id),
+      paymentId: String(payment._id),
+      paymentScope: payment.paymentScope,
+      paymentStatus: payment.status,
+      providerReference: payment.providerReference,
+      action,
+      creditsApplied,
+    }
+  );
 };
 
 const processSubscriptionCheckoutSession = async (session) => {

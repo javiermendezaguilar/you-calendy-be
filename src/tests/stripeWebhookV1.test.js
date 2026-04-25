@@ -289,6 +289,75 @@ describe("Stripe webhook v1", () => {
     );
   });
 
+  test("does not add credits twice when a credit purchase checkout is retried", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Credits Retry Owner",
+      ownerEmail: "stripe-credits-retry-owner@example.com",
+      businessName: "Stripe Credits Retry Shop",
+    });
+
+    await CreditProduct.create({
+      title: "Retry Credit Pack",
+      amount: 49,
+      currency: "eur",
+      smsCredits: 120,
+      emailCredits: 45,
+      stripeProductId: "prod_credits_retry",
+      stripePriceId: "price_credits_retry",
+      isActive: true,
+    });
+
+    mockStripe.webhooks.constructEvent.mockReturnValue({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_credit_retry",
+          metadata: {
+            type: "credit_purchase",
+            businessId: fixture.business._id.toString(),
+            ownerId: fixture.owner._id.toString(),
+          },
+        },
+      },
+    });
+    mockStripe.checkout.sessions.listLineItems.mockResolvedValue({
+      data: [{ price: { id: "price_credits_retry" } }],
+    });
+
+    const firstRes = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_credits_retry_first" },
+      },
+      firstRes
+    );
+
+    const secondRes = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_credits_retry_second" },
+      },
+      secondRes
+    );
+
+    const updatedBusiness = await Business.findById(fixture.business._id).lean();
+    const storedPayments = await Payment.find({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "checkout_session:cs_credit_retry",
+    }).lean();
+
+    expect(firstRes.statusCode).toBe(200);
+    expect(firstRes.payload).toBe("Credits added successfully");
+    expect(secondRes.statusCode).toBe(200);
+    expect(secondRes.payload).toBe("Credits already processed");
+    expect(updatedBusiness.smsCredits).toBe(120);
+    expect(updatedBusiness.emailCredits).toBe(45);
+    expect(storedPayments).toHaveLength(1);
+  });
+
   test("activates a subscription from checkout session completion", async () => {
     const fixture = await createCommerceFixture({
       ownerName: "Stripe Subscription Owner",

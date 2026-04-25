@@ -15,6 +15,10 @@ const {
   getOrderedActiveWalkIns,
   getQueueResponseForBusiness,
 } = require("./queueService");
+const {
+  findCapacityConflict,
+  runWithCapacityGuard,
+} = require("../appointment/capacityGuard");
 const { recordDomainEvent } = require("../domainEventService");
 
 const buildCheckedInTimestamps = (userId) => ({
@@ -102,15 +106,13 @@ const resolveWalkInSchedule = async ({ businessId, serviceId, staffId, date, sta
 
   const endTime = moment(startTime, "HH:mm").add(duration, "minutes").format("HH:mm");
   const dayStart = moment(date, "YYYY-MM-DD").startOf("day").toDate();
-  const dayEnd = moment(date, "YYYY-MM-DD").endOf("day").toDate();
 
-  const conflictingAppointment = await Appointment.findOne({
-    business: { $eq: businessId },
-    staff: { $eq: validStaffId },
-    date: { $gte: dayStart, $lte: dayEnd },
-    status: { $nin: ["Canceled", "No-Show"] },
-    startTime: { $lt: endTime },
-    endTime: { $gt: startTime },
+  const conflictingAppointment = await findCapacityConflict({
+    businessId,
+    staffId: validStaffId,
+    date: dayStart,
+    startTime,
+    endTime,
   });
 
   if (conflictingAppointment) {
@@ -159,7 +161,7 @@ const createWalkInForOwner = async (ownerId, payload) => {
       return currentWait + duration;
     })[0] || 0;
 
-  const appointment = await Appointment.create({
+  const appointmentPayload = {
     client: client._id,
     business: business._id,
     service: service._id,
@@ -194,6 +196,22 @@ const createWalkInForOwner = async (ownerId, payload) => {
     },
     operationalTimestamps: buildCheckedInTimestamps(ownerId),
     policySnapshot: Appointment.buildPolicySnapshot(business),
+  };
+
+  const appointment = await runWithCapacityGuard({
+    businessId: business._id,
+    staffId: staff._id,
+    date: normalizedDate,
+    startTime: payload.startTime,
+    endTime,
+    conflictMessage: "This staff member is not available at the selected time",
+    operation: async ({ session }) => {
+      const [createdAppointment] = await Appointment.create(
+        [appointmentPayload],
+        { session }
+      );
+      return createdAppointment;
+    },
   });
 
   await recordDomainEvent({

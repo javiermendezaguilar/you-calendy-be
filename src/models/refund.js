@@ -59,6 +59,10 @@ const refundSchema = new Schema(
       trim: true,
       default: "",
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+    },
     refundedAt: {
       type: Date,
       default: Date.now,
@@ -74,5 +78,12 @@ const refundSchema = new Schema(
 
 refundSchema.index({ payment: 1, refundedAt: -1 });
 refundSchema.index({ business: 1, refundedAt: -1 });
+refundSchema.index(
+  { payment: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $exists: true } },
+  }
+);
 
 module.exports = mongoose.model("Refund", refundSchema);

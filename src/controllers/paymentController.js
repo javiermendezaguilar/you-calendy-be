@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Appointment = require("../models/appointment");
 const CashSession = require("../models/cashSession");
 const Checkout = require("../models/checkout");
@@ -107,6 +108,40 @@ const getBusinessAndOwnedPayment = async (
 const getRefundStatus = (paymentAmount, refundedTotal) =>
   refundedTotal === paymentAmount ? "full" : "partial";
 
+const REFUNDABLE_PAYMENT_STATUSES = ["captured", "refunded_partial"];
+
+const createControllerError = (message, statusCode) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const withOptionalSession = (query, mongoSession) =>
+  mongoSession ? query.session(mongoSession) : query;
+
+const getRefundIdempotencyKey = (req) => {
+  const rawKey = req.get?.("Idempotency-Key") || req.body?.idempotencyKey || "";
+  return String(rawKey).trim();
+};
+
+const amountsMatch = (left, right) =>
+  Math.abs((Number(left) || 0) - (Number(right) || 0)) < 0.000001;
+
+const findIdempotentRefund = (paymentId, businessId, idempotencyKey, mongoSession) => {
+  if (!idempotencyKey) {
+    return null;
+  }
+
+  return withOptionalSession(
+    Refund.findOne({
+      payment: paymentId,
+      business: businessId,
+      idempotencyKey,
+    }),
+    mongoSession
+  );
+};
+
 const buildDateRangeFilter = (fieldName, startDate, endDate) => {
   const range = {};
   if (startDate) {
@@ -119,18 +154,27 @@ const buildDateRangeFilter = (fieldName, startDate, endDate) => {
   return Object.keys(range).length > 0 ? { [fieldName]: range } : {};
 };
 
-const recalculateCashSessionSummary = async (cashSessionId) => {
-  const cashSession = await CashSession.findById(cashSessionId);
+const recalculateCashSessionSummary = async (
+  cashSessionId,
+  { mongoSession = null } = {}
+) => {
+  const cashSession = await withOptionalSession(
+    CashSession.findById(cashSessionId),
+    mongoSession
+  );
   if (!cashSession || cashSession.status !== "open") {
     return cashSession;
   }
 
-  const cashPayments = await Payment.find({
-    cashSession: cashSession._id,
-    method: "cash",
-    status: { $in: ["captured", "refunded_partial", "refunded_full"] },
-    ...buildCommercePaymentFilter(),
-  });
+  const cashPayments = await withOptionalSession(
+    Payment.find({
+      cashSession: cashSession._id,
+      method: "cash",
+      status: { $in: ["captured", "refunded_partial", "refunded_full"] },
+      ...buildCommercePaymentFilter(),
+    }),
+    mongoSession
+  );
 
   const snapshot = buildCashSessionSnapshot(cashSession, cashPayments);
 
@@ -139,7 +183,7 @@ const recalculateCashSessionSummary = async (cashSessionId) => {
   cashSession.summary = snapshot.summary;
   cashSession.variance = snapshot.variance;
 
-  await cashSession.save();
+  await cashSession.save(mongoSession ? { session: mongoSession } : undefined);
   return cashSession;
 };
 
@@ -306,23 +350,19 @@ const getPaymentByCheckout = async (req, res) => {
 };
 
 const refundPayment = async (req, res) => {
+  let paymentForIdempotency = null;
+  let businessForIdempotency = null;
+  let normalizedAmount = null;
+  let idempotencyKey = "";
+
   try {
-    const { payment } = await getBusinessAndOwnedPayment(req, res);
+    const { business, payment } = await getBusinessAndOwnedPayment(req, res);
     if (!payment) return;
 
-    if (
-      payment.status !== "captured" &&
-      payment.status !== "refunded_partial"
-    ) {
-      return ErrorHandler(
-        "Only captured payments can be refunded",
-        409,
-        req,
-        res
-      );
-    }
+    businessForIdempotency = business;
+    paymentForIdempotency = payment;
 
-    const normalizedAmount = Number(req.body.amount);
+    normalizedAmount = Number(req.body.amount);
     if (Number.isNaN(normalizedAmount) || normalizedAmount <= 0) {
       return ErrorHandler(
         "Refund amount must be greater than zero",
@@ -332,93 +372,193 @@ const refundPayment = async (req, res) => {
       );
     }
 
-    const refundedTotal = Number(payment.refundedTotal) || 0;
-    const remainingAmount = Number(payment.amount) - refundedTotal;
-    if (normalizedAmount > remainingAmount) {
+    idempotencyKey = getRefundIdempotencyKey(req);
+
+    let refund = null;
+    let refundWasCreated = false;
+    let domainEvent = null;
+
+    const mongoSession = await mongoose.startSession();
+    try {
+      await mongoSession.withTransaction(async () => {
+        const existingRefund = await findIdempotentRefund(
+          payment._id,
+          business._id,
+          idempotencyKey,
+          mongoSession
+        );
+
+        if (existingRefund) {
+          if (!amountsMatch(existingRefund.amount, normalizedAmount)) {
+            throw createControllerError(
+              "Idempotency key already used for a different refund amount",
+              409
+            );
+          }
+
+          refund = existingRefund;
+          refundWasCreated = false;
+          return;
+        }
+
+        const currentPayment = await Payment.findOne(
+          buildCommercePaymentFilter({
+            _id: payment._id,
+            business: business._id,
+          })
+        ).session(mongoSession);
+
+        if (!currentPayment) {
+          throw createControllerError("Payment not found", 404);
+        }
+
+        if (!REFUNDABLE_PAYMENT_STATUSES.includes(currentPayment.status)) {
+          throw createControllerError("Only captured payments can be refunded", 409);
+        }
+
+        const refundedTotal = Number(currentPayment.refundedTotal) || 0;
+        const remainingAmount = Number(currentPayment.amount) - refundedTotal;
+        if (normalizedAmount > remainingAmount) {
+          throw createControllerError(
+            "Refund amount exceeds captured payment amount",
+            409
+          );
+        }
+
+        if (currentPayment.method === "cash" && currentPayment.cashSession) {
+          const cashSession = await CashSession.findById(
+            currentPayment.cashSession
+          ).session(mongoSession);
+
+          if (cashSession && cashSession.status !== "open") {
+            throw createControllerError(
+              "Cash payments from a closed cash session cannot be refunded",
+              409
+            );
+          }
+        }
+
+        const refundPayload = {
+          payment: currentPayment._id,
+          checkout: currentPayment.checkout,
+          appointment: currentPayment.appointment,
+          business: currentPayment.business,
+          client: currentPayment.client,
+          staff: currentPayment.staff,
+          amount: normalizedAmount,
+          currency: currentPayment.currency,
+          reason: req.body.reason || "",
+          refundedAt: new Date(),
+          refundedBy: req.user._id,
+        };
+
+        if (idempotencyKey) {
+          refundPayload.idempotencyKey = idempotencyKey;
+        }
+
+        [refund] = await Refund.create([refundPayload], {
+          session: mongoSession,
+        });
+        refundWasCreated = true;
+
+        const newRefundedTotal = refundedTotal + normalizedAmount;
+        const refundStatus = getRefundStatus(
+          Number(currentPayment.amount),
+          newRefundedTotal
+        );
+
+        currentPayment.refundedTotal = newRefundedTotal;
+        currentPayment.status =
+          refundStatus === "full" ? "refunded_full" : "refunded_partial";
+        await currentPayment.save({ session: mongoSession });
+
+        const checkout = await Checkout.findById(currentPayment.checkout).session(
+          mongoSession
+        );
+        if (checkout) {
+          checkout.refundSummary = {
+            refundedTotal: newRefundedTotal,
+            status: refundStatus,
+          };
+
+          if (refundStatus === "full") {
+            checkout.status = "closed";
+          }
+
+          await checkout.save({ session: mongoSession });
+        }
+
+        await Appointment.findByIdAndUpdate(
+          currentPayment.appointment,
+          {
+            paymentStatus:
+              refundStatus === "full" ? "Refunded" : "Partially Refunded",
+          },
+          { session: mongoSession }
+        );
+
+        if (currentPayment.method === "cash" && currentPayment.cashSession) {
+          await recalculateCashSessionSummary(currentPayment.cashSession, {
+            mongoSession,
+          });
+        }
+
+        domainEvent = {
+          type: "payment_refunded",
+          actorId: req.user._id || req.user.id,
+          shopId: currentPayment.business,
+          correlationId: currentPayment.checkout,
+          payload: {
+            refundId: refund._id,
+            paymentId: currentPayment._id,
+            checkoutId: currentPayment.checkout,
+            appointmentId: currentPayment.appointment,
+            amount: normalizedAmount,
+            refundedTotal: newRefundedTotal,
+            refundStatus,
+          },
+        };
+      });
+    } finally {
+      await mongoSession.endSession();
+    }
+
+    if (!refundWasCreated) {
+      const hydratedExistingRefund = await hydrateRefund(refund._id);
+      return SuccessHandler(hydratedExistingRefund, 200, res);
+    }
+
+    await recordDomainEvent(domainEvent);
+
+    const hydratedRefund = await hydrateRefund(refund._id);
+    return SuccessHandler(hydratedRefund, 201, res);
+  } catch (error) {
+    if (
+      error?.code === 11000 &&
+      idempotencyKey &&
+      paymentForIdempotency &&
+      businessForIdempotency
+    ) {
+      const existingRefund = await findIdempotentRefund(
+        paymentForIdempotency._id,
+        businessForIdempotency._id,
+        idempotencyKey
+      );
+
+      if (existingRefund && amountsMatch(existingRefund.amount, normalizedAmount)) {
+        const hydratedExistingRefund = await hydrateRefund(existingRefund._id);
+        return SuccessHandler(hydratedExistingRefund, 200, res);
+      }
+
       return ErrorHandler(
-        "Refund amount exceeds captured payment amount",
+        "Idempotency key already used for a different refund amount",
         409,
         req,
         res
       );
     }
 
-    if (payment.method === "cash" && payment.cashSession) {
-      const cashSession = await CashSession.findById(payment.cashSession);
-
-      if (cashSession && cashSession.status !== "open") {
-        return ErrorHandler(
-          "Cash payments from a closed cash session cannot be refunded",
-          409,
-          req,
-          res
-        );
-      }
-    }
-
-    const refund = await Refund.create({
-      payment: payment._id,
-      checkout: payment.checkout,
-      appointment: payment.appointment,
-      business: payment.business,
-      client: payment.client,
-      staff: payment.staff,
-      amount: normalizedAmount,
-      currency: payment.currency,
-      reason: req.body.reason || "",
-      refundedAt: new Date(),
-      refundedBy: req.user._id,
-    });
-
-    const newRefundedTotal = refundedTotal + normalizedAmount;
-    const refundStatus = getRefundStatus(Number(payment.amount), newRefundedTotal);
-    payment.refundedTotal = newRefundedTotal;
-    payment.status = refundStatus === "full" ? "refunded_full" : "refunded_partial";
-    await payment.save();
-
-    const checkout = await Checkout.findById(payment.checkout);
-    if (checkout) {
-      checkout.refundSummary = {
-        refundedTotal: newRefundedTotal,
-        status: refundStatus,
-      };
-
-      if (refundStatus === "full") {
-        checkout.status = "closed";
-      }
-
-      await checkout.save();
-    }
-
-    await Appointment.findByIdAndUpdate(payment.appointment, {
-      paymentStatus:
-        refundStatus === "full" ? "Refunded" : "Partially Refunded",
-    });
-
-    if (payment.method === "cash" && payment.cashSession) {
-      await recalculateCashSessionSummary(payment.cashSession);
-    }
-
-    await recordDomainEvent({
-      type: "payment_refunded",
-      actorId: req.user._id || req.user.id,
-      shopId: payment.business,
-      correlationId: payment.checkout,
-      payload: {
-        refundId: refund._id,
-        paymentId: payment._id,
-        checkoutId: payment.checkout,
-        appointmentId: payment.appointment,
-        amount: normalizedAmount,
-        refundedTotal: newRefundedTotal,
-        refundStatus,
-      },
-    });
-
-    const hydratedRefund = await hydrateRefund(refund._id);
-    return SuccessHandler(hydratedRefund, 201, res);
-  } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

@@ -10,6 +10,6 @@ router.get("/:id", serviceController.getServiceById);
 
 // Protected routes
 router.put("/:id", isAuthenticated, serviceController.updateService);
-router.delete("/:id", serviceController.deleteService);
+router.delete("/:id", isAuthenticated, serviceController.deleteService);
 
 module.exports = router;

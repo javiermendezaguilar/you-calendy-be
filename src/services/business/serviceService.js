@@ -99,6 +99,20 @@ const getCanonicalBusinessServices = async (business) => {
   return services;
 };
 
+const resolveCanonicalServiceForBusiness = async (business, serviceId) => {
+  const validServiceId = ensureObjectIdString(
+    String(serviceId || ""),
+    "Service ID is required"
+  );
+  const services = await getCanonicalBusinessServices(business);
+
+  return (
+    services.find(
+      (service) => service._id.toString() === validServiceId.toString()
+    ) || null
+  );
+};
+
 const getBusinessServicesForOwner = async (userId) => {
   const business = await findOwnedBusinessOrThrow(userId);
   return getCanonicalBusinessServices(business);
@@ -169,6 +183,9 @@ const deleteBusinessServiceForOwner = async (userId, serviceId) => {
 };
 
 module.exports = {
+  getCanonicalBusinessServices,
+  resolveCanonicalServiceForBusiness,
+  syncBusinessServicesShadow,
   getBusinessServicesForOwner,
   addBusinessServiceForOwner,
   updateBusinessServiceForOwner,

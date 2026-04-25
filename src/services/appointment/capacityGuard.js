@@ -193,6 +193,7 @@ module.exports = {
   buildCapacityConflictFilter,
   buildCapacityError,
   findCapacityConflict,
+  NON_BLOCKING_CAPACITY_STATUSES,
   normalizeCapacityDate,
   runWithCapacityGuard,
 };

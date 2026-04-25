@@ -36,6 +36,9 @@ const {
   runWithCapacityGuard,
 } = require("../services/appointment/capacityGuard");
 const {
+  getAvailabilityForBusiness,
+} = require("../services/appointment/availabilityService");
+const {
   resolveCanonicalServiceForBusiness,
 } = require("../services/business/serviceService");
 const { recordDomainEvent } = require("../services/domainEventService");
@@ -2477,9 +2480,6 @@ const getAvailableTimeSlots = async (req, res) => {
       );
     }
 
-    const requestedDate = moment(date);
-    const dayName = requestedDate.format("dddd").toLowerCase(); // e.g., 'monday'
-
     const business = await Business.findById(businessId);
     if (!business) {
       return ErrorHandler("Business not found", 404, req, res);
@@ -2540,246 +2540,19 @@ const getAvailableTimeSlots = async (req, res) => {
         }
       }
     }
-    const hasAssignedStaff = await Staff.exists({
-      business: businessId,
-      services: { $elemMatch: { service: serviceId } },
-    });
-    if (!hasAssignedStaff) {
-      return ErrorHandler(
-        "This service is not assigned to any staff till now",
-        400,
-        req,
-        res
-      );
-    }
-
-    // Get service duration from staff-service relationship
-    let serviceDuration = 60; // Default duration
-
-    if (staffId) {
-      const staff = await Staff.findById(staffId);
-      if (staff) {
-        const serviceItem = staff.services.find(
-          (s) => s.service.toString() === serviceId
-        );
-        if (!serviceItem) {
-          return ErrorHandler(
-            "Selected service is not assigned to the specified staff member",
-            400,
-            req,
-            res
-          );
-        }
-        serviceDuration = serviceItem.timeInterval;
-      }
-    }
-
-    let workingShifts = [];
-    let staffTimeInterval = 15;
-
-    if (staffId) {
-      // 1. Get availability for a SPECIFIC staff member
-      const staff = await Staff.findOne({ _id: staffId, business: businessId });
-      if (!staff || !staff.availableForBooking) {
-        return SuccessHandler({ availableSlots: [] }, 200, res); // Staff not found or not available
-      }
-
-      staffTimeInterval = staff.timeInterval || 15;
-
-      const daySchedule = staff.workingHours.find((wh) => wh.day === dayName);
-      if (daySchedule && daySchedule.enabled) {
-        workingShifts = daySchedule.shifts;
-      }
-    } else {
-      // 2. Get availability for the ENTIRE business
-      const business = await Business.findById(businessId);
-      if (!business) {
-        return ErrorHandler("Business not found", 404, req, res);
-      }
-      const businessHours = business.businessHours || {};
-      const todayHours = businessHours[dayName];
-      if (todayHours && todayHours.enabled) {
-        workingShifts = todayHours.shifts;
-      }
-    }
-
-    if (workingShifts.length === 0) {
-      return SuccessHandler({ availableSlots: [] }, 200, res); // Closed on this day
-    }
-
-    if (!staffId && serviceInBusiness.duration) {
-      if (typeof serviceInBusiness.duration === "number") {
-        serviceDuration = serviceInBusiness.duration;
-      } else if (typeof serviceInBusiness.duration === "object") {
-        const h = parseInt(serviceInBusiness.duration.hours || 0, 10) || 0;
-        const m = parseInt(serviceInBusiness.duration.minutes || 0, 10) || 0;
-        serviceDuration = h * 60 + m;
-      }
-    }
-
-    const allSlots = [];
-    const slotInterval = serviceDuration;
-
-    workingShifts.forEach((shift) => {
-      const start = moment(shift.start, "HH:mm");
-      const end = moment(shift.end, "HH:mm");
-
-      while (start.isBefore(end)) {
-        const slotTime = start.format("HH:mm");
-
-        const isInBreak =
-          shift.breaks &&
-          shift.breaks.some((breakPeriod) => {
-            const breakStart = moment(breakPeriod.start, "HH:mm");
-            const breakEnd = moment(breakPeriod.end, "HH:mm");
-            const slotMoment = moment(slotTime, "HH:mm");
-            return (
-              slotMoment.isSameOrAfter(breakStart) &&
-              slotMoment.isBefore(breakEnd)
-            );
-          });
-
-        // Check if a full service duration can fit before the shift ends
-        if (
-          !isInBreak &&
-          start.clone().add(serviceDuration, "minutes").isSameOrBefore(end)
-        ) {
-          allSlots.push(slotTime);
-        }
-        start.add(slotInterval, "minutes");
-      }
+    const availability = await getAvailabilityForBusiness({
+      business,
+      service: serviceInBusiness,
+      serviceId,
+      staffId,
+      date,
+      timezoneOffset: timezoneOffset || req.headers["x-timezone-offset"],
     });
 
-    // 4. Get booked appointments to filter out unavailable slots
-    const startOfDay = moment(requestedDate).startOf("day").toDate();
-    const endOfDay = moment(requestedDate).endOf("day").toDate();
-
-    const bookingQuery = {
-      business: businessId,
-      date: {
-        $gte: startOfDay,
-        $lte: endOfDay,
-      },
-      status: { $nin: ["Canceled", "No-Show"] },
-    };
-
-    if (staffId) {
-      bookingQuery.staff = staffId;
-    }
-
-    const bookedAppointments = await Appointment.find(bookingQuery);
-
-    // 5. Filter out booked slots - only return slots that don't overlap with existing appointments
-    let availableSlots = allSlots.filter((slot) => {
-      const slotStart = moment(slot, "HH:mm");
-      const slotEnd = slotStart.clone().add(serviceDuration, "minutes");
-
-      // Check if this slot conflicts with any booked appointments
-      return !bookedAppointments.some((appt) => {
-        const apptStart = moment(appt.startTime, "HH:mm");
-        const apptEnd = moment(appt.endTime, "HH:mm");
-
-        // Check for overlap: (SlotStart, SlotEnd) overlaps with (ApptStart, ApptEnd)
-        // Two time ranges overlap if: slotStart < apptEnd AND slotEnd > apptStart
-        return slotStart.isBefore(apptEnd) && slotEnd.isAfter(apptStart);
-      });
-    });
-
-    // 6. Get booking buffer setting
-    let bookingBuffer = 0; // Default to no buffer
-
-    if (staffId) {
-      // Use staff member's booking buffer
-      const staff = await Staff.findOne({ _id: staffId, business: businessId });
-      if (staff && staff.bookingBuffer !== undefined) {
-        bookingBuffer = staff.bookingBuffer;
-      }
-    } else {
-      // Use business default booking buffer
-      if (business.bookingBuffer !== undefined) {
-        bookingBuffer = business.bookingBuffer;
-      }
-    }
-
-    // 7. Apply past time filter and booking buffer filter together
-    // Buffer is always applied relative to current time, not shift start time
-    // Get current time and convert to user's local timezone if provided
-    let currentTime;
-    let requestedDateMoment;
-    let userTimezoneOffset = null; // null means use server timezone (backward compatibility)
-
-    // Parse timezone offset from query parameter
-    // Accepts formats: "+05:00", "-05:00", "+300" (minutes), "-300" (minutes), or "300" (minutes)
-    if (timezoneOffset) {
-      if (typeof timezoneOffset === "string" && timezoneOffset.includes(":")) {
-        // Format: "+05:00" or "-05:00"
-        const [hours, minutes] = timezoneOffset
-          .replace(/[+-]/, "")
-          .split(":")
-          .map(Number);
-        const sign = timezoneOffset.startsWith("-") ? -1 : 1;
-        userTimezoneOffset = sign * (hours * 60 + minutes);
-      } else {
-        // Format: "+300" or "-300" or "300" (minutes)
-        userTimezoneOffset = parseInt(timezoneOffset, 10);
-      }
-    } else {
-      // If no timezone offset provided, try to get it from the request headers
-      // This is a fallback - ideally the client should send timezoneOffset
-      const tzOffsetHeader = req.headers["x-timezone-offset"];
-      if (tzOffsetHeader) {
-        userTimezoneOffset = parseInt(tzOffsetHeader, 10);
-      }
-    }
-
-    // If timezone offset is provided, use UTC and convert to user's timezone
-    // Otherwise, use server's local timezone (backward compatibility for Pakistan)
-    if (userTimezoneOffset !== null) {
-      currentTime = moment.utc().utcOffset(userTimezoneOffset);
-      requestedDateMoment = moment.utc(date).utcOffset(userTimezoneOffset);
-    } else {
-      // Use server timezone (original behavior - works for Pakistan)
-      currentTime = moment();
-      requestedDateMoment = moment(requestedDate);
-    }
-
-    const isToday = requestedDateMoment.isSame(currentTime, "day");
-
-    // Filter out past time slots and apply buffer relative to current time
-    availableSlots = availableSlots.filter((slot) => {
-      // Create slot datetime in user's local timezone
-      const slotDateTime = requestedDateMoment.clone().set({
-        hour: parseInt(slot.split(":")[0], 10),
-        minute: parseInt(slot.split(":")[1], 10),
-        second: 0,
-        millisecond: 0,
-      });
-
-      // First, ensure slot is in the future (prevent booking in the past)
-      // Both times are now in the user's local timezone, so comparison is correct
-      if (!slotDateTime.isAfter(currentTime)) {
-        return false;
-      }
-
-      // Then, apply buffer relative to current time (only for today's appointments)
-      // Buffer ensures the slot is at least X minutes from NOW, not from shift start
-      // For future dates, buffer doesn't apply since there's already sufficient advance notice
-      if (bookingBuffer > 0 && isToday) {
-        const timeDifference = slotDateTime.diff(currentTime, "minutes");
-        return timeDifference >= bookingBuffer;
-      }
-
-      return true;
-    });
-
-    // Note: Promotion hours are NOT filtered out because they should still be available for booking
-    // Promotions only affect pricing, not availability. The frontend can handle displaying
-    // promotion information separately.
-
-    return SuccessHandler({ availableSlots: availableSlots }, 200, res);
+    return SuccessHandler(availability, 200, res);
   } catch (error) {
     console.error("Get available time slots error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

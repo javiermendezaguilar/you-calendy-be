@@ -22,6 +22,12 @@ router.get(
   cashSessionController.listCashSessions
 );
 router.get(
+  "/report",
+  isAuthenticated,
+  isBusinessOwner,
+  cashSessionController.getCashSessionReport
+);
+router.get(
   "/:id",
   isAuthenticated,
   isBusinessOwner,

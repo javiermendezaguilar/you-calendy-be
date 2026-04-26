@@ -49,6 +49,7 @@ describe("CashSession v1", () => {
     amount = 40,
     reference,
     closingDeclared,
+    closingNote,
     checkoutId = checkout._id,
   }) => {
     const openRes = await openCashSessionForToken(app, token, {
@@ -61,9 +62,15 @@ describe("CashSession v1", () => {
       reference,
     });
 
-    const closeRes = await closeCashSessionForToken(openRes.body.data._id, {
-      closingDeclared,
-    });
+    const closePayload = { closingDeclared };
+    if (closingNote) {
+      closePayload.closingNote = closingNote;
+    }
+
+    const closeRes = await closeCashSessionForToken(
+      openRes.body.data._id,
+      closePayload
+    );
 
     return { openRes, closeRes };
   };
@@ -414,6 +421,10 @@ describe("CashSession v1", () => {
     expect(closeRes.body.data.summary.tipsTotal).toBe(5);
     expect(closeRes.body.data.summary.transactionCount).toBe(1);
     expect(closeRes.body.data.summary.expectedDrawerTotal).toBe(90);
+    expect(closeRes.body.data.closing.ready).toBe(true);
+    expect(closeRes.body.data.closing.transactionCount).toBe(1);
+    expect(closeRes.body.data.closing.cashSalesTotal).toBe(40);
+    expect(closeRes.body.data.closing.expectedDrawerTotal).toBe(90);
     expect(closeRes.body.data.variance).toBe(0);
     expect(closeRes.body.data.payments).toHaveLength(1);
 
@@ -432,6 +443,41 @@ describe("CashSession v1", () => {
 
     expect(duplicateClose.status).toBe(409);
     expect(duplicateClose.body.message).toMatch(/already closed/i);
+  });
+
+  test("allows only one successful close when the same cash session is closed concurrently", async () => {
+    const openRes = await openCashSessionForToken(app, token);
+
+    await captureCheckoutPaymentForToken(app, token, checkout._id, {
+      method: "cash",
+      amount: 40,
+      reference: "cash-register-concurrent-close",
+    });
+
+    const closeRequests = await Promise.all([
+      closeCashSessionForToken(openRes.body.data._id, {
+        closingDeclared: 90,
+      }),
+      closeCashSessionForToken(openRes.body.data._id, {
+        closingDeclared: 95,
+        closingNote: "Concurrent recount correction",
+      }),
+    ]);
+
+    const successResponses = closeRequests.filter((res) => res.status === 200);
+    const conflictResponses = closeRequests.filter((res) => res.status === 409);
+
+    expect(successResponses).toHaveLength(1);
+    expect(conflictResponses).toHaveLength(1);
+    expect(conflictResponses[0].body.message).toMatch(/already closed/i);
+
+    const storedSession = await CashSession.findById(openRes.body.data._id).lean();
+    expect(storedSession.status).toBe("closed");
+    expect(storedSession.closingDeclared).toBe(
+      successResponses[0].body.data.closingDeclared
+    );
+    expect(storedSession.variance).toBe(successResponses[0].body.data.variance);
+    expect(storedSession.summary.expectedDrawerTotal).toBe(90);
   });
 
   test("requires a closing note when the drawer variance is not exact", async () => {
@@ -520,6 +566,72 @@ describe("CashSession v1", () => {
     expect(listRes.body.data[0].closing.transactionCount).toBe(1);
     expect(listRes.body.data[0].closing.cashSalesTotal).toBe(25);
     expect(listRes.body.data[0].closing.expectedDrawerTotal).toBe(55);
+  });
+
+  test("returns a business-scoped cash session report with variance totals", async () => {
+    const first = await openCaptureAndCloseCashSession({
+      openingFloat: 50,
+      amount: 40,
+      reference: "cash-register-report-001",
+      closingDeclared: 90,
+    });
+
+    expect(first.closeRes.status).toBe(200);
+
+    const secondCheckout = await createClosedCheckoutForFixture(fixture, {
+      total: 25,
+      tip: 0,
+      sourcePrice: 25,
+    });
+
+    const second = await openCaptureAndCloseCashSession({
+      openingFloat: 30,
+      amount: 25,
+      reference: "cash-register-report-002",
+      closingDeclared: 60,
+      closingNote: "Over by five after drawer recount",
+      checkoutId: secondCheckout._id,
+    });
+
+    expect(second.closeRes.status).toBe(200);
+
+    await openCashSessionForToken(app, token, {
+      openingFloat: 10,
+    });
+
+    const reportRes = await request(app)
+      .get("/cash-sessions/report")
+      .set("Authorization", `Bearer ${token}`)
+      .query({ status: "closed" });
+
+    expect(reportRes.status).toBe(200);
+    expect(reportRes.body.data.status).toBe("closed");
+    expect(reportRes.body.data.period.dateField).toBe("closedAt");
+    expect(reportRes.body.data.totals).toMatchObject({
+      sessionCount: 2,
+      openCount: 0,
+      closedCount: 2,
+      transactionCount: 2,
+      cashSalesTotal: 65,
+      tipsTotal: 5,
+      expectedDrawerTotal: 145,
+      closingDeclaredTotal: 150,
+      varianceTotal: 5,
+      varianceBreakdown: {
+        exact: 1,
+        over: 1,
+        short: 0,
+      },
+    });
+
+    const foreignReportRes = await request(app)
+      .get("/cash-sessions/report")
+      .set("Authorization", `Bearer ${foreignOwnerToken}`)
+      .query({ status: "closed" });
+
+    expect(foreignReportRes.status).toBe(200);
+    expect(foreignReportRes.body.data.totals.sessionCount).toBe(0);
+    expect(foreignReportRes.body.data.totals.cashSalesTotal).toBe(0);
   });
 
   test("rejects a foreign business owner listing, reading and closing another business cash session", async () => {

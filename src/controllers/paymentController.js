@@ -11,6 +11,9 @@ const { buildCashSessionSnapshot } = require("../services/payment/cashSessionSum
 const {
   COMMERCE_REPORTING_SCOPE,
 } = require("../services/payment/reportingScope");
+const {
+  buildServiceLineSnapshotList,
+} = require("../services/checkout/serviceLineService");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -23,6 +26,7 @@ const buildPaymentSnapshot = (checkout) => ({
     id: checkout.snapshot?.service?.id || null,
     name: checkout.snapshot?.service?.name || "",
   },
+  serviceLines: buildServiceLineSnapshotList(checkout.serviceLines || []),
   client: {
     id: checkout.snapshot?.client?.id || null,
     firstName: checkout.snapshot?.client?.firstName || "",

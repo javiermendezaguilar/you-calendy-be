@@ -45,6 +45,28 @@ const buildFixtureServiceClientSnapshot = (fixture) => ({
   },
 });
 
+const buildFixtureServiceLinesSnapshot = (fixture, overrides = {}) => [
+  {
+    service: {
+      id: fixture.service._id,
+      name: fixture.service.name,
+    },
+    staff: {
+      id: fixture.staff._id,
+      firstName: fixture.staff.firstName,
+      lastName: fixture.staff.lastName,
+    },
+    quantity: 1,
+    unitPrice: overrides.subtotal ?? 35,
+    durationMinutes:
+      fixture.appointment.duration || fixture.service.duration || 0,
+    adjustmentAmount: 0,
+    lineTotal: overrides.subtotal ?? 35,
+    source: "reserved_service_default",
+    note: "",
+  },
+];
+
 const stopCommerceTestServer = async () => {
   if (!mongoServer) {
     return;
@@ -257,6 +279,9 @@ const createClosedCheckoutForFixture = async (fixture, overrides = {}) => {
     tip: overrides.tip ?? 5,
     total: overrides.total ?? 40,
     sourcePrice: overrides.sourcePrice ?? 35,
+    serviceLines:
+      overrides.serviceLines ||
+      buildFixtureServiceLinesSnapshot(fixture, overrides),
     snapshot: overrides.snapshot || {
       appointmentStatus: fixture.appointment.status,
       bookingStatus: fixture.appointment.bookingStatus,
@@ -326,6 +351,9 @@ const createCapturedPaymentForFixture = async (fixture, checkout, overrides = {}
       discountTotal: overrides.discountTotal ?? 0,
       total: overrides.total ?? 40,
       sourcePrice: overrides.sourcePrice ?? 35,
+      serviceLines:
+        overrides.serviceLines ||
+        buildFixtureServiceLinesSnapshot(fixture, overrides),
       ...buildFixtureServiceClientSnapshot(fixture),
       discounts: {
         promotionAmount: 0,

@@ -4,6 +4,9 @@ const {
   PAYMENT_PROVIDER,
   PAYMENT_SCOPE,
 } = require("../services/payment/paymentScope");
+const {
+  createServiceLineSnapshotSchema,
+} = require("./serviceLineSnapshotSchema");
 
 const paymentSchema = new Schema(
   {
@@ -176,6 +179,7 @@ const paymentSchema = new Schema(
           default: "",
         },
       },
+      serviceLines: [createServiceLineSnapshotSchema(Schema)],
       client: {
         id: {
           type: Schema.Types.ObjectId,

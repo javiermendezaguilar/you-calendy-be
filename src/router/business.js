@@ -7,6 +7,7 @@ const staffController = require("../controllers/staffController");
 const clientController = require("../controllers/clientController");
 const haircutGalleryController = require("../controllers/haircutGalleryController");
 const messageBlastController = require("../controllers/messageBlastController");
+const visitController = require("../controllers/visitController");
 
 // Multer setup for file uploads
 const storage = multer.memoryStorage();
@@ -33,6 +34,11 @@ router.get(
   "/onboarding-status",
   isAuthenticated,
   businessController.getOnboardingStatus
+);
+router.get(
+  "/visits",
+  isAuthenticated,
+  visitController.getBusinessVisits
 );
 router.put("/", isAuthenticated, businessController.updateBusinessProfile);
 

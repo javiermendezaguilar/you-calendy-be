@@ -16,5 +16,10 @@ router.get(
 router.get("/:id", isAuthenticated, checkoutController.getCheckoutById);
 router.post("/:id/close", isAuthenticated, checkoutController.closeCheckout);
 router.post("/:id/rebook", isAuthenticated, checkoutController.createRebooking);
+router.post(
+  "/:id/rebooking-outcome",
+  isAuthenticated,
+  checkoutController.markRebookingOutcome
+);
 
 module.exports = router;

@@ -192,7 +192,7 @@ const checkoutSchema = new Schema(
     rebooking: {
       status: {
         type: String,
-        enum: ["none", "booked"],
+        enum: ["none", "follow_up_needed", "declined", "booked"],
         default: "none",
       },
       appointment: {
@@ -215,6 +215,28 @@ const checkoutSchema = new Schema(
         default: null,
       },
       createdBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      source: {
+        type: String,
+        enum: ["checkout", "post_checkout", "manual_follow_up"],
+        default: "checkout",
+      },
+      note: {
+        type: String,
+        default: "",
+      },
+      offeredAt: {
+        type: Date,
+        default: null,
+      },
+      outcomeAt: {
+        type: Date,
+        default: null,
+      },
+      outcomeBy: {
         type: Schema.Types.ObjectId,
         ref: "User",
         default: null,

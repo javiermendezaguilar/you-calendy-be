@@ -388,6 +388,11 @@ const appointmentSchema = new Schema(
         ref: "User",
         default: null,
       },
+      source: {
+        type: String,
+        enum: ["checkout", "post_checkout", "manual_follow_up"],
+        default: "checkout",
+      },
     },
     reminderTime: {
       type: String,

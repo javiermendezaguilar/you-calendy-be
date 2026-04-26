@@ -67,6 +67,90 @@ const buildVariancePreview = (expectedDrawerTotal, closingDeclaredPreview) => {
   };
 };
 
+const buildCashSessionClosingUpdate = ({
+  cashSession,
+  snapshot,
+  closingDeclared,
+  closingNote,
+  closedBy,
+}) => ({
+  status: "closed",
+  closedAt: new Date(),
+  closedBy,
+  closingExpected: snapshot.closingExpected,
+  closingDeclared,
+  summary: snapshot.summary,
+  variance: snapshot.variance,
+  varianceStatus: getVarianceStatus(snapshot.variance),
+  closingNote,
+  payments: snapshot.paymentIds,
+  openingFloat: cashSession.openingFloat,
+});
+
+const parseDateQuery = (value, fieldName) => {
+  if (!value) {
+    return { date: null };
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { error: `${fieldName} must be a valid date` };
+  }
+
+  return { date };
+};
+
+const buildCashSessionReportTotals = (cashSessions = []) =>
+  cashSessions.reduce(
+    (totals, cashSession) => {
+      const summary = cashSession.summary || {};
+      const isClosed = cashSession.status === "closed";
+      const varianceStatus = cashSession.varianceStatus || "exact";
+
+      totals.sessionCount += 1;
+      totals.openCount += cashSession.status === "open" ? 1 : 0;
+      totals.closedCount += isClosed ? 1 : 0;
+      totals.transactionCount += Number(summary.transactionCount) || 0;
+      totals.cashSalesTotal += Number(summary.cashSalesTotal) || 0;
+      totals.tipsTotal += Number(summary.tipsTotal) || 0;
+      totals.expectedDrawerTotal +=
+        Number(summary.expectedDrawerTotal) ||
+        Number(cashSession.closingExpected) ||
+        0;
+
+      if (isClosed) {
+        totals.closingDeclaredTotal += Number(cashSession.closingDeclared) || 0;
+        totals.varianceTotal += Number(cashSession.variance) || 0;
+      }
+
+      if (isClosed && varianceStatus === "over") {
+        totals.varianceBreakdown.over += 1;
+      } else if (isClosed && varianceStatus === "short") {
+        totals.varianceBreakdown.short += 1;
+      } else if (isClosed) {
+        totals.varianceBreakdown.exact += 1;
+      }
+
+      return totals;
+    },
+    {
+      sessionCount: 0,
+      openCount: 0,
+      closedCount: 0,
+      transactionCount: 0,
+      cashSalesTotal: 0,
+      tipsTotal: 0,
+      expectedDrawerTotal: 0,
+      closingDeclaredTotal: 0,
+      varianceTotal: 0,
+      varianceBreakdown: {
+        exact: 0,
+        over: 0,
+        short: 0,
+      },
+    }
+  );
+
 const buildCashSessionReadModel = async (cashSession, options = {}) => {
   const base =
     typeof cashSession.toObject === "function" ? cashSession.toObject() : cashSession;
@@ -350,6 +434,72 @@ const listCashSessions = async (req, res) => {
   }
 };
 
+const getCashSessionReport = async (req, res) => {
+  try {
+    const business = req.business || (await resolveBusinessOrReply(req, res));
+    if (!business) return;
+
+    const requestedStatus = req.query.status || "closed";
+    if (!["open", "closed", "all"].includes(requestedStatus)) {
+      return ErrorHandler("status must be open, closed or all", 400, req, res);
+    }
+
+    const from = parseDateQuery(req.query.from, "from");
+    if (from.error) {
+      return ErrorHandler(from.error, 400, req, res);
+    }
+
+    const to = parseDateQuery(req.query.to, "to");
+    if (to.error) {
+      return ErrorHandler(to.error, 400, req, res);
+    }
+
+    if (from.date && to.date && from.date > to.date) {
+      return ErrorHandler("from must be before to", 400, req, res);
+    }
+
+    const dateField = requestedStatus === "closed" ? "closedAt" : "openedAt";
+    const dateFilter = {};
+    if (from.date) {
+      dateFilter.$gte = from.date;
+    }
+    if (to.date) {
+      dateFilter.$lte = to.date;
+    }
+
+    const filter = {
+      business: business._id,
+      ...(requestedStatus === "all" ? {} : { status: requestedStatus }),
+      ...(Object.keys(dateFilter).length ? { [dateField]: dateFilter } : {}),
+    };
+
+    const cashSessions = await CashSession.find(filter)
+      .select(
+        "status currency openingFloat openedAt closedAt closingExpected closingDeclared summary variance varianceStatus closingNote"
+      )
+      .sort({ openedAt: -1 })
+      .lean();
+
+    const totals = buildCashSessionReportTotals(cashSessions);
+
+    return SuccessHandler(
+      {
+        status: requestedStatus,
+        period: {
+          from: from.date,
+          to: to.date,
+          dateField,
+        },
+        totals,
+      },
+      200,
+      res
+    );
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
 const getCashSessionById = async (req, res) => {
   try {
     const { cashSession } = await getBusinessAndOwnedCashSession(req, res, {
@@ -395,7 +545,6 @@ const closeCashSession = async (req, res) => {
       payments
     );
     const closingNote = String(req.body.closingNote || "").trim();
-    const varianceStatus = getVarianceStatus(snapshot.variance);
 
     if (snapshot.variance !== 0 && !closingNote) {
       return ErrorHandler(
@@ -406,20 +555,32 @@ const closeCashSession = async (req, res) => {
       );
     }
 
-    cashSession.status = "closed";
-    cashSession.closedAt = new Date();
-    cashSession.closedBy = req.user._id || req.user.id;
-    cashSession.closingExpected = snapshot.closingExpected;
-    cashSession.closingDeclared = closingDeclared;
-    cashSession.summary = snapshot.summary;
-    cashSession.variance = snapshot.variance;
-    cashSession.varianceStatus = varianceStatus;
-    cashSession.closingNote = closingNote;
-    cashSession.payments = snapshot.paymentIds;
-    await cashSession.save();
+    const closedBy = req.user._id || req.user.id;
+    const closingUpdate = buildCashSessionClosingUpdate({
+      cashSession,
+      snapshot,
+      closingDeclared,
+      closingNote,
+      closedBy,
+    });
 
-    const hydrated = await hydrateCashSession(cashSession._id);
-    return SuccessHandler(hydrated, 200, res);
+    const closedSession = await CashSession.findOneAndUpdate(
+      {
+        _id: cashSession._id,
+        business: business._id,
+        status: "open",
+      },
+      { $set: closingUpdate },
+      { new: true }
+    );
+
+    if (!closedSession) {
+      return ErrorHandler("Cash session is already closed", 409, req, res);
+    }
+
+    const hydrated = await hydrateCashSession(closedSession._id);
+    const readModel = await buildCashSessionReadModel(hydrated);
+    return SuccessHandler(readModel, 200, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -429,6 +590,7 @@ module.exports = {
   openCashSession,
   getActiveCashSession,
   listCashSessions,
+  getCashSessionReport,
   getCashSessionById,
   closeCashSession,
 };

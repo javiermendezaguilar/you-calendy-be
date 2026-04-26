@@ -124,7 +124,7 @@ const userSchema = new Schema({
       },
       reason: {
         type: String,
-        enum: ["no-show"],
+        enum: ["no-show", "late-cancel"],
         required: true,
       },
       appointmentId: {

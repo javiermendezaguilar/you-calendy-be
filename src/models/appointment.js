@@ -166,6 +166,94 @@ const appointmentSchema = new Schema(
       paidDate: {
         type: Date,
       },
+      type: {
+        type: String,
+        enum: ["none", "no_show", "late_cancel", "manual"],
+        default: "none",
+      },
+      source: {
+        type: String,
+        enum: ["policy_snapshot", "manual"],
+        default: "policy_snapshot",
+      },
+      waived: {
+        type: Boolean,
+        default: false,
+      },
+      waivedReason: {
+        type: String,
+        default: "",
+      },
+      assessedAt: {
+        type: Date,
+        default: null,
+      },
+      assessedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      notes: {
+        type: String,
+        default: "",
+      },
+    },
+    policyOutcome: {
+      type: {
+        type: String,
+        enum: ["none", "no_show", "late_cancel"],
+        default: "none",
+      },
+      reason: {
+        type: String,
+        default: "",
+      },
+      note: {
+        type: String,
+        default: "",
+      },
+      decidedAt: {
+        type: Date,
+        default: null,
+      },
+      decidedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      waived: {
+        type: Boolean,
+        default: false,
+      },
+      waiverReason: {
+        type: String,
+        default: "",
+      },
+      feeApplied: {
+        type: Boolean,
+        default: false,
+      },
+      feeAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      blockApplied: {
+        type: Boolean,
+        default: false,
+      },
+      policySource: {
+        type: String,
+        default: "",
+      },
+      policyVersion: {
+        type: Number,
+        default: 0,
+      },
+      scheduledStartAt: {
+        type: Date,
+        default: null,
+      },
     },
     reminderSent: {
       type: Boolean,

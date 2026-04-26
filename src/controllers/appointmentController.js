@@ -28,9 +28,11 @@ const {
   getCanonicalRevenueProjection,
 } = require("../services/payment/revenueProjection");
 const {
-  getEffectivePolicySnapshot,
-  buildNoShowPenaltyFromPolicy,
-} = require("../services/appointment/policyService");
+  getExpectedPolicyFeeForAppointment,
+  resolveCancellationOutcome,
+  resolveNoShowOutcome,
+  toBoolean,
+} = require("../services/appointment/policyOutcomeService");
 const {
   findCapacityConflict,
   runWithCapacityGuard,
@@ -1232,7 +1234,7 @@ const updateAppointmentStatus = async (req, res) => {
   try {
     const { status } = req.body;
     const appointmentId = req.params.id;
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id;
 
     // Validate status
     const validStatuses = [
@@ -1256,7 +1258,17 @@ const updateAppointmentStatus = async (req, res) => {
     // Check authorization
     const { business, isBusinessOwner, isAssignedStaff } =
       await getOperationalAppointmentContext(appointment, req.user);
-    const isClient = appointment.client.toString() === userId;
+    const isClient = appointment.client.toString() === String(userId);
+    const requestedWaiver = toBoolean(req.body.waiveFee);
+
+    if (requestedWaiver && !isBusinessOwner) {
+      return ErrorHandler(
+        "Only the business owner can waive policy fees",
+        403,
+        req,
+        res
+      );
+    }
 
     if ((status === "No-Show" || status === "Missed") && !isBusinessOwner) {
       return ErrorHandler(
@@ -1304,37 +1316,38 @@ const updateAppointmentStatus = async (req, res) => {
       );
     }
 
-    // Use transaction for no-show/missed status changes to ensure blocking and audit trail are consistent
+    // Use transaction for policy-sensitive status changes to keep appointment,
+    // client incident notes and blocking consistent.
     let session = null;
-    if ((status === "No-Show" || status === "Missed") && isBusinessOwner) {
+    const policySensitiveStatus = ["No-Show", "Missed", "Canceled"].includes(
+      status
+    );
+    if (policySensitiveStatus) {
       session = await mongoose.startSession();
       session.startTransaction();
     }
 
     try {
       if ((status === "No-Show" || status === "Missed") && isBusinessOwner) {
-        const effectivePolicy = getEffectivePolicySnapshot(
+        const policyResult = resolveNoShowOutcome({
           appointment,
-          business
-        );
+          business,
+          actorId: userId,
+          payload: req.body,
+          isBusinessOwner,
+        });
 
-        // Apply frozen no-show rules first; fallback to current business config
-        // only for older appointments without a sufficient snapshot.
-        if (status === "No-Show") {
-          const noShowPenalty = buildNoShowPenaltyFromPolicy(effectivePolicy);
-          if (noShowPenalty) {
-            appointment.penalty = noShowPenalty;
-          }
-        }
+        appointment.policyOutcome = policyResult.outcome;
+        appointment.penalty = policyResult.penalty;
 
         // Handle client blocking and incident notes
-        const { incidentNote, blockClient } = req.body;
+        const { incidentNote } = req.body;
         const clientDoc = await Client.findById(appointment.client).session(session);
         
         if (clientDoc) {
           // If barber chose to block the client
           let blockActionTaken = false;
-          if (status === "No-Show" && (blockClient === true || blockClient === "true")) {
+          if (policyResult.blockApplied) {
             console.log(`[updateAppointmentStatus] Blocking client ${clientDoc._id} due to No-Show.`);
             clientDoc.appBookingBlocked = true;
             clientDoc.lastNoShowDate = appointment.date || new Date();
@@ -1394,13 +1407,60 @@ const updateAppointmentStatus = async (req, res) => {
                 actionType: 'block',
                 appointmentId: appointment._id,
                 noShowDate: appointment.date,
-                blockAppliedDate: clientDoc.blockAppliedDate
+                blockAppliedDate: clientDoc.blockAppliedDate,
+                policyVersion: policyResult.policy.version,
+                policySource: policyResult.policy.source,
               }
             }], { session });
           }
         }
 
         // Update appointment status within transaction
+        appointment.status = status;
+        Object.assign(appointment, buildAppointmentSemanticState(status));
+        appointment.updatedAt = new Date();
+        await appointment.save({ session });
+
+        await session.commitTransaction();
+      } else if (status === "Canceled") {
+        const policyResult = resolveCancellationOutcome({
+          appointment,
+          business,
+          actorId: userId,
+          payload: req.body,
+          isBusinessOwner,
+        });
+
+        if (policyResult.outcome) {
+          appointment.policyOutcome = policyResult.outcome;
+          appointment.penalty = policyResult.penalty;
+
+          const clientDoc = await Client.findById(appointment.client).session(
+            session
+          );
+          if (clientDoc) {
+            const serviceName =
+              appointment.service &&
+              typeof appointment.service === "object" &&
+              appointment.service.name
+                ? appointment.service.name
+                : "Appointment Service";
+
+            clientDoc.incidentNotes = clientDoc.incidentNotes || [];
+            clientDoc.incidentNotes.push({
+              date: new Date(),
+              type: "cancellation",
+              appointmentId: appointment._id,
+              serviceName,
+              note:
+                policyResult.outcome.note ||
+                `Late cancellation for ${serviceName} appointment`,
+              createdBy: userId,
+            });
+            await clientDoc.save({ session });
+          }
+        }
+
         appointment.status = status;
         Object.assign(appointment, buildAppointmentSemanticState(status));
         appointment.updatedAt = new Date();
@@ -1438,7 +1498,7 @@ const updateAppointmentStatus = async (req, res) => {
     //   }
     // }
 
-    if (status === "Completed" || status === "No-Show") {
+    if (status === "Completed" || status === "No-Show" || status === "Missed") {
       await recordDomainEvent({
         type: status === "Completed" ? "service_completed" : "no_show_marked",
         actorId: req.user._id || req.user.id,
@@ -1453,6 +1513,37 @@ const updateAppointmentStatus = async (req, res) => {
               : appointment.service,
           staffId: appointment.staff,
           status,
+          policyOutcome: appointment.policyOutcome,
+        },
+      });
+    }
+
+    if (status === "Canceled" && appointment.policyOutcome?.type === "late_cancel") {
+      await recordDomainEvent({
+        type: "late_cancel_marked",
+        actorId: req.user._id || req.user.id,
+        shopId: appointment.business,
+        correlationId: appointment._id,
+        payload: buildBookingEventPayload(appointment, {
+          policyOutcome: appointment.policyOutcome,
+        }),
+      });
+    }
+
+    if (
+      (status === "No-Show" || status === "Missed") &&
+      appointment.policyOutcome?.blockApplied
+    ) {
+      await recordDomainEvent({
+        type: "customer_blocked",
+        actorId: req.user._id || req.user.id,
+        shopId: appointment.business,
+        correlationId: appointment._id,
+        payload: {
+          appointmentId: appointment._id,
+          clientId: appointment.client,
+          reason: "no_show",
+          policyOutcome: appointment.policyOutcome,
         },
       });
     }
@@ -1745,7 +1836,7 @@ const updateAppointmentStatus = async (req, res) => {
     return SuccessHandler(appointment, 200, res);
   } catch (error) {
     console.error("Update appointment status error:", error.message);
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -4201,10 +4292,47 @@ const applyPenalty = async (req, res) => {
       return ErrorHandler("Not authorized to apply penalty", 403, req, res);
     }
 
-    // Check if appointment is eligible for penalty (must be marked as Missed or No-Show)
-    if (appointment.status !== "Missed" && appointment.status !== "No-Show") {
+    const expectedPolicyFee = getExpectedPolicyFeeForAppointment(
+      appointment,
+      business
+    );
+
+    const isPolicyPenaltyEligible =
+      appointment.status === "Missed" ||
+      appointment.status === "No-Show" ||
+      appointment.policyOutcome?.type === "late_cancel";
+
+    // Check if appointment is eligible for penalty.
+    if (!isPolicyPenaltyEligible) {
       return ErrorHandler(
-        "Penalty can only be applied to missed or no-show appointments",
+        "Penalty can only be applied to no-show or late-cancel appointments",
+        400,
+        req,
+        res
+      );
+    }
+
+    if (expectedPolicyFee.waived) {
+      return ErrorHandler(
+        "Policy fee was waived and cannot be applied manually",
+        409,
+        req,
+        res
+      );
+    }
+
+    if (expectedPolicyFee.amount <= 0) {
+      return ErrorHandler(
+        "No policy fee is available for this appointment",
+        400,
+        req,
+        res
+      );
+    }
+
+    if (parseFloat(amount) !== expectedPolicyFee.amount) {
+      return ErrorHandler(
+        "Penalty amount must match the frozen appointment policy",
         400,
         req,
         res
@@ -4223,15 +4351,20 @@ const applyPenalty = async (req, res) => {
 
     // Apply penalty to appointment
     // Use comment if provided, otherwise use default message
+    const policyReasonLabel =
+      expectedPolicyFee.type === "late_cancel" ? "late-cancel" : "no-show";
     const penaltyNotes = comment
-      ? `Applied from missed appointment penalty: ${comment}`
-      : "Applied from missed appointment penalty";
+      ? `Applied from ${policyReasonLabel} policy fee: ${comment}`
+      : `Applied from ${policyReasonLabel} policy fee`;
 
     appointment.penalty = {
       applied: true,
-      amount: parseFloat(amount),
-      paid: true,
-      paidDate: new Date(),
+      amount: expectedPolicyFee.amount,
+      paid: false,
+      type: expectedPolicyFee.type,
+      source: "policy_snapshot",
+      assessedAt: new Date(),
+      assessedBy: userId,
       notes: penaltyNotes,
     };
 
@@ -4254,8 +4387,11 @@ const applyPenalty = async (req, res) => {
 
         client.pendingPenalties.push({
           business: appointment.business,
-          amount: parseFloat(amount),
-          reason: "no-show",
+          amount: expectedPolicyFee.amount,
+          reason:
+            expectedPolicyFee.type === "late_cancel"
+              ? "late-cancel"
+              : "no-show",
           appointmentId: appointment._id,
           appliedDate: new Date(),
           applied: false,
@@ -4274,7 +4410,7 @@ const applyPenalty = async (req, res) => {
     await sendNotification(
       appointment.client,
       "Penalty Applied",
-      `A penalty of $${amount} has been applied for your missed appointment on ${moment(
+      `A penalty of $${expectedPolicyFee.amount} has been applied for your ${policyReasonLabel} appointment on ${moment(
         appointment.date
       ).format("MMM DD, YYYY")} at ${appointment.startTime
       }. This will be added to your next appointment.`,
@@ -4285,8 +4421,8 @@ const applyPenalty = async (req, res) => {
     // Send notification to admins
     await sendNotificationToAdmins(
       "Penalty Applied",
-      `Penalty of $${amount} has been applied to ${appointment.client.firstName
-      } ${appointment.client.lastName} for missed appointment on ${moment(
+      `Penalty of $${expectedPolicyFee.amount} has been applied to ${appointment.client.firstName
+      } ${appointment.client.lastName} for ${policyReasonLabel} appointment on ${moment(
         appointment.date
       ).format("MMM DD, YYYY")} at ${appointment.startTime}.`,
       "admin",
@@ -4294,7 +4430,7 @@ const applyPenalty = async (req, res) => {
         appointmentId: appointment._id,
         clientId: appointment.client._id,
         businessId: appointment.business,
-        penaltyAmount: amount,
+        penaltyAmount: expectedPolicyFee.amount,
       }
     );
 
@@ -4302,7 +4438,7 @@ const applyPenalty = async (req, res) => {
       {
         message: "Penalty applied successfully",
         appointment: appointment,
-        penaltyAmount: amount,
+        penaltyAmount: expectedPolicyFee.amount,
       },
       200,
       res

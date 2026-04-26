@@ -1,4 +1,5 @@
 const moment = require("moment");
+const Business = require("../../models/User/business");
 const Service = require("../../models/service");
 const Staff = require("../../models/staff");
 const WaitlistEntry = require("../../models/waitlistEntry");
@@ -14,6 +15,9 @@ const {
   getOrderedActiveWalkIns,
   normalizeQueueDate,
 } = require("./queueService");
+const {
+  getAvailabilityForBusiness,
+} = require("../appointment/availabilityService");
 
 const VALID_SOURCES = ["manual", "walk_in_overflow", "booking_overflow"];
 
@@ -124,48 +128,68 @@ const computeQueueWaitByStaff = (appointments) => {
   return waitByStaff;
 };
 
-const buildCandidateSlots = async (businessId, { serviceId, staffId, date, fromTime }) => {
+const buildCandidateSlots = async (
+  business,
+  { service, serviceId, staffId, date, fromTime, timezoneOffset }
+) => {
   const normalizedDate = normalizeWaitlistDate(date);
-  const activeWalkIns = await getOrderedActiveWalkIns(businessId, { date });
+  const activeWalkIns = await getOrderedActiveWalkIns(business._id, { date });
   const waitByStaff = computeQueueWaitByStaff(activeWalkIns);
-  const query = {
-    business: { $eq: businessId },
-    services: {
-      $elemMatch: {
-        service: {
-          $eq: ensureObjectIdString(serviceId, "Service ID is invalid"),
-        },
-      },
-    },
-  };
-
-  if (staffId) {
-    query._id = { $eq: ensureObjectIdString(staffId, "Staff ID is invalid") };
-  }
-
-  const staffs = await Staff.find(query);
+  const availability = await getAvailabilityForBusiness({
+    business,
+    service,
+    serviceId,
+    staffId,
+    date,
+    timezoneOffset,
+  });
   const baseMoment = moment(fromTime, "HH:mm");
+  const candidateSlots = [];
 
-  return staffs.map((staff) => {
-    const serviceConfig = staff.services.find(
-      (item) => item.service.toString() === serviceId.toString()
-    );
-    const duration = Math.max(
-      Number(serviceConfig?.timeInterval) || 0,
-      0
-    );
-    const estimatedWaitMinutes = waitByStaff.get(staff._id.toString()) || 0;
-    const slotStart = baseMoment.clone().add(estimatedWaitMinutes, "minutes");
-    const slotEnd = slotStart.clone().add(duration, "minutes");
+  availability.availabilityByStaff.forEach((staffAvailability) => {
+    const staff = staffAvailability.staff;
+    const staffIdString = staff?._id?.toString();
+    const duration = Math.max(Number(staffAvailability.duration) || 0, 0);
 
-    return {
-      staff,
-      date: normalizedDate,
-      estimatedWaitMinutes,
-      duration,
-      slotStart: slotStart.format("HH:mm"),
-      slotEnd: slotEnd.format("HH:mm"),
-    };
+    if (!staffIdString || duration <= 0) {
+      return;
+    }
+
+    const estimatedWaitMinutes = waitByStaff.get(staffIdString) || 0;
+    const earliestStart = baseMoment
+      .clone()
+      .add(estimatedWaitMinutes, "minutes");
+
+    staffAvailability.availableSlots.forEach((availableSlot) => {
+      const slotStart = moment(availableSlot, "HH:mm");
+
+      if (slotStart.isBefore(earliestStart)) {
+        return;
+      }
+
+      const slotEnd = slotStart.clone().add(duration, "minutes");
+      candidateSlots.push({
+        staff,
+        date: normalizedDate,
+        estimatedWaitMinutes,
+        duration,
+        slotStart: slotStart.format("HH:mm"),
+        slotEnd: slotEnd.format("HH:mm"),
+      });
+    });
+  });
+
+  return candidateSlots.sort((left, right) => {
+    const leftStaff = left.staff._id.toString();
+    const rightStaff = right.staff._id.toString();
+
+    if (left.slotStart !== right.slotStart) {
+      return moment(left.slotStart, "HH:mm").diff(
+        moment(right.slotStart, "HH:mm")
+      );
+    }
+
+    return leftStaff.localeCompare(rightStaff);
   });
 };
 
@@ -325,17 +349,25 @@ const findWaitlistMatchesForOwner = async (ownerId, payload) => {
 const getFillGapCandidatesForBusiness = async (businessId, query = {}) => {
   const { serviceId, date, staffId } = query;
   const fromTime = ensureFromTime(query.fromTime);
-  const { validServiceId, validStaffId } = await resolveWaitlistScope(
+  const business = await Business.findById(businessId);
+
+  if (!business) {
+    throw buildServiceError("Business not found", 404);
+  }
+
+  const { service, validServiceId, validStaffId } = await resolveWaitlistScope(
     businessId,
     { serviceId, staffId }
   );
   const normalizedDate = normalizeWaitlistDate(date);
 
-  const candidateSlots = await buildCandidateSlots(businessId, {
+  const candidateSlots = await buildCandidateSlots(business, {
+    service,
     serviceId: validServiceId,
     staffId: validStaffId,
     date,
     fromTime,
+    timezoneOffset: query.timezoneOffset,
   });
 
   const entries = await getActiveWaitlistEntries({
@@ -346,12 +378,24 @@ const getFillGapCandidatesForBusiness = async (businessId, query = {}) => {
     includeAnyStaff: !validStaffId,
   });
 
-  return candidateSlots.map((slot) => {
-    const compatibleEntries = entries.filter((entry) =>
-      isEntryCompatibleWithSlot(entry, slot)
+  const matchedEntryIds = new Set();
+
+  return candidateSlots.reduce((candidates, slot) => {
+    const compatibleEntries = entries.filter(
+      (entry) =>
+        !matchedEntryIds.has(entry._id.toString()) &&
+        isEntryCompatibleWithSlot(entry, slot)
     );
 
-    return {
+    if (compatibleEntries.length === 0) {
+      return candidates;
+    }
+
+    compatibleEntries.forEach((entry) => {
+      matchedEntryIds.add(entry._id.toString());
+    });
+
+    candidates.push({
       staff: {
         _id: slot.staff._id,
         firstName: slot.staff.firstName,
@@ -363,8 +407,10 @@ const getFillGapCandidatesForBusiness = async (businessId, query = {}) => {
       estimatedWaitMinutes: slot.estimatedWaitMinutes,
       duration: slot.duration,
       compatibleEntries,
-    };
-  });
+    });
+
+    return candidates;
+  }, []);
 };
 
 const getFillGapCandidatesForOwner = async (ownerId, query = {}) => {

@@ -108,6 +108,66 @@ const getBusinessAndOwnedPayment = async (
 const getRefundStatus = (paymentAmount, refundedTotal) =>
   refundedTotal === paymentAmount ? "full" : "partial";
 
+const hasTerminalCheckoutRefund = (checkout) =>
+  Boolean(checkout?.refundSummary?.status) &&
+  checkout.refundSummary.status !== "none";
+
+const buildRebookingSummary = (checkouts, capturedPayments) => {
+  const capturedCheckoutIds = new Set(
+    capturedPayments
+      .filter((payment) => payment.status === "captured")
+      .map((payment) => String(payment.checkout))
+  );
+  const refundedCheckoutIds = new Set(
+    capturedPayments
+      .filter((payment) =>
+        ["refunded_partial", "refunded_full"].includes(payment.status)
+      )
+      .map((payment) => String(payment.checkout))
+  );
+
+  const eligibleCheckouts = checkouts.filter(
+    (checkout) =>
+      checkout.status === "paid" &&
+      capturedCheckoutIds.has(String(checkout._id)) &&
+      !refundedCheckoutIds.has(String(checkout._id)) &&
+      !hasTerminalCheckoutRefund(checkout)
+  );
+
+  const counts = eligibleCheckouts.reduce(
+    (acc, checkout) => {
+      const status = checkout.rebooking?.status || "none";
+      if (status === "booked") acc.bookedCount += 1;
+      if (status === "follow_up_needed") acc.followUpNeededCount += 1;
+      if (status === "declined") acc.declinedCount += 1;
+      if (!status || status === "none") acc.pendingCount += 1;
+      return acc;
+    },
+    {
+      bookedCount: 0,
+      followUpNeededCount: 0,
+      declinedCount: 0,
+      pendingCount: 0,
+    }
+  );
+
+  const eligibleCount = eligibleCheckouts.length;
+  const rate =
+    eligibleCount > 0
+      ? Number((counts.bookedCount / eligibleCount).toFixed(4))
+      : 0;
+
+  return {
+    count: counts.bookedCount,
+    eligibleCount,
+    bookedCount: counts.bookedCount,
+    pendingCount: counts.pendingCount,
+    followUpNeededCount: counts.followUpNeededCount,
+    declinedCount: counts.declinedCount,
+    rate,
+  };
+};
+
 const REFUNDABLE_PAYMENT_STATUSES = ["captured", "refunded_partial"];
 
 const createControllerError = (message, statusCode) => {
@@ -679,7 +739,7 @@ const getPaymentSummary = async (req, res) => {
 
     const capturedStatuses = ["captured", "refunded_partial", "refunded_full"];
 
-    const [payments, refunds, rebookingCount] = await Promise.all([
+    const [payments, refunds, checkouts] = await Promise.all([
       Payment.find({
         business: business._id,
         ...paymentDateFilter,
@@ -689,12 +749,28 @@ const getPaymentSummary = async (req, res) => {
         business: business._id,
         ...refundDateFilter,
       }).lean(),
-      Checkout.countDocuments({
+      Checkout.find({
         business: business._id,
-        "rebooking.status": "booked",
         ...checkoutDateFilter,
-      }),
+      }).lean(),
     ]);
+
+    const checkoutIds = checkouts.map((checkout) => checkout._id);
+    const capturedPaymentsForCheckouts = checkoutIds.length > 0
+      ? await Payment.find({
+          business: business._id,
+          checkout: { $in: checkoutIds },
+          status: { $in: capturedStatuses },
+          ...buildCommercePaymentFilter(),
+        })
+          .select("checkout status")
+          .lean()
+      : [];
+
+    const rebookingSummary = buildRebookingSummary(
+      checkouts,
+      capturedPaymentsForCheckouts
+    );
 
     const grossCaptured = payments
       .filter((payment) => capturedStatuses.includes(payment.status))
@@ -740,9 +816,7 @@ const getPaymentSummary = async (req, res) => {
       ).length,
       voidedCount: payments.filter((payment) => payment.status === "voided").length,
       methodBreakdown,
-      rebooking: {
-        count: rebookingCount,
-      },
+      rebooking: rebookingSummary,
     };
 
     return SuccessHandler(summary, 200, res);

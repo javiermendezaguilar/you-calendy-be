@@ -6,6 +6,7 @@ const Checkout = require("../models/checkout");
 const Payment = require("../models/payment");
 const Service = require("../models/service");
 const Staff = require("../models/staff");
+const DomainEvent = require("../models/domainEvent");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
@@ -40,6 +41,12 @@ describe("Rebooking v1", () => {
   const sendRebookingRequest = (payload = defaultRebookingPayload) =>
     request(app)
       .post(`/checkout/${paidCheckout._id}/rebook`)
+      .set("Authorization", `Bearer ${token}`)
+      .send(payload);
+
+  const sendRebookingOutcomeRequest = (payload) =>
+    request(app)
+      .post(`/checkout/${paidCheckout._id}/rebooking-outcome`)
       .set("Authorization", `Bearer ${token}`)
       .send(payload);
 
@@ -180,6 +187,7 @@ describe("Rebooking v1", () => {
     const storedCheckout = await Checkout.findById(paidCheckout._id).lean();
     expect(storedCheckout.rebooking.status).toBe("booked");
     expect(storedCheckout.rebooking.appointment).not.toBeNull();
+    expect(storedCheckout.rebooking.source).toBe("checkout");
 
     const rebookedAppointment = await Appointment.findById(
       storedCheckout.rebooking.appointment
@@ -191,6 +199,7 @@ describe("Rebooking v1", () => {
     expect(rebookedAppointment.rebookingOrigin.appointment.toString()).toBe(
       appointment._id.toString()
     );
+    expect(rebookedAppointment.rebookingOrigin.source).toBe("checkout");
   });
 
   test("captures current business policy snapshot on rebooking", async () => {
@@ -241,6 +250,7 @@ describe("Rebooking v1", () => {
         startTime: "12:30",
         serviceId: altService._id,
         staffId: altStaff._id,
+        source: "post_checkout",
       });
 
     expect(rebookRes.status).toBe(201);
@@ -252,12 +262,87 @@ describe("Rebooking v1", () => {
     const storedCheckout = await Checkout.findById(paidCheckout._id).lean();
     expect(storedCheckout.rebooking.service.toString()).toBe(altService._id.toString());
     expect(storedCheckout.rebooking.staff.toString()).toBe(altStaff._id.toString());
+    expect(storedCheckout.rebooking.source).toBe("post_checkout");
 
     const rebookedAppointment = await Appointment.findById(
       storedCheckout.rebooking.appointment
     ).lean();
     expect(rebookedAppointment.service.toString()).toBe(altService._id.toString());
     expect(rebookedAppointment.staff.toString()).toBe(altStaff._id.toString());
+    expect(rebookedAppointment.rebookingOrigin.source).toBe("post_checkout");
+  });
+
+  test("tracks follow-up outcome and later converts it into booked rebooking", async () => {
+    const outcomeRes = await sendRebookingOutcomeRequest({
+      status: "follow_up_needed",
+      source: "checkout",
+      note: "Client asked to decide tomorrow",
+    });
+
+    expect(outcomeRes.status).toBe(200);
+    expect(outcomeRes.body.data.rebooking.status).toBe("follow_up_needed");
+    expect(outcomeRes.body.data.rebooking.source).toBe("checkout");
+    expect(outcomeRes.body.data.rebooking.note).toBe(
+      "Client asked to decide tomorrow"
+    );
+
+    const event = await DomainEvent.findOne({
+      shopId: business._id,
+      type: "rebooking_follow_up_needed",
+    }).lean();
+    expect(event).not.toBeNull();
+    expect(event.payload.status).toBe("follow_up_needed");
+
+    const rebookRes = await request(app)
+      .post(`/checkout/${paidCheckout._id}/rebook`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        date: "2026-05-07",
+        startTime: "12:30",
+        source: "manual_follow_up",
+      });
+
+    expect(rebookRes.status).toBe(201);
+
+    const storedCheckout = await Checkout.findById(paidCheckout._id).lean();
+    expect(storedCheckout.rebooking.status).toBe("booked");
+    expect(storedCheckout.rebooking.source).toBe("manual_follow_up");
+    expect(storedCheckout.rebooking.appointment).not.toBeNull();
+
+    const rebookedAppointment = await Appointment.findById(
+      storedCheckout.rebooking.appointment
+    ).lean();
+    expect(rebookedAppointment.rebookingOrigin.source).toBe("manual_follow_up");
+  });
+
+  test("rejects marking rebooking outcome after booked rebooking exists", async () => {
+    const firstRebook = await sendRebookingRequest();
+
+    expect(firstRebook.status).toBe(201);
+
+    const outcomeRes = await sendRebookingOutcomeRequest({
+      status: "declined",
+      source: "checkout",
+    });
+
+    expect(outcomeRes.status).toBe(409);
+    expect(outcomeRes.body.message).toMatch(/booked rebooking/i);
+  });
+
+  test("rejects rebooking outcome when the checkout has any refund applied", async () => {
+    paidCheckout.refundSummary = {
+      refundedTotal: 10,
+      status: "partial",
+    };
+    await paidCheckout.save();
+
+    const outcomeRes = await sendRebookingOutcomeRequest({
+      status: "declined",
+      source: "checkout",
+    });
+
+    expect(outcomeRes.status).toBe(409);
+    expect(outcomeRes.body.message).toMatch(/refunded checkout/i);
   });
 
   test("rejects a duplicate rebooking for the same checkout", async () => {

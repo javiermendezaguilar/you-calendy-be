@@ -14,6 +14,13 @@ const {
 const moment = require("moment");
 const mongoose = require("mongoose");
 
+const REBOOKING_SOURCES = new Set([
+  "checkout",
+  "post_checkout",
+  "manual_follow_up",
+]);
+const REBOOKING_OUTCOMES = new Set(["follow_up_needed", "declined"]);
+
 const getBusinessForOwner = async (ownerId) => {
   return Business.findOne({ owner: ownerId });
 };
@@ -124,6 +131,114 @@ const hasTerminalRefund = (checkout) =>
   Boolean(checkout?.refundSummary?.status) &&
   checkout.refundSummary.status !== "none";
 
+const applyCheckoutReadPopulate = (query) =>
+  query
+    .populate("appointment")
+    .populate("rebooking.appointment")
+    .populate("client", "firstName lastName phone")
+    .populate("staff", "firstName lastName")
+    .populate("closedBy", "name email");
+
+const findOwnedCheckoutWithAppointment = (checkoutId, businessId) =>
+  Checkout.findOne({
+    _id: checkoutId,
+    business: businessId,
+  }).populate("appointment");
+
+const hasBookedRebooking = (checkout) =>
+  checkout?.rebooking?.status === "booked" && checkout?.rebooking?.appointment;
+
+const createControllerError = (message, statusCode) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const withOptionalSession = (query, mongoSession) =>
+  mongoSession ? query.session(mongoSession) : query;
+
+const normalizeRebookingSource = (source) => {
+  const normalized = String(source || "checkout").trim();
+  if (!REBOOKING_SOURCES.has(normalized)) {
+    throw createControllerError("Invalid rebooking source", 400);
+  }
+
+  return normalized;
+};
+
+const normalizeRebookingOutcome = (status) => {
+  const normalized = String(status || "").trim();
+  if (!REBOOKING_OUTCOMES.has(normalized)) {
+    throw createControllerError("Invalid rebooking outcome", 400);
+  }
+
+  return normalized;
+};
+
+const normalizeOutcomeNote = (note) => {
+  const normalized = String(note || "").trim();
+  if (normalized.length > 500) {
+    throw createControllerError("Rebooking note must be 500 characters or fewer", 400);
+  }
+
+  return normalized;
+};
+
+const getCapturedCommercePayment = (checkoutId, mongoSession = null) =>
+  withOptionalSession(
+    Payment.findOne({
+      checkout: checkoutId,
+      status: "captured",
+      paymentScope: "commerce_checkout",
+    }).select("_id"),
+    mongoSession
+  );
+
+const assertRebookingPrerequisites = async ({
+  checkout,
+  sourceAppointment,
+  mongoSession = null,
+}) => {
+  if (hasTerminalRefund(checkout)) {
+    throw createControllerError(
+      "Rebooking is not allowed after a refunded checkout",
+      409
+    );
+  }
+
+  if (checkout.status !== "paid") {
+    throw createControllerError(
+      "Checkout must be paid before creating a rebooking",
+      409
+    );
+  }
+
+  if (!sourceAppointment) {
+    throw createControllerError("Source appointment not found", 404);
+  }
+
+  const sourceVisitCompleted =
+    sourceAppointment.status === "Completed" &&
+    sourceAppointment.visitStatus === "completed";
+  if (!sourceVisitCompleted) {
+    throw createControllerError(
+      "Source appointment must be completed before creating a rebooking",
+      409
+    );
+  }
+
+  const capturedPayment = await getCapturedCommercePayment(
+    checkout._id,
+    mongoSession
+  );
+  if (!capturedPayment) {
+    throw createControllerError(
+      "Checkout requires a captured payment before creating a rebooking",
+      409
+    );
+  }
+};
+
 const openCheckout = async (req, res) => {
   try {
     const business = await getBusinessForOwner(req.user.id);
@@ -214,15 +329,10 @@ const getCheckoutById = async (req, res) => {
       return ErrorHandler("Business not found", 404, req, res);
     }
 
-    const checkout = await Checkout.findOne({
+    const checkout = await applyCheckoutReadPopulate(Checkout.findOne({
       _id: req.params.id,
       business: business._id,
-    })
-      .populate("appointment")
-      .populate("rebooking.appointment")
-      .populate("client", "firstName lastName phone")
-      .populate("staff", "firstName lastName")
-      .populate("closedBy", "name email");
+    }));
 
     if (!checkout) {
       return ErrorHandler("Checkout not found", 404, req, res);
@@ -241,16 +351,10 @@ const getCheckoutByAppointment = async (req, res) => {
       return ErrorHandler("Business not found", 404, req, res);
     }
 
-    const checkout = await Checkout.findOne({
+    const checkout = await applyCheckoutReadPopulate(Checkout.findOne({
       appointment: req.params.appointmentId,
       business: business._id,
-    })
-      .sort({ createdAt: -1 })
-      .populate("appointment")
-      .populate("rebooking.appointment")
-      .populate("client", "firstName lastName phone")
-      .populate("staff", "firstName lastName")
-      .populate("closedBy", "name email");
+    }).sort({ createdAt: -1 }));
 
     if (!checkout) {
       return ErrorHandler("Checkout not found", 404, req, res);
@@ -329,6 +433,7 @@ const createRebooking = async (req, res) => {
     }
 
     const { date, startTime, serviceId, staffId } = req.body;
+    const rebookingSource = normalizeRebookingSource(req.body.source);
     if (!date || !startTime) {
       return ErrorHandler("Date and startTime are required", 400, req, res);
     }
@@ -343,34 +448,16 @@ const createRebooking = async (req, res) => {
       );
     }
 
-    const checkout = await Checkout.findOne({
-      _id: req.params.id,
-      business: business._id,
-    }).populate("appointment");
+    const checkout = await findOwnedCheckoutWithAppointment(
+      req.params.id,
+      business._id
+    );
 
     if (!checkout) {
       return ErrorHandler("Checkout not found", 404, req, res);
     }
 
-    if (hasTerminalRefund(checkout)) {
-      return ErrorHandler(
-        "Rebooking is not allowed after a refunded checkout",
-        409,
-        req,
-        res
-      );
-    }
-
-    if (checkout.status !== "paid") {
-      return ErrorHandler(
-        "Checkout must be paid before creating a rebooking",
-        409,
-        req,
-        res
-      );
-    }
-
-    if (checkout.rebooking?.status === "booked" && checkout.rebooking?.appointment) {
+    if (hasBookedRebooking(checkout)) {
       return ErrorHandler(
         "A rebooking already exists for this checkout",
         409,
@@ -380,35 +467,7 @@ const createRebooking = async (req, res) => {
     }
 
     const sourceAppointment = checkout.appointment;
-    if (!sourceAppointment) {
-      return ErrorHandler("Source appointment not found", 404, req, res);
-    }
-
-    const sourceVisitCompleted =
-      sourceAppointment.status === "Completed" &&
-      sourceAppointment.visitStatus === "completed";
-    if (!sourceVisitCompleted) {
-      return ErrorHandler(
-        "Source appointment must be completed before creating a rebooking",
-        409,
-        req,
-        res
-      );
-    }
-
-    const capturedPayment = await Payment.findOne({
-      checkout: checkout._id,
-      status: "captured",
-      paymentScope: "commerce_checkout",
-    }).select("_id");
-    if (!capturedPayment) {
-      return ErrorHandler(
-        "Checkout requires a captured payment before creating a rebooking",
-        409,
-        req,
-        res
-      );
-    }
+    await assertRebookingPrerequisites({ checkout, sourceAppointment });
 
     const targetServiceId = serviceId
       ? toValidatedObjectId(serviceId)
@@ -515,45 +574,18 @@ const createRebooking = async (req, res) => {
           throw error;
         }
 
-        if (hasTerminalRefund(checkoutForUpdate)) {
-          const error = new Error(
-            "Rebooking is not allowed after a refunded checkout"
+        if (hasBookedRebooking(checkoutForUpdate)) {
+          throw createControllerError(
+            "A rebooking already exists for this checkout",
+            409
           );
-          error.statusCode = 409;
-          throw error;
         }
 
-        if (checkoutForUpdate.status !== "paid") {
-          const error = new Error(
-            "Checkout must be paid before creating a rebooking"
-          );
-          error.statusCode = 409;
-          throw error;
-        }
-
-        if (
-          checkoutForUpdate?.rebooking?.status === "booked" &&
-          checkoutForUpdate?.rebooking?.appointment
-        ) {
-          const error = new Error("A rebooking already exists for this checkout");
-          error.statusCode = 409;
-          throw error;
-        }
-
-        const capturedPaymentForUpdate = await Payment.findOne({
-          checkout: checkoutForUpdate._id,
-          status: "captured",
-          paymentScope: "commerce_checkout",
-        })
-          .select("_id")
-          .session(session);
-        if (!capturedPaymentForUpdate) {
-          const error = new Error(
-            "Checkout requires a captured payment before creating a rebooking"
-          );
-          error.statusCode = 409;
-          throw error;
-        }
+        await assertRebookingPrerequisites({
+          checkout: checkoutForUpdate,
+          sourceAppointment,
+          mongoSession: session,
+        });
 
         const [createdAppointment] = await Appointment.create(
           [
@@ -593,6 +625,7 @@ const createRebooking = async (req, res) => {
                 appointment: sourceAppointment._id,
                 createdAt: new Date(),
                 createdBy: req.user._id || req.user.id,
+                source: rebookingSource,
               },
               policySnapshot: Appointment.buildPolicySnapshot(business),
             },
@@ -607,6 +640,11 @@ const createRebooking = async (req, res) => {
           staff: staff._id,
           createdAt: new Date(),
           createdBy: req.user._id || req.user.id,
+          source: rebookingSource,
+          note: checkoutForUpdate.rebooking?.note || "",
+          offeredAt: checkoutForUpdate.rebooking?.offeredAt || new Date(),
+          outcomeAt: new Date(),
+          outcomeBy: req.user._id || req.user.id,
         };
         await checkoutForUpdate.save({ session });
 
@@ -627,6 +665,7 @@ const createRebooking = async (req, res) => {
         staffId: rebookedAppointment.staff,
         date,
         startTime,
+        source: rebookingSource,
       },
     });
 
@@ -641,10 +680,90 @@ const createRebooking = async (req, res) => {
   }
 };
 
+const markRebookingOutcome = async (req, res) => {
+  try {
+    const business = await getBusinessForOwner(req.user.id);
+    if (!business) {
+      return ErrorHandler("Business not found", 404, req, res);
+    }
+
+    const outcomeStatus = normalizeRebookingOutcome(req.body.status);
+    const rebookingSource = normalizeRebookingSource(req.body.source);
+    const note = normalizeOutcomeNote(req.body.note);
+
+    const checkout = await findOwnedCheckoutWithAppointment(
+      req.params.id,
+      business._id
+    );
+
+    if (!checkout) {
+      return ErrorHandler("Checkout not found", 404, req, res);
+    }
+
+    if (hasBookedRebooking(checkout)) {
+      return ErrorHandler(
+        "A booked rebooking cannot be marked as follow-up or declined",
+        409,
+        req,
+        res
+      );
+    }
+
+    await assertRebookingPrerequisites({
+      checkout,
+      sourceAppointment: checkout.appointment,
+    });
+
+    checkout.rebooking = {
+      ...(checkout.rebooking?.toObject?.() || checkout.rebooking || {}),
+      status: outcomeStatus,
+      appointment: null,
+      service: null,
+      staff: null,
+      source: rebookingSource,
+      note,
+      offeredAt: checkout.rebooking?.offeredAt || new Date(),
+      outcomeAt: new Date(),
+      outcomeBy: req.user._id || req.user.id,
+      createdAt: null,
+      createdBy: null,
+    };
+
+    await checkout.save();
+    await recordDomainEvent({
+      type:
+        outcomeStatus === "follow_up_needed"
+          ? "rebooking_follow_up_needed"
+          : "rebooking_declined",
+      actorId: req.user._id || req.user.id,
+      shopId: business._id,
+      correlationId: checkout._id,
+      payload: {
+        checkoutId: checkout._id,
+        sourceAppointmentId: checkout.appointment?._id || checkout.appointment,
+        clientId: checkout.client,
+        staffId: checkout.staff,
+        status: outcomeStatus,
+        source: rebookingSource,
+        note,
+      },
+    });
+
+    const hydratedCheckout = await applyCheckoutReadPopulate(
+      Checkout.findById(checkout._id)
+    );
+
+    return SuccessHandler(hydratedCheckout, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 module.exports = {
   openCheckout,
   getCheckoutById,
   getCheckoutByAppointment,
   closeCheckout,
   createRebooking,
+  markRebookingOutcome,
 };

@@ -14,12 +14,44 @@ const {
 
 setupCommerceTestSuite();
 
+const createSummaryCheckout = (fixture, overrides = {}) => {
+  const subtotal = overrides.subtotal ?? overrides.total ?? 0;
+  const total = overrides.total ?? subtotal;
+
+  return Checkout.create({
+    appointment: fixture.appointment._id,
+    business: fixture.business._id,
+    client: fixture.client._id,
+    staff: fixture.staff._id,
+    status: overrides.status || "paid",
+    currency: "EUR",
+    subtotal,
+    discountTotal: overrides.discountTotal ?? 0,
+    tip: overrides.tip ?? 0,
+    total,
+    sourcePrice: overrides.sourcePrice ?? subtotal,
+    snapshot: {
+      service: { id: fixture.service._id, name: fixture.service.name },
+      client: {
+        id: fixture.client._id,
+        firstName: fixture.client.firstName,
+        lastName: fixture.client.lastName,
+      },
+    },
+    openedAt: overrides.openedAt,
+    rebooking: overrides.rebooking,
+  });
+};
+
 describe("Payment summary v1", () => {
   let fixture;
   let token;
   let paidCheckout;
   let refundCheckout;
   let voidCheckout;
+  let followUpCheckout;
+  let declinedCheckout;
+  let pendingRebookingCheckout;
 
   beforeEach(async () => {
     ({ fixture, token } = await createPaymentCommerceFixture({
@@ -28,26 +60,10 @@ describe("Payment summary v1", () => {
       businessName: "Summary Shop",
     }));
 
-    paidCheckout = await Checkout.create({
-      appointment: fixture.appointment._id,
-      business: fixture.business._id,
-      client: fixture.client._id,
-      staff: fixture.staff._id,
-      status: "paid",
-      currency: "EUR",
+    paidCheckout = await createSummaryCheckout(fixture, {
       subtotal: 35,
-      discountTotal: 0,
       tip: 5,
       total: 40,
-      sourcePrice: 35,
-      snapshot: {
-        service: { id: fixture.service._id, name: fixture.service.name },
-        client: {
-          id: fixture.client._id,
-          firstName: fixture.client.firstName,
-          lastName: fixture.client.lastName,
-        },
-      },
       openedAt: new Date("2026-04-19T09:00:00.000Z"),
       rebooking: {
         status: "booked",
@@ -59,50 +75,45 @@ describe("Payment summary v1", () => {
       },
     });
 
-    refundCheckout = await Checkout.create({
-      appointment: fixture.appointment._id,
-      business: fixture.business._id,
-      client: fixture.client._id,
-      staff: fixture.staff._id,
-      status: "paid",
-      currency: "EUR",
-      subtotal: 50,
-      discountTotal: 0,
-      tip: 0,
+    refundCheckout = await createSummaryCheckout(fixture, {
       total: 50,
-      sourcePrice: 50,
-      snapshot: {
-        service: { id: fixture.service._id, name: fixture.service.name },
-        client: {
-          id: fixture.client._id,
-          firstName: fixture.client.firstName,
-          lastName: fixture.client.lastName,
-        },
-      },
       openedAt: new Date("2026-04-19T10:00:00.000Z"),
     });
 
-    voidCheckout = await Checkout.create({
-      appointment: fixture.appointment._id,
-      business: fixture.business._id,
-      client: fixture.client._id,
-      staff: fixture.staff._id,
+    voidCheckout = await createSummaryCheckout(fixture, {
       status: "closed",
-      currency: "EUR",
-      subtotal: 25,
-      discountTotal: 0,
-      tip: 0,
       total: 25,
-      sourcePrice: 25,
-      snapshot: {
-        service: { id: fixture.service._id, name: fixture.service.name },
-        client: {
-          id: fixture.client._id,
-          firstName: fixture.client.firstName,
-          lastName: fixture.client.lastName,
-        },
-      },
       openedAt: new Date("2026-04-19T11:00:00.000Z"),
+    });
+
+    followUpCheckout = await createSummaryCheckout(fixture, {
+      total: 30,
+      openedAt: new Date("2026-04-19T12:00:00.000Z"),
+      rebooking: {
+        status: "follow_up_needed",
+        source: "checkout",
+        note: "Call tomorrow",
+        offeredAt: new Date("2026-04-19T12:10:00.000Z"),
+        outcomeAt: new Date("2026-04-19T12:15:00.000Z"),
+        outcomeBy: fixture.owner._id,
+      },
+    });
+
+    declinedCheckout = await createSummaryCheckout(fixture, {
+      total: 20,
+      openedAt: new Date("2026-04-19T13:00:00.000Z"),
+      rebooking: {
+        status: "declined",
+        source: "checkout",
+        offeredAt: new Date("2026-04-19T13:10:00.000Z"),
+        outcomeAt: new Date("2026-04-19T13:15:00.000Z"),
+        outcomeBy: fixture.owner._id,
+      },
+    });
+
+    pendingRebookingCheckout = await createSummaryCheckout(fixture, {
+      total: 15,
+      openedAt: new Date("2026-04-19T14:00:00.000Z"),
     });
 
     await createCapturedPaymentForFixture(fixture, paidCheckout, {
@@ -145,6 +156,27 @@ describe("Payment summary v1", () => {
       status: "voided",
       capturedAt: new Date("2026-04-19T11:10:00.000Z"),
       reference: "summary-voided",
+    });
+
+    await createCapturedPaymentForFixture(fixture, followUpCheckout, {
+      amount: 30,
+      method: "card_manual",
+      capturedAt: new Date("2026-04-20T12:10:00.000Z"),
+      reference: "summary-follow-up",
+    });
+
+    await createCapturedPaymentForFixture(fixture, declinedCheckout, {
+      amount: 20,
+      method: "card_manual",
+      capturedAt: new Date("2026-04-20T13:10:00.000Z"),
+      reference: "summary-declined",
+    });
+
+    await createCapturedPaymentForFixture(fixture, pendingRebookingCheckout, {
+      amount: 15,
+      method: "card_manual",
+      capturedAt: new Date("2026-04-20T14:10:00.000Z"),
+      reference: "summary-pending-rebooking",
     });
 
     await Payment.create({
@@ -195,5 +227,11 @@ describe("Payment summary v1", () => {
     expect(res.body.data.methodBreakdown.card_manual).toBe(50);
     expect(res.body.data.methodBreakdown.other).toBe(0);
     expect(res.body.data.rebooking.count).toBe(1);
+    expect(res.body.data.rebooking.eligibleCount).toBe(4);
+    expect(res.body.data.rebooking.bookedCount).toBe(1);
+    expect(res.body.data.rebooking.pendingCount).toBe(1);
+    expect(res.body.data.rebooking.followUpNeededCount).toBe(1);
+    expect(res.body.data.rebooking.declinedCount).toBe(1);
+    expect(res.body.data.rebooking.rate).toBe(0.25);
   });
 });

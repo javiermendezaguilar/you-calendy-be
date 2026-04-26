@@ -20,6 +20,8 @@ const ALLOWED_EVENT_TYPES = new Set([
   "payment_refunded",
   "payment_voided",
   "rebook_created",
+  "rebooking_follow_up_needed",
+  "rebooking_declined",
 ]);
 
 const normalizeLimit = (value) => {

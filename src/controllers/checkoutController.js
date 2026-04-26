@@ -594,7 +594,7 @@ const createRebooking = async (req, res) => {
                 createdAt: new Date(),
                 createdBy: req.user._id || req.user.id,
               },
-              policySnapshot: sourceAppointment.policySnapshot || undefined,
+              policySnapshot: Appointment.buildPolicySnapshot(business),
             },
           ],
           { session }

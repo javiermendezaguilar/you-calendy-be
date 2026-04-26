@@ -50,10 +50,18 @@ describe("Appointment semantic status helpers", () => {
 
     expect(withPenalty).toEqual(
       expect.objectContaining({
-        version: 2,
+        version: 3,
         bookingBufferMinutes: 20,
+        cancellationWindowMinutes: 0,
+        noShowGracePeriodMinutes: 0,
         noShowPenaltyEnabled: true,
         noShowPenaltyAmount: 15,
+        lateCancelFeeEnabled: false,
+        lateCancelFeeAmount: 0,
+        depositRequired: false,
+        depositAmount: 0,
+        blockOnNoShow: false,
+        blockScope: "none",
       })
     );
     expect(withPenalty.capturedAt).toBeInstanceOf(Date);
@@ -61,10 +69,18 @@ describe("Appointment semantic status helpers", () => {
     const withoutPenalty = Appointment.buildPolicySnapshot({});
     expect(withoutPenalty).toEqual(
       expect.objectContaining({
-        version: 2,
+        version: 3,
         bookingBufferMinutes: 0,
+        cancellationWindowMinutes: 0,
+        noShowGracePeriodMinutes: 0,
         noShowPenaltyEnabled: false,
         noShowPenaltyAmount: 0,
+        lateCancelFeeEnabled: false,
+        lateCancelFeeAmount: 0,
+        depositRequired: false,
+        depositAmount: 0,
+        blockOnNoShow: false,
+        blockScope: "none",
       })
     );
     expect(withoutPenalty.capturedAt).toBeInstanceOf(Date);

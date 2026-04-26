@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { buildPolicyRuleFields } = require("../policySchemaFields");
 
 const businessSchema = new mongoose.Schema({
   owner: {
@@ -219,6 +220,7 @@ const businessSchema = new mongoose.Schema({
       min: 0,
     },
   },
+  policySettings: buildPolicyRuleFields(),
   // Booking buffer settings
   bookingBuffer: {
     type: Number,

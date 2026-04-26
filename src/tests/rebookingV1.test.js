@@ -193,6 +193,45 @@ describe("Rebooking v1", () => {
     );
   });
 
+  test("captures current business policy snapshot on rebooking", async () => {
+    const sourceSnapshot = appointment.policySnapshot;
+
+    await business.updateOne({
+      $set: {
+        bookingBuffer: 90,
+        "penaltySettings.noShowPenalty": true,
+        "penaltySettings.noShowPenaltyAmount": 70,
+        "policySettings.cancellationWindowMinutes": 240,
+        "policySettings.noShowGracePeriodMinutes": 15,
+        "policySettings.depositRequired": true,
+        "policySettings.depositAmount": 30,
+      },
+    });
+
+    const rebookRes = await sendRebookingRequest({
+      date: "2026-05-03",
+      startTime: "11:30",
+    });
+
+    expect(rebookRes.status).toBe(201);
+
+    const rebookedAppointment = await Appointment.findById(
+      rebookRes.body.data._id
+    ).lean();
+
+    expect(rebookedAppointment.policySnapshot.version).toBe(3);
+    expect(rebookedAppointment.policySnapshot.bookingBufferMinutes).toBe(90);
+    expect(rebookedAppointment.policySnapshot.noShowPenaltyEnabled).toBe(true);
+    expect(rebookedAppointment.policySnapshot.noShowPenaltyAmount).toBe(70);
+    expect(rebookedAppointment.policySnapshot.cancellationWindowMinutes).toBe(240);
+    expect(rebookedAppointment.policySnapshot.noShowGracePeriodMinutes).toBe(15);
+    expect(rebookedAppointment.policySnapshot.depositRequired).toBe(true);
+    expect(rebookedAppointment.policySnapshot.depositAmount).toBe(30);
+    expect(rebookedAppointment.policySnapshot.noShowPenaltyAmount).not.toBe(
+      sourceSnapshot.noShowPenaltyAmount
+    );
+  });
+
   test("allows overriding service and staff and persists richer checkout traceability", async () => {
     const rebookRes = await request(app)
       .post(`/checkout/${paidCheckout._id}/rebook`)

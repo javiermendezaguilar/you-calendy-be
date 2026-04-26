@@ -3,7 +3,7 @@ const moment = require("moment");
 const Appointment = require("../../models/appointment");
 const CapacityLock = require("../../models/capacityLock");
 
-const NON_BLOCKING_CAPACITY_STATUSES = ["Canceled", "No-Show"];
+const NON_BLOCKING_CAPACITY_STATUSES = ["Canceled", "No-Show", "Missed"];
 const DEFAULT_CONFLICT_MESSAGE =
   "This staff member is not available at the selected time";
 

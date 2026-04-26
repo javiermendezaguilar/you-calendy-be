@@ -10,6 +10,8 @@ const ALLOWED_EVENT_TYPES = new Set([
   "service_started",
   "service_completed",
   "no_show_marked",
+  "late_cancel_marked",
+  "customer_blocked",
   "checkout_opened",
   "checkout_closed",
   "payment_captured",

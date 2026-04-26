@@ -58,6 +58,16 @@ describe("Policy engine v2", () => {
         noShowPenalty: true,
         noShowPenaltyAmount: 25,
       },
+      policySettings: {
+        cancellationWindowMinutes: 180,
+        noShowGracePeriodMinutes: 10,
+        lateCancelFeeEnabled: true,
+        lateCancelFeeAmount: 12,
+        depositRequired: true,
+        depositAmount: 20,
+        blockOnNoShow: true,
+        blockScope: "business",
+      },
       promotion: {
         applied: false,
         discountAmount: 0,
@@ -77,13 +87,21 @@ describe("Policy engine v2", () => {
     token = fixture.token;
   });
 
-  test("stores expanded policy snapshot on new appointments", async () => {
+  test("stores expanded policy snapshot v3 on new appointments", async () => {
     const stored = await Appointment.findById(appointment._id).lean();
 
     expect(stored.policySnapshot).toBeTruthy();
-    expect(stored.policySnapshot.version).toBe(2);
+    expect(stored.policySnapshot.version).toBe(3);
+    expect(stored.policySnapshot.cancellationWindowMinutes).toBe(180);
+    expect(stored.policySnapshot.noShowGracePeriodMinutes).toBe(10);
     expect(stored.policySnapshot.noShowPenaltyEnabled).toBe(true);
     expect(stored.policySnapshot.noShowPenaltyAmount).toBe(25);
+    expect(stored.policySnapshot.lateCancelFeeEnabled).toBe(true);
+    expect(stored.policySnapshot.lateCancelFeeAmount).toBe(12);
+    expect(stored.policySnapshot.depositRequired).toBe(true);
+    expect(stored.policySnapshot.depositAmount).toBe(20);
+    expect(stored.policySnapshot.blockOnNoShow).toBe(true);
+    expect(stored.policySnapshot.blockScope).toBe("business");
     expect(stored.policySnapshot.bookingBufferMinutes).toBe(45);
     expect(stored.policySnapshot.capturedAt).toBeTruthy();
   });

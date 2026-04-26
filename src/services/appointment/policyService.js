@@ -1,11 +1,75 @@
-const buildPolicySnapshotFromBusiness = (business) => ({
-  version: 2,
-  capturedAt: new Date(),
-  bookingBufferMinutes: Number(business?.bookingBuffer) || 0,
-  noShowPenaltyEnabled: business?.penaltySettings?.noShowPenalty === true,
-  noShowPenaltyAmount:
-    Number(business?.penaltySettings?.noShowPenaltyAmount) || 0,
-});
+const POLICY_SNAPSHOT_VERSION = 3;
+
+const toNonNegativeNumber = (value) => {
+  const numberValue = Number(value) || 0;
+  return numberValue > 0 ? numberValue : 0;
+};
+
+const normalizeBlockScope = (blockOnNoShow) => {
+  if (!blockOnNoShow) {
+    return "none";
+  }
+
+  return "business";
+};
+
+const buildPolicySnapshotFromBusiness = (business) => {
+  const policySettings = business?.policySettings || {};
+  const lateCancelFeeEnabled = policySettings.lateCancelFeeEnabled === true;
+  const depositRequired = policySettings.depositRequired === true;
+  const blockOnNoShow = policySettings.blockOnNoShow === true;
+
+  return {
+    version: POLICY_SNAPSHOT_VERSION,
+    capturedAt: new Date(),
+    bookingBufferMinutes: toNonNegativeNumber(business?.bookingBuffer),
+    cancellationWindowMinutes: toNonNegativeNumber(
+      policySettings.cancellationWindowMinutes
+    ),
+    noShowGracePeriodMinutes: toNonNegativeNumber(
+      policySettings.noShowGracePeriodMinutes
+    ),
+    noShowPenaltyEnabled: business?.penaltySettings?.noShowPenalty === true,
+    noShowPenaltyAmount: toNonNegativeNumber(
+      business?.penaltySettings?.noShowPenaltyAmount
+    ),
+    lateCancelFeeEnabled,
+    lateCancelFeeAmount: lateCancelFeeEnabled
+      ? toNonNegativeNumber(policySettings.lateCancelFeeAmount)
+      : 0,
+    depositRequired,
+    depositAmount: depositRequired
+      ? toNonNegativeNumber(policySettings.depositAmount)
+      : 0,
+    blockOnNoShow,
+    blockScope: normalizeBlockScope(blockOnNoShow),
+  };
+};
+
+const normalizePolicySnapshot = (snapshot, source) => {
+  const blockOnNoShow = snapshot.blockOnNoShow === true;
+
+  return {
+    version: snapshot.version || 1,
+    capturedAt: snapshot.capturedAt || null,
+    bookingBufferMinutes: toNonNegativeNumber(snapshot.bookingBufferMinutes),
+    cancellationWindowMinutes: toNonNegativeNumber(
+      snapshot.cancellationWindowMinutes
+    ),
+    noShowGracePeriodMinutes: toNonNegativeNumber(
+      snapshot.noShowGracePeriodMinutes
+    ),
+    noShowPenaltyEnabled: snapshot.noShowPenaltyEnabled === true,
+    noShowPenaltyAmount: toNonNegativeNumber(snapshot.noShowPenaltyAmount),
+    lateCancelFeeEnabled: snapshot.lateCancelFeeEnabled === true,
+    lateCancelFeeAmount: toNonNegativeNumber(snapshot.lateCancelFeeAmount),
+    depositRequired: snapshot.depositRequired === true,
+    depositAmount: toNonNegativeNumber(snapshot.depositAmount),
+    blockOnNoShow,
+    blockScope: normalizeBlockScope(blockOnNoShow),
+    source,
+  };
+};
 
 const getEffectivePolicySnapshot = (appointment, business) => {
   const snapshot = appointment?.policySnapshot || {};
@@ -23,21 +87,11 @@ const getEffectivePolicySnapshot = (appointment, business) => {
     hasSnapshotMetadata || hasExplicitPenaltyRule;
 
   if (hasFrozenNoShowPenalty) {
-    return {
-      version: snapshot.version || 1,
-      capturedAt: snapshot.capturedAt || null,
-      bookingBufferMinutes: Number(snapshot.bookingBufferMinutes) || 0,
-      noShowPenaltyEnabled: snapshot.noShowPenaltyEnabled === true,
-      noShowPenaltyAmount: Number(snapshot.noShowPenaltyAmount) || 0,
-      source: "snapshot",
-    };
+    return normalizePolicySnapshot(snapshot, "snapshot");
   }
 
   const fallback = buildPolicySnapshotFromBusiness(business);
-  return {
-    ...fallback,
-    source: "business-fallback",
-  };
+  return normalizePolicySnapshot(fallback, "business-fallback");
 };
 
 const buildNoShowPenaltyFromPolicy = (policy) => {
@@ -58,6 +112,7 @@ const buildNoShowPenaltyFromPolicy = (policy) => {
 };
 
 module.exports = {
+  POLICY_SNAPSHOT_VERSION,
   buildPolicySnapshotFromBusiness,
   getEffectivePolicySnapshot,
   buildNoShowPenaltyFromPolicy,

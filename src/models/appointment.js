@@ -3,6 +3,10 @@ const Schema = mongoose.Schema;
 const {
   getSemanticStateFromLegacyStatus,
 } = require("../services/appointment/stateService");
+const {
+  buildPolicySnapshotFromBusiness,
+} = require("../services/appointment/policyService");
+const { buildPolicySnapshotFields } = require("./policySchemaFields");
 
 const appointmentSchema = new Schema(
   {
@@ -86,30 +90,7 @@ const appointmentSchema = new Schema(
       default: 0,
       min: 0,
     },
-    policySnapshot: {
-      version: {
-        type: Number,
-        default: 1,
-      },
-      capturedAt: {
-        type: Date,
-        default: null,
-      },
-      bookingBufferMinutes: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
-      noShowPenaltyEnabled: {
-        type: Boolean,
-        default: false,
-      },
-      noShowPenaltyAmount: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
-    },
+    policySnapshot: buildPolicySnapshotFields(),
     notes: {
       type: String,
       default: "",
@@ -371,15 +352,7 @@ appointmentSchema.statics.getSemanticStateFromLegacyStatus = function (
 };
 
 appointmentSchema.statics.buildPolicySnapshot = function (business) {
-  return {
-    version: 2,
-    capturedAt: new Date(),
-    bookingBufferMinutes: Number(business?.bookingBuffer) || 0,
-    noShowPenaltyEnabled:
-      business?.penaltySettings?.noShowPenalty === true,
-    noShowPenaltyAmount:
-      Number(business?.penaltySettings?.noShowPenaltyAmount) || 0,
-  };
+  return buildPolicySnapshotFromBusiness(business);
 };
 
 module.exports = mongoose.model("Appointment", appointmentSchema);

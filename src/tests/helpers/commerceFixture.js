@@ -123,6 +123,7 @@ const createCommerceFixture = async (overrides = {}) => {
       noShowPenalty: false,
       noShowPenaltyAmount: 0,
     },
+    policySettings: overrides.policySettings || undefined,
   });
 
   const service = await Service.create({

@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 const Schema = mongoose.Schema;
+const {
+  getSemanticStateFromLegacyStatus,
+} = require("../services/appointment/stateService");
 
 const appointmentSchema = new Schema(
   {
@@ -364,39 +367,7 @@ appointmentSchema.statics.getSemanticStateFromLegacyStatus = function (
   status,
   overrides = {}
 ) {
-  const semanticState = {
-    bookingStatus: "booked",
-    visitStatus: "not_started",
-    ...overrides,
-  };
-
-  switch (status) {
-    case "Confirmed":
-      semanticState.bookingStatus = "confirmed";
-      semanticState.visitStatus = "not_started";
-      break;
-    case "Canceled":
-      semanticState.bookingStatus = "cancelled";
-      semanticState.visitStatus = "cancelled";
-      break;
-    case "Completed":
-      semanticState.bookingStatus = "confirmed";
-      semanticState.visitStatus = "completed";
-      break;
-    case "No-Show":
-    case "Missed":
-      semanticState.bookingStatus = "confirmed";
-      semanticState.visitStatus = "no_show";
-      break;
-    case "Pending":
-    default:
-      semanticState.bookingStatus =
-        semanticState.bookingStatus || "booked";
-      semanticState.visitStatus = semanticState.visitStatus || "not_started";
-      break;
-  }
-
-  return semanticState;
+  return getSemanticStateFromLegacyStatus(status, overrides);
 };
 
 appointmentSchema.statics.buildPolicySnapshot = function (business) {

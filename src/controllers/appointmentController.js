@@ -39,12 +39,16 @@ const {
   getAvailabilityForBusiness,
 } = require("../services/appointment/availabilityService");
 const {
+  getSemanticStateFromLegacyStatus,
+  isTerminalAppointmentState,
+} = require("../services/appointment/stateService");
+const {
   resolveCanonicalServiceForBusiness,
 } = require("../services/business/serviceService");
 const { recordDomainEvent } = require("../services/domainEventService");
 
 const buildAppointmentSemanticState = (status, overrides = {}) =>
-  Appointment.getSemanticStateFromLegacyStatus(status, overrides);
+  getSemanticStateFromLegacyStatus(status, overrides);
 
 const buildBookingEventPayload = (appointment, extra = {}) => ({
   appointmentId: appointment._id,
@@ -126,9 +130,6 @@ const getOperationalAppointmentForUser = async (appointmentId, user) => {
 
   return { appointment };
 };
-
-const isFinalAppointmentStatus = (status) =>
-  ["Canceled", "Completed", "No-Show", "Missed"].includes(status);
 
 /**
  * @desc Create a new appointment
@@ -1759,7 +1760,7 @@ const checkInAppointment = async (req, res) => {
       return ErrorHandler(error.message, error.status, req, res);
     }
 
-    if (isFinalAppointmentStatus(appointment.status)) {
+    if (isTerminalAppointmentState(appointment)) {
       return ErrorHandler(
         "Cannot check in an appointment in a final state",
         409,
@@ -1823,7 +1824,7 @@ const startAppointmentService = async (req, res) => {
       return ErrorHandler(error.message, error.status, req, res);
     }
 
-    if (isFinalAppointmentStatus(appointment.status)) {
+    if (isTerminalAppointmentState(appointment)) {
       return ErrorHandler(
         "Cannot start service for an appointment in a final state",
         409,
@@ -1950,12 +1951,9 @@ const updateAppointment = async (req, res) => {
     // Handle reschedule (date/time change)
     if (date || startTime) {
       // Only allow rescheduling if appointment is not completed or no-show
-      if (
-        appointment.status === "Completed" ||
-        appointment.status === "No-Show"
-      ) {
+      if (isTerminalAppointmentState(appointment)) {
         return ErrorHandler(
-          "Cannot reschedule completed or no-show appointments",
+          "Cannot reschedule completed, cancelled, or no-show appointments",
           400,
           req,
           res

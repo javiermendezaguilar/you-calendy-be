@@ -29,6 +29,11 @@ router.get(
   isAuthenticated,
   businessController.getDomainEvents
 );
+router.get(
+  "/onboarding-status",
+  isAuthenticated,
+  businessController.getOnboardingStatus
+);
 router.put("/", isAuthenticated, businessController.updateBusinessProfile);
 
 // Business info routes

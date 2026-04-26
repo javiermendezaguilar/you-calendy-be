@@ -11,6 +11,12 @@ const {
   findCapacityConflict,
   runWithCapacityGuard,
 } = require("../services/appointment/capacityGuard");
+const {
+  applyServiceLinesToCheckout,
+  buildDefaultServiceLinesFromAppointment,
+  normalizeCheckoutServiceLines,
+  sumServiceLines,
+} = require("../services/checkout/serviceLineService");
 const moment = require("moment");
 const mongoose = require("mongoose");
 
@@ -23,6 +29,30 @@ const REBOOKING_OUTCOMES = new Set(["follow_up_needed", "declined"]);
 
 const getBusinessForOwner = async (ownerId) => {
   return Business.findOne({ owner: ownerId });
+};
+
+const getBusinessForOwnerOrReply = async (req, res) => {
+  const business = await getBusinessForOwner(req.user.id);
+  if (!business) {
+    ErrorHandler("Business not found", 404, req, res);
+    return null;
+  }
+
+  return business;
+};
+
+const getOwnedCheckoutOrReply = async (req, res, businessId, checkoutId) => {
+  const checkout = await Checkout.findOne({
+    _id: checkoutId,
+    business: businessId,
+  });
+
+  if (!checkout) {
+    ErrorHandler("Checkout not found", 404, req, res);
+    return null;
+  }
+
+  return checkout;
 };
 
 const getAppointmentDiscountTotal = (appointment) => {
@@ -78,7 +108,8 @@ const buildCheckoutSnapshot = (appointment) => ({
 });
 
 const buildCheckoutPayload = (appointment) => {
-  const subtotal = Number(appointment.price) || 0;
+  const serviceLines = buildDefaultServiceLinesFromAppointment(appointment);
+  const subtotal = sumServiceLines(serviceLines);
   const discountTotal = getAppointmentDiscountTotal(appointment);
   const sourcePrice = getAppointmentSourcePrice(appointment);
 
@@ -93,6 +124,7 @@ const buildCheckoutPayload = (appointment) => {
     tip: 0,
     total: subtotal,
     sourcePrice,
+    serviceLines,
     snapshot: buildCheckoutSnapshot(appointment),
   };
 };
@@ -250,7 +282,7 @@ const openCheckout = async (req, res) => {
       _id: req.params.appointmentId,
       business: business._id,
     })
-      .populate("service", "name currency")
+      .populate("service", "name currency price duration")
       .populate("client", "firstName lastName phone")
       .populate("staff", "firstName lastName");
 
@@ -368,24 +400,21 @@ const getCheckoutByAppointment = async (req, res) => {
 
 const closeCheckout = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await getBusinessForOwnerOrReply(req, res);
+    if (!business) return;
 
     const tip = Number(req.body.tip ?? 0);
     if (Number.isNaN(tip) || tip < 0) {
       return ErrorHandler("Tip must be a non-negative number", 400, req, res);
     }
 
-    const checkout = await Checkout.findOne({
-      _id: req.params.id,
-      business: business._id,
-    });
-
-    if (!checkout) {
-      return ErrorHandler("Checkout not found", 404, req, res);
-    }
+    const checkout = await getOwnedCheckoutOrReply(
+      req,
+      res,
+      business._id,
+      req.params.id
+    );
+    if (!checkout) return;
 
     if (checkout.status !== "open") {
       return ErrorHandler("Checkout is already finalized", 409, req, res);
@@ -422,6 +451,47 @@ const closeCheckout = async (req, res) => {
     return SuccessHandler(hydratedCheckout, 200, res);
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
+const updateServiceLines = async (req, res) => {
+  try {
+    const business = await getBusinessForOwnerOrReply(req, res);
+    if (!business) return;
+
+    const checkout = await getOwnedCheckoutOrReply(
+      req,
+      res,
+      business._id,
+      req.params.id
+    );
+    if (!checkout) return;
+
+    if (checkout.status !== "open") {
+      return ErrorHandler(
+        "Service lines can only be updated while checkout is open",
+        409,
+        req,
+        res
+      );
+    }
+
+    const serviceLines = await normalizeCheckoutServiceLines({
+      businessId: business._id,
+      payloadLines: req.body.serviceLines,
+      defaultStaffId: checkout.staff,
+    });
+
+    applyServiceLinesToCheckout(checkout, serviceLines);
+    await checkout.save();
+
+    const hydratedCheckout = await applyCheckoutReadPopulate(
+      Checkout.findById(checkout._id)
+    );
+
+    return SuccessHandler(hydratedCheckout, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 
@@ -764,6 +834,7 @@ module.exports = {
   getCheckoutById,
   getCheckoutByAppointment,
   closeCheckout,
+  updateServiceLines,
   createRebooking,
   markRebookingOutcome,
 };

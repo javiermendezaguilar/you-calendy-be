@@ -192,6 +192,32 @@ const buildCheckoutSummary = (checkout) => {
   };
 };
 
+const buildPerformedServiceSummaries = (checkout) => {
+  if (!checkout?.serviceLines?.length) {
+    return [];
+  }
+
+  return checkout.serviceLines.map((line) => ({
+    _id: line._id || null,
+    service: {
+      _id: line.service?.id || null,
+      name: line.service?.name || "",
+    },
+    staff: {
+      _id: line.staff?.id || null,
+      firstName: line.staff?.firstName || "",
+      lastName: line.staff?.lastName || "",
+    },
+    quantity: Number(line.quantity) || 1,
+    unitPrice: Number(line.unitPrice) || 0,
+    durationMinutes: Number(line.durationMinutes) || 0,
+    adjustmentAmount: Number(line.adjustmentAmount) || 0,
+    lineTotal: Number(line.lineTotal) || 0,
+    source: line.source || "",
+    note: line.note || "",
+  }));
+};
+
 const buildCheckoutReadiness = (appointment, checkout = null) => {
   const hasCompletedVisit =
     appointment.status === "Completed" && appointment.visitStatus === "completed";
@@ -249,6 +275,10 @@ const buildVisitReadModel = (appointment, checkoutByAppointment = new Map()) => 
     client: buildPersonSummary(appointment.client),
     staff: buildStaffSummary(appointment.staff),
     reservedService: buildReservedServiceSummary(appointment.service),
+    performedServices: buildPerformedServiceSummaries(existingCheckout),
+    performedServiceSource: existingCheckout?.serviceLines?.length
+      ? "checkout_service_lines"
+      : "not_recorded",
     payment: {
       status: appointment.paymentStatus || "",
       sourcePrice: Number(appointment.price) || 0,
@@ -284,7 +314,7 @@ const getVisitsForOwner = async (ownerId, query = {}) => {
         appointment: { $in: appointmentIds },
         status: { $in: Object.keys(CHECKOUT_STATUS_PRIORITY) },
       })
-        .select("appointment status refundSummary")
+        .select("appointment status refundSummary serviceLines")
         .lean()
     : [];
   const checkoutByAppointment = checkouts.reduce((map, checkout) => {

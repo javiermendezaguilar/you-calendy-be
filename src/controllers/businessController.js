@@ -60,6 +60,9 @@ const {
   getDomainEventsForOwner,
 } = require("../services/domainEventService");
 const {
+  getOnboardingStatusForOwner,
+} = require("../services/business/onboardingService");
+const {
   getCanonicalRevenueTotalsByBusiness,
 } = require("../services/payment/revenueProjection");
 const {
@@ -2236,8 +2239,9 @@ const getBarberProfileByLink = async (req, res) => {
     // Get staff members
     const staff = await Staff.find({
       business: business._id,
-      isActive: true,
-    }).populate("services", "name");
+      availableForBooking: { $ne: false },
+      showInCalendar: { $ne: false },
+    }).populate("services.service", "name price duration category isActive");
 
     const [appointmentStats, revenueAgg] = await Promise.all([
       Appointment.aggregate([
@@ -3000,6 +3004,16 @@ const getDomainEvents = async (req, res) => {
   }
 };
 
+const getOnboardingStatus = async (req, res) => {
+  try {
+    const payload = await getOnboardingStatusForOwner(req.user.id);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Get onboarding status error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 /**
  * @desc Convert unregistered client to registered
  * @route POST /api/business/client/:clientId/convert-to-registered
@@ -3624,6 +3638,7 @@ module.exports = {
   getWalkInQueue,
   getOperationalDashboard,
   getDomainEvents,
+  getOnboardingStatus,
   createUnregisteredClient,
   convertClientToRegistered,
   // getClientProfiles,

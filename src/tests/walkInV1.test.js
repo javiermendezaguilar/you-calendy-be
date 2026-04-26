@@ -51,6 +51,8 @@ describe("Walk-ins v1", () => {
     expect(res.body.data.visitType).toBe("walk_in");
     expect(res.body.data.visitStatus).toBe("checked_in");
     expect(res.body.data.bookingStatus).toBe("confirmed");
+    expect(res.body.data.queueStatus).toBe("waiting");
+    expect(res.body.data.queueEnteredAt).toBeTruthy();
     expect(res.body.data.paymentStatus).toBe("Pending");
     expect(res.body.data.operationalTimestamps.checkedInAt).toBeTruthy();
 
@@ -61,6 +63,8 @@ describe("Walk-ins v1", () => {
     }).lean();
     expect(stored.visitType).toBe("walk_in");
     expect(stored.visitStatus).toBe("checked_in");
+    expect(stored.queueStatus).toBe("waiting");
+    expect(stored.queueEnteredAt).not.toBeNull();
     expect(stored.operationalTimestamps.checkedInAt).not.toBeNull();
     expect(event).not.toBeNull();
   });

@@ -430,6 +430,11 @@ router.post(
   isAuthenticated,
   businessController.createWalkIn
 );
+router.post(
+  "/walk-ins/:appointmentId/abandon",
+  isAuthenticated,
+  businessController.abandonWalkIn
+);
 router.get(
   "/walk-ins/queue",
   isAuthenticated,

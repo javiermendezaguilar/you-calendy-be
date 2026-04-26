@@ -1,9 +1,12 @@
 const moment = require("moment");
 const Appointment = require("../../models/appointment");
 
-const ACTIVE_WALK_IN_VISIT_STATUSES = ["checked_in", "in_service", "not_started"];
+const ACTIVE_WALK_IN_VISIT_STATUSES = ["checked_in", "not_started"];
+const ACTIVE_QUEUE_STATUSES = ["waiting", "called"];
 
 const queueSort = {
+  queuePriority: -1,
+  queueEnteredAt: 1,
   "operationalTimestamps.checkedInAt": 1,
   createdAt: 1,
 };
@@ -33,8 +36,18 @@ const buildActiveWalkInQuery = (businessId, options = {}) => {
   const filters = {
     business: businessId,
     visitType: "walk_in",
-    visitStatus: { $in: ACTIVE_WALK_IN_VISIT_STATUSES },
     status: { $nin: ["Canceled", "Completed", "No-Show", "Missed"] },
+    $or: [
+      { queueStatus: { $in: ACTIVE_QUEUE_STATUSES } },
+      {
+        queueStatus: { $in: [null, "none"] },
+        visitStatus: { $in: ACTIVE_WALK_IN_VISIT_STATUSES },
+      },
+      {
+        queueStatus: { $exists: false },
+        visitStatus: { $in: ACTIVE_WALK_IN_VISIT_STATUSES },
+      },
+    ],
   };
 
   const normalizedDate = normalizeQueueDate(options.date);
@@ -104,6 +117,7 @@ const getQueueResponseForBusiness = async (businessId, options = {}) => {
 };
 
 module.exports = {
+  ACTIVE_QUEUE_STATUSES,
   computeQueueMetrics,
   getOrderedActiveWalkIns,
   getQueueResponseForBusiness,

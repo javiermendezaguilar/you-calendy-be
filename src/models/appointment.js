@@ -90,6 +90,39 @@ const appointmentSchema = new Schema(
       default: 0,
       min: 0,
     },
+    queueStatus: {
+      type: String,
+      enum: [
+        "none",
+        "waiting",
+        "called",
+        "in_service",
+        "completed",
+        "abandoned",
+        "cancelled",
+      ],
+      default: "none",
+    },
+    queuePriority: {
+      type: Number,
+      default: 0,
+    },
+    queueEnteredAt: {
+      type: Date,
+      default: null,
+    },
+    queueLeftAt: {
+      type: Date,
+      default: null,
+    },
+    queueOutcomeReason: {
+      type: String,
+      default: "",
+    },
+    queueOutcomeNote: {
+      type: String,
+      default: "",
+    },
     policySnapshot: buildPolicySnapshotFields(),
     notes: {
       type: String,

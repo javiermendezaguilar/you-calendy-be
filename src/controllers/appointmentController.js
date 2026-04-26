@@ -75,6 +75,32 @@ const buildBookingEventPayload = (appointment, extra = {}) => ({
   ...extra,
 });
 
+const applyWalkInQueueStatusForLegacyStatus = (
+  appointment,
+  status,
+  occurredAt = new Date()
+) => {
+  if (appointment.visitType !== "walk_in") {
+    return;
+  }
+
+  if (status === "Completed") {
+    appointment.queueStatus = "completed";
+    appointment.queueLeftAt = appointment.queueLeftAt || occurredAt;
+    appointment.queueOutcomeReason =
+      appointment.queueOutcomeReason || "completed";
+    return;
+  }
+
+  if (status === "Canceled") {
+    appointment.queueStatus =
+      appointment.queueStatus === "abandoned" ? "abandoned" : "cancelled";
+    appointment.queueLeftAt = appointment.queueLeftAt || occurredAt;
+    appointment.queueOutcomeReason =
+      appointment.queueOutcomeReason || appointment.queueStatus;
+  }
+};
+
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 
 const getAppointmentBusinessContext = async (appointment, userId) => {
@@ -1279,6 +1305,18 @@ const updateAppointmentStatus = async (req, res) => {
       );
     }
 
+    if (
+      appointment.visitType === "walk_in" &&
+      (status === "No-Show" || status === "Missed")
+    ) {
+      return ErrorHandler(
+        "Walk-ins must be abandoned, not marked as No-Show or Missed",
+        409,
+        req,
+        res
+      );
+    }
+
     if (status === "Completed" && !isBusinessOwner && !isAssignedStaff) {
       return ErrorHandler(
         "Only the business owner or assigned staff can mark appointments as Completed",
@@ -1418,6 +1456,7 @@ const updateAppointmentStatus = async (req, res) => {
         // Update appointment status within transaction
         appointment.status = status;
         Object.assign(appointment, buildAppointmentSemanticState(status));
+        applyWalkInQueueStatusForLegacyStatus(appointment, status);
         appointment.updatedAt = new Date();
         await appointment.save({ session });
 
@@ -1463,6 +1502,7 @@ const updateAppointmentStatus = async (req, res) => {
 
         appointment.status = status;
         Object.assign(appointment, buildAppointmentSemanticState(status));
+        applyWalkInQueueStatusForLegacyStatus(appointment, status);
         appointment.updatedAt = new Date();
         await appointment.save({ session });
 
@@ -1471,6 +1511,7 @@ const updateAppointmentStatus = async (req, res) => {
         // For non-no-show/missed statuses, perform standard update
         appointment.status = status;
         Object.assign(appointment, buildAppointmentSemanticState(status));
+        applyWalkInQueueStatusForLegacyStatus(appointment, status);
         appointment.updatedAt = new Date();
         await appointment.save();
       }
@@ -1924,7 +1965,32 @@ const startAppointmentService = async (req, res) => {
       );
     }
 
+    const isWalkIn = appointment.visitType === "walk_in";
+    const shouldRecordWalkInConverted =
+      isWalkIn && appointment.queueStatus !== "in_service";
+
     if (appointment.visitStatus === "in_service") {
+      if (shouldRecordWalkInConverted) {
+        const queueLeftAt = new Date();
+        appointment.queueStatus = "in_service";
+        appointment.queueLeftAt = appointment.queueLeftAt || queueLeftAt;
+        appointment.queueOutcomeReason =
+          appointment.queueOutcomeReason || "service_started";
+        await appointment.save();
+        await recordDomainEvent({
+          type: "walkin_converted",
+          actorId: req.user._id || req.user.id,
+          shopId: appointment.business,
+          correlationId: appointment._id,
+          payload: {
+            appointmentId: appointment._id,
+            clientId: appointment.client,
+            serviceId: appointment.service,
+            staffId: appointment.staff,
+          },
+        });
+      }
+
       return SuccessHandler(appointment, 200, res);
     }
 
@@ -1937,12 +2003,21 @@ const startAppointmentService = async (req, res) => {
       );
     }
 
+    const serviceStartedAt = new Date();
     appointment.visitStatus = "in_service";
     appointment.operationalTimestamps = {
       ...appointment.operationalTimestamps,
-      serviceStartedAt: new Date(),
-      serviceStartedBy: req.user._id,
+      serviceStartedAt,
+      serviceStartedBy: req.user._id || req.user.id,
     };
+
+    if (isWalkIn) {
+      appointment.queueStatus = "in_service";
+      appointment.queueLeftAt = appointment.queueLeftAt || serviceStartedAt;
+      appointment.queueOutcomeReason =
+        appointment.queueOutcomeReason || "service_started";
+    }
+
     await appointment.save();
     await recordDomainEvent({
       type: "service_started",
@@ -1956,6 +2031,21 @@ const startAppointmentService = async (req, res) => {
         staffId: appointment.staff,
       },
     });
+
+    if (shouldRecordWalkInConverted) {
+      await recordDomainEvent({
+        type: "walkin_converted",
+        actorId: req.user._id || req.user.id,
+        shopId: appointment.business,
+        correlationId: appointment._id,
+        payload: {
+          appointmentId: appointment._id,
+          clientId: appointment.client,
+          serviceId: appointment.service,
+          staffId: appointment.staff,
+        },
+      });
+    }
 
     const hydratedAppointment = await Appointment.findById(appointment._id)
       .populate("client", "firstName lastName phone")

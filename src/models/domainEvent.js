@@ -8,6 +8,10 @@ const domainEventSchema = new mongoose.Schema(
       unique: true,
       default: () => new mongoose.Types.ObjectId().toString(),
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+    },
     type: {
       type: String,
       required: true,
@@ -59,5 +63,12 @@ const domainEventSchema = new mongoose.Schema(
 );
 
 domainEventSchema.index({ shopId: 1, occurredAt: -1 });
+domainEventSchema.index(
+  { idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $exists: true } },
+  }
+);
 
 module.exports = mongoose.model("DomainEvent", domainEventSchema);

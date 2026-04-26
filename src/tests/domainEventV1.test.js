@@ -1,5 +1,7 @@
 const request = require("supertest");
 const app = require("../app");
+const DomainEvent = require("../models/domainEvent");
+const { recordDomainEvent } = require("../services/domainEventService");
 const {
   createOperationalCommerceFixture,
   createPaymentCommerceFixture,
@@ -8,6 +10,10 @@ const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
 
 setupCommerceTestSuite();
 
+beforeAll(async () => {
+  await DomainEvent.syncIndexes();
+});
+
 const buildFutureDate = (daysAhead = 7) => {
   const date = new Date();
   date.setDate(date.getDate() + daysAhead);
@@ -15,6 +21,140 @@ const buildFutureDate = (daysAhead = 7) => {
 };
 
 describe("Domain event v1", () => {
+  test("records an exact retry once without mutating the original event", async () => {
+    const { fixture, checkout } = await createPaymentCommerceFixture({
+      ownerEmail: "domain-retry-owner@example.com",
+      businessName: "Domain Retry Shop",
+    });
+    const occurredAt = new Date("2026-04-26T10:00:00.000Z");
+
+    const firstEvent = await recordDomainEvent({
+      type: "payment_captured",
+      actorId: fixture.owner._id,
+      shopId: fixture.business._id,
+      correlationId: checkout._id,
+      occurredAt,
+      payload: {
+        paymentId: fixture.appointment._id,
+        checkoutId: checkout._id,
+        amount: 40,
+      },
+    });
+
+    const retryEvent = await recordDomainEvent({
+      type: "payment_captured",
+      actorId: fixture.owner._id,
+      shopId: fixture.business._id,
+      correlationId: checkout._id,
+      occurredAt: new Date("2026-04-26T10:05:00.000Z"),
+      payload: {
+        amount: 40,
+        checkoutId: checkout._id,
+        paymentId: fixture.appointment._id,
+      },
+    });
+
+    const storedEvents = await DomainEvent.find({
+      shopId: fixture.business._id,
+      type: "payment_captured",
+    }).lean();
+
+    expect(storedEvents).toHaveLength(1);
+    expect(retryEvent.eventId).toBe(firstEvent.eventId);
+    expect(storedEvents[0].occurredAt.toISOString()).toBe(occurredAt.toISOString());
+    expect(storedEvents[0].payload.amount).toBe(40);
+    expect(storedEvents[0].idempotencyKey).toContain("payment_captured");
+  });
+
+  test("deduplicates concurrent attempts for the same domain event", async () => {
+    const { fixture } = await createPaymentCommerceFixture({
+      ownerEmail: "domain-concurrent-owner@example.com",
+      businessName: "Domain Concurrent Shop",
+    });
+    const eventPayload = {
+      appointmentId: fixture.appointment._id,
+      clientId: fixture.client._id,
+      serviceId: fixture.service._id,
+      staffId: fixture.staff._id,
+    };
+
+    const events = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        recordDomainEvent({
+          type: "service_started",
+          actorId: fixture.owner._id,
+          shopId: fixture.business._id,
+          correlationId: fixture.appointment._id,
+          payload: eventPayload,
+        })
+      )
+    );
+
+    const storedEvents = await DomainEvent.find({
+      shopId: fixture.business._id,
+      type: "service_started",
+    }).lean();
+
+    expect(storedEvents).toHaveLength(1);
+    expect(new Set(events.map((event) => event.eventId)).size).toBe(1);
+  });
+
+  test("keeps distinct events that share type and correlation but carry different payloads", async () => {
+    const { fixture } = await createPaymentCommerceFixture({
+      ownerEmail: "domain-distinct-owner@example.com",
+      businessName: "Domain Distinct Shop",
+    });
+
+    await recordDomainEvent({
+      type: "booking_modified",
+      actorId: fixture.owner._id,
+      shopId: fixture.business._id,
+      correlationId: fixture.appointment._id,
+      payload: {
+        appointmentId: fixture.appointment._id,
+        modifiedFields: ["startTime"],
+        startTime: "10:00",
+      },
+    });
+
+    await recordDomainEvent({
+      type: "booking_modified",
+      actorId: fixture.owner._id,
+      shopId: fixture.business._id,
+      correlationId: fixture.appointment._id,
+      payload: {
+        appointmentId: fixture.appointment._id,
+        modifiedFields: ["startTime"],
+        startTime: "11:00",
+      },
+    });
+
+    const storedEvents = await DomainEvent.find({
+      shopId: fixture.business._id,
+      type: "booking_modified",
+    }).lean();
+
+    expect(storedEvents).toHaveLength(2);
+  });
+
+  test("requires correlation id for domain events", async () => {
+    const { fixture } = await createPaymentCommerceFixture({
+      ownerEmail: "domain-correlation-owner@example.com",
+      businessName: "Domain Correlation Shop",
+    });
+
+    await expect(
+      recordDomainEvent({
+        type: "service_completed",
+        actorId: fixture.owner._id,
+        shopId: fixture.business._id,
+        payload: {
+          appointmentId: fixture.appointment._id,
+        },
+      })
+    ).rejects.toThrow(/correlationId/);
+  });
+
   test("records checkout, payment, refund and rebooking events and exposes them by business", async () => {
     const fixture = await createOperationalCommerceFixture({
       appointmentStatus: "Completed",

@@ -1,5 +1,6 @@
 const Business = require("../models/User/business");
 const DomainEvent = require("../models/domainEvent");
+const crypto = require("crypto");
 
 const ALLOWED_EVENT_TYPES = new Set([
   "booking_created",
@@ -48,6 +49,72 @@ const normalizeType = (value) => {
   return normalized;
 };
 
+const toStableValue = (value) => {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof value.toHexString === "function") {
+    return value.toHexString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(toStableValue);
+  }
+
+  if (typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = toStableValue(value[key]);
+        return acc;
+      }, {});
+  }
+
+  return value;
+};
+
+const buildPayloadHash = (payload) =>
+  crypto
+    .createHash("sha256")
+    .update(JSON.stringify(toStableValue(payload || {})))
+    .digest("hex")
+    .slice(0, 32);
+
+const normalizeRequiredPart = (value, label) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    const error = new Error(`${label} is required for domain events`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
+};
+
+const buildIdempotencyKey = ({
+  type,
+  actorType,
+  actorId,
+  shopId,
+  source,
+  correlationId,
+  payload,
+}) =>
+  [
+    normalizeRequiredPart(type, "type"),
+    normalizeRequiredPart(shopId, "shopId"),
+    normalizeRequiredPart(source, "source"),
+    normalizeRequiredPart(actorType, "actorType"),
+    normalizeRequiredPart(actorId, "actorId"),
+    normalizeRequiredPart(correlationId, "correlationId"),
+    buildPayloadHash(payload),
+  ].join(":");
+
 const recordDomainEvent = async ({
   type,
   actorType = "user",
@@ -58,21 +125,55 @@ const recordDomainEvent = async ({
   occurredAt = new Date(),
   payload = {},
 }) => {
-  if (!type || !actorId || !shopId) {
-    throw new Error("type, actorId and shopId are required for domain events");
+  if (!type || !actorId || !shopId || !correlationId) {
+    throw new Error(
+      "type, actorId, shopId and correlationId are required for domain events"
+    );
   }
 
-  return DomainEvent.create({
+  const idempotencyKey = buildIdempotencyKey({
     type,
     actorType,
     actorId,
     shopId,
     source,
-    correlationId: correlationId ? String(correlationId) : "",
+    correlationId,
+    payload,
+  });
+  const eventDocument = {
+    type,
+    actorType,
+    actorId,
+    shopId,
+    source,
+    correlationId: String(correlationId),
     occurredAt,
     recordedAt: new Date(),
     payload,
-  });
+    idempotencyKey,
+  };
+
+  try {
+    return await DomainEvent.findOneAndUpdate(
+      { idempotencyKey },
+      { $setOnInsert: eventDocument },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+        runValidators: true,
+      }
+    );
+  } catch (error) {
+    if (error?.code === 11000) {
+      const existingEvent = await DomainEvent.findOne({ idempotencyKey });
+      if (existingEvent) {
+        return existingEvent;
+      }
+    }
+
+    throw error;
+  }
 };
 
 const getDomainEventsForOwner = async (ownerId, { type, limit } = {}) => {

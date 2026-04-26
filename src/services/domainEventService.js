@@ -6,6 +6,8 @@ const ALLOWED_EVENT_TYPES = new Set([
   "booking_modified",
   "booking_cancelled",
   "walkin_created",
+  "walkin_converted",
+  "walkin_lost",
   "client_checked_in",
   "service_started",
   "service_completed",

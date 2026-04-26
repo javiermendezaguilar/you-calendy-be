@@ -49,6 +49,7 @@ const {
   getFillGapCandidatesForOwner,
 } = require("../services/business/waitlistService");
 const {
+  abandonWalkInForOwner,
   createWalkInForOwner,
   getWalkInQueueForOwner,
 } = require("../services/business/walkInService");
@@ -2946,6 +2947,25 @@ const createWalkIn = async (req, res) => {
 };
 
 /**
+ * @desc Abandon an active walk-in
+ * @route POST /api/business/walk-ins/:appointmentId/abandon
+ * @access Private
+ */
+const abandonWalkIn = async (req, res) => {
+  try {
+    const payload = await abandonWalkInForOwner(
+      req.user.id,
+      req.params.appointmentId,
+      req.body
+    );
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Abandon walk-in error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
+/**
  * @desc Get active walk-in queue
  * @route GET /api/business/walk-ins/queue
  * @access Private
@@ -3599,6 +3619,7 @@ module.exports = {
   regenerateBarberLink,
   checkClientExists,
   createClientProfile,
+  abandonWalkIn,
   createWalkIn,
   getWalkInQueue,
   getOperationalDashboard,

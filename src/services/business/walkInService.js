@@ -21,12 +21,19 @@ const {
 } = require("../appointment/capacityGuard");
 const { recordDomainEvent } = require("../domainEventService");
 
-const buildCheckedInTimestamps = (userId) => ({
-  checkedInAt: new Date(),
+const buildCheckedInTimestamps = (userId, checkedInAt = new Date()) => ({
+  checkedInAt,
   checkedInBy: userId,
   serviceStartedAt: null,
   serviceStartedBy: null,
 });
+
+const normalizeOptionalText = (value) => String(value || "").trim();
+
+const normalizeQueuePriority = (value) => {
+  const priority = Number(value);
+  return Number.isFinite(priority) ? priority : 0;
+};
 
 const populateWalkInQuery = (query) =>
   query
@@ -146,7 +153,9 @@ const createWalkInForOwner = async (ownerId, payload) => {
     throw buildServiceError("Start time is invalid", 400);
   }
 
-  const activeWalkIns = await getOrderedActiveWalkIns(business._id);
+  const activeWalkIns = await getOrderedActiveWalkIns(business._id, {
+    date: payload.date,
+  });
   const estimatedWaitMinutes = computeQueueMetrics(activeWalkIns)
     .filter(
       ({ appointment }) =>
@@ -161,6 +170,7 @@ const createWalkInForOwner = async (ownerId, payload) => {
       return currentWait + duration;
     })[0] || 0;
 
+  const queueEnteredAt = new Date();
   const appointmentPayload = {
     client: client._id,
     business: business._id,
@@ -176,6 +186,12 @@ const createWalkInForOwner = async (ownerId, payload) => {
     visitType: "walk_in",
     queuePosition: activeWalkIns.length + 1,
     estimatedWaitMinutes,
+    queueStatus: "waiting",
+    queuePriority: normalizeQueuePriority(payload.queuePriority),
+    queueEnteredAt,
+    queueLeftAt: null,
+    queueOutcomeReason: "",
+    queueOutcomeNote: "",
     paymentStatus: "Pending",
     price: Number(service.price) || 0,
     notes: payload.notes || "",
@@ -194,7 +210,7 @@ const createWalkInForOwner = async (ownerId, payload) => {
       discountAmount: 0,
       discountPercentage: 0,
     },
-    operationalTimestamps: buildCheckedInTimestamps(ownerId),
+    operationalTimestamps: buildCheckedInTimestamps(ownerId, queueEnteredAt),
     policySnapshot: Appointment.buildPolicySnapshot(business),
   };
 
@@ -232,12 +248,92 @@ const createWalkInForOwner = async (ownerId, payload) => {
   return populateWalkInQuery(Appointment.findById(appointment._id));
 };
 
+const abandonWalkInForOwner = async (ownerId, appointmentId, payload = {}) => {
+  const requestPayload = payload || {};
+  const business = await getBusinessForOwner(ownerId);
+  const validAppointmentId = ensureObjectIdString(
+    appointmentId,
+    "Appointment ID is invalid"
+  );
+
+  const appointment = await Appointment.findOne({
+    _id: { $eq: validAppointmentId },
+    business: { $eq: business._id },
+    visitType: "walk_in",
+  });
+
+  if (!appointment) {
+    throw buildServiceError("Walk-in not found", 404);
+  }
+
+  if (appointment.queueStatus === "abandoned") {
+    return populateWalkInQuery(Appointment.findById(appointment._id));
+  }
+
+  if (
+    appointment.visitStatus === "in_service" ||
+    appointment.queueStatus === "in_service"
+  ) {
+    throw buildServiceError(
+      "Cannot abandon a walk-in that has already started service",
+      409
+    );
+  }
+
+  if (
+    appointment.status === "Completed" ||
+    appointment.visitStatus === "completed" ||
+    appointment.queueStatus === "completed"
+  ) {
+    throw buildServiceError("Cannot abandon a completed walk-in", 409);
+  }
+
+  const abandonedAt = new Date();
+  const reason =
+    normalizeOptionalText(requestPayload.reason) || "left_without_service";
+  const note = normalizeOptionalText(requestPayload.note);
+
+  appointment.status = "Canceled";
+  appointment.bookingStatus = "cancelled";
+  appointment.visitStatus = "cancelled";
+  appointment.queueStatus = "abandoned";
+  appointment.queueLeftAt = appointment.queueLeftAt || abandonedAt;
+  appointment.queueOutcomeReason = reason;
+  appointment.queueOutcomeNote = note;
+  appointment.updatedAt = abandonedAt;
+
+  await appointment.save();
+  await recordDomainEvent({
+    type: "walkin_lost",
+    actorId: ownerId,
+    shopId: business._id,
+    correlationId: appointment._id,
+    payload: {
+      appointmentId: appointment._id,
+      clientId: appointment.client,
+      serviceId: appointment.service,
+      staffId: appointment.staff,
+      reason,
+      note,
+      queuePosition: appointment.queuePosition,
+      estimatedWaitMinutes: appointment.estimatedWaitMinutes,
+    },
+  });
+
+  await getQueueResponseForBusiness(business._id, {
+    date: moment(appointment.date).format("YYYY-MM-DD"),
+  });
+
+  return populateWalkInQuery(Appointment.findById(appointment._id));
+};
+
 const getWalkInQueueForOwner = async (ownerId) => {
   const business = await getBusinessForOwner(ownerId);
   return getQueueResponseForBusiness(business._id);
 };
 
 module.exports = {
+  abandonWalkInForOwner,
   createWalkInForOwner,
   getWalkInQueueForOwner,
 };

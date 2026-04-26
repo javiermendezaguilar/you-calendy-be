@@ -50,6 +50,29 @@ describe("Operational dashboard v1", () => {
 
     await assignPrimaryServiceToStaff(fixture.staff, fixture.service, 30);
 
+    const day = moment(today, "YYYY-MM-DD").format("dddd").toLowerCase();
+    fixture.business.businessHours = {
+      ...(fixture.business.businessHours?.toObject?.() ||
+        fixture.business.businessHours ||
+        {}),
+      [day]: {
+        enabled: true,
+        shifts: [{ start: "08:00", end: "13:00" }],
+      },
+    };
+    fixture.business.bookingBuffer = 0;
+    await fixture.business.save();
+
+    fixture.staff.workingHours = [
+      {
+        day,
+        enabled: true,
+        shifts: [{ start: "08:00", end: "13:00", breaks: [] }],
+      },
+    ];
+    fixture.staff.bookingBuffer = 0;
+    await fixture.staff.save();
+
     fixture.appointment.status = "Confirmed";
     fixture.appointment.bookingStatus = "confirmed";
     fixture.appointment.visitStatus = "in_service";

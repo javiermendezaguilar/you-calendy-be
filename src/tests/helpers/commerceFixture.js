@@ -346,6 +346,7 @@ const createCapturedPaymentForFixture = async (fixture, checkout, overrides = {}
     reference: overrides.reference || "fixture-payment",
     capturedAt: overrides.capturedAt || new Date(),
     capturedBy: overrides.capturedBy || fixture.owner._id,
+    refundedTotal: overrides.refundedTotal ?? 0,
     snapshot: overrides.snapshot || {
       subtotal: overrides.subtotal ?? 35,
       discountTotal: overrides.discountTotal ?? 0,

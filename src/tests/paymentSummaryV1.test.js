@@ -17,6 +17,23 @@ setupCommerceTestSuite();
 const createSummaryCheckout = (fixture, overrides = {}) => {
   const subtotal = overrides.subtotal ?? overrides.total ?? 0;
   const total = overrides.total ?? subtotal;
+  const serviceLines = overrides.serviceLines || [
+    {
+      service: { id: fixture.service._id, name: fixture.service.name },
+      staff: {
+        id: fixture.staff._id,
+        firstName: fixture.staff.firstName,
+        lastName: fixture.staff.lastName,
+      },
+      quantity: 1,
+      unitPrice: subtotal,
+      durationMinutes: fixture.appointment.duration,
+      adjustmentAmount: 0,
+      lineTotal: subtotal,
+      source: "reserved_service_default",
+      note: "",
+    },
+  ];
 
   return Checkout.create({
     appointment: fixture.appointment._id,
@@ -30,8 +47,10 @@ const createSummaryCheckout = (fixture, overrides = {}) => {
     tip: overrides.tip ?? 0,
     total,
     sourcePrice: overrides.sourcePrice ?? subtotal,
+    serviceLines,
     snapshot: {
       service: { id: fixture.service._id, name: fixture.service.name },
+      serviceLines,
       client: {
         id: fixture.client._id,
         firstName: fixture.client.firstName,
@@ -131,6 +150,10 @@ describe("Payment summary v1", () => {
         method: "card_manual",
         status: "refunded_partial",
         refundedTotal: 10,
+        subtotal: 50,
+        tip: 0,
+        total: 50,
+        serviceLines: refundCheckout.serviceLines,
         capturedAt: new Date("2026-04-19T10:10:00.000Z"),
         reference: "summary-refunded",
       }
@@ -233,5 +256,89 @@ describe("Payment summary v1", () => {
     expect(res.body.data.rebooking.followUpNeededCount).toBe(1);
     expect(res.body.data.rebooking.declinedCount).toBe(1);
     expect(res.body.data.rebooking.rate).toBe(0.25);
+  });
+
+  test("returns service revenue from performed service snapshots only", async () => {
+    const legacyCheckout = await createSummaryCheckout(fixture, {
+      total: 60,
+      openedAt: new Date("2026-04-19T15:00:00.000Z"),
+    });
+
+    await Payment.create({
+      paymentScope: "commerce_checkout",
+      checkout: legacyCheckout._id,
+      appointment: fixture.appointment._id,
+      business: fixture.business._id,
+      client: fixture.client._id,
+      staff: fixture.staff._id,
+      status: "captured",
+      method: "card_manual",
+      currency: "EUR",
+      amount: 60,
+      tip: 0,
+      reference: "summary-legacy-service",
+      capturedAt: new Date("2026-04-19T15:10:00.000Z"),
+      capturedBy: fixture.owner._id,
+      snapshot: {
+        subtotal: 60,
+        discountTotal: 0,
+        total: 60,
+        sourcePrice: 60,
+        service: { id: fixture.service._id, name: "Legacy Reserved Service" },
+        client: {
+          id: fixture.client._id,
+          firstName: fixture.client.firstName,
+          lastName: fixture.client.lastName,
+        },
+        discounts: { promotionAmount: 0, flashSaleAmount: 0 },
+      },
+    });
+    const fullRefundCheckout = await createSummaryCheckout(fixture, {
+      total: 30,
+      openedAt: new Date("2026-04-19T16:00:00.000Z"),
+    });
+
+    await createCapturedPaymentForFixture(fixture, fullRefundCheckout, {
+      amount: 30,
+      method: "card_manual",
+      status: "refunded_full",
+      refundedTotal: 30,
+      subtotal: 30,
+      tip: 0,
+      total: 30,
+      serviceLines: fullRefundCheckout.serviceLines,
+      capturedAt: new Date("2026-04-19T16:10:00.000Z"),
+      reference: "summary-full-refund",
+    });
+
+    const res = await request(app)
+      .get("/payment/summary?startDate=2026-04-19T00:00:00.000Z&endDate=2026-04-19T23:59:59.999Z")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.serviceBreakdown).toMatchObject({
+      source: "payment_snapshot_service_lines",
+      attributionScope: "performed_service_snapshot",
+      excludes: ["platform_billing", "voided", "tips"],
+    });
+
+    const serviceItem = res.body.data.serviceBreakdown.items.find(
+      (item) => item.serviceId === fixture.service._id.toString()
+    );
+    expect(serviceItem).toMatchObject({
+      serviceName: fixture.service.name,
+      quantity: 3,
+      lineCount: 3,
+      paymentCount: 3,
+      grossServiceRevenue: 115,
+      netServiceRevenue: 75,
+    });
+
+    expect(res.body.data.serviceBreakdown.unattributed).toMatchObject({
+      reason: "missing_payment_snapshot_service_lines",
+      paymentCount: 1,
+      grossServiceRevenue: 60,
+      netServiceRevenue: 60,
+    });
   });
 });

@@ -14,6 +14,9 @@ const {
 const {
   buildServiceLineSnapshotList,
 } = require("../services/checkout/serviceLineService");
+const {
+  buildServiceRevenueBreakdown,
+} = require("../services/payment/serviceRevenueBreakdown");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -820,6 +823,7 @@ const getPaymentSummary = async (req, res) => {
       ).length,
       voidedCount: payments.filter((payment) => payment.status === "voided").length,
       methodBreakdown,
+      serviceBreakdown: buildServiceRevenueBreakdown(payments),
       rebooking: rebookingSummary,
     };
 

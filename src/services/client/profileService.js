@@ -76,7 +76,7 @@ const getPublicClientProfileById = async (clientId) => {
 const getClientProfileById = async (clientId) => {
   const validClientId = ensureObjectIdString(clientId, "Client ID is required.");
   const client = await Client.findById(validClientId).select(
-    "firstName lastName email profileImage phone preferences isProfileComplete notificationsEnabled internalNotes haircutPhotos"
+    "firstName lastName email profileImage phone preferences isProfileComplete notificationsEnabled consentFlags internalNotes haircutPhotos firstPaidVisitAt lastPaidVisitAt lifecycleStatus lifecycleUpdatedAt wonBackAt"
   );
 
   if (!client) {

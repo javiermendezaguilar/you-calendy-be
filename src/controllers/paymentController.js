@@ -20,6 +20,9 @@ const {
 const {
   buildStaffRevenueBreakdown,
 } = require("../services/payment/staffRevenueBreakdown");
+const {
+  syncClientLifecycleAfterPayment,
+} = require("../services/client/lifecycleService");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -366,6 +369,7 @@ const capturePayment = async (req, res) => {
         tip: Number(checkout.tip) || 0,
       },
     });
+    await syncClientLifecycleAfterPayment(payment);
 
     const hydratedPayment = await hydratePayment(payment._id);
 
@@ -447,6 +451,7 @@ const refundPayment = async (req, res) => {
     let refund = null;
     let refundWasCreated = false;
     let domainEvent = null;
+    let lifecyclePaymentId = null;
 
     const mongoSession = await mongoose.startSession();
     try {
@@ -541,6 +546,7 @@ const refundPayment = async (req, res) => {
         currentPayment.status =
           refundStatus === "full" ? "refunded_full" : "refunded_partial";
         await currentPayment.save({ session: mongoSession });
+        lifecyclePaymentId = currentPayment._id;
 
         const checkout = await Checkout.findById(currentPayment.checkout).session(
           mongoSession
@@ -599,6 +605,10 @@ const refundPayment = async (req, res) => {
     }
 
     await recordDomainEvent(domainEvent);
+    if (lifecyclePaymentId) {
+      const lifecyclePayment = await Payment.findById(lifecyclePaymentId);
+      await syncClientLifecycleAfterPayment(lifecyclePayment);
+    }
 
     const hydratedRefund = await hydrateRefund(refund._id);
     return SuccessHandler(hydratedRefund, 201, res);
@@ -712,6 +722,7 @@ const voidPayment = async (req, res) => {
         reason: payment.voidReason || "",
       },
     });
+    await syncClientLifecycleAfterPayment(payment);
 
     const hydratedPayment = await hydratePayment(payment._id);
     return SuccessHandler(hydratedPayment, 200, res);

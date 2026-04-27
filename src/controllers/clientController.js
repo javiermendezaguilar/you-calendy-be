@@ -47,6 +47,13 @@ const {
   getBusinessDetailsById,
   getBusinessGalleryById,
 } = require("../services/client/invitationService");
+const {
+  updateClientConsentForOwner,
+  hasConsentForChannel,
+} = require("../services/client/consentService");
+const {
+  syncClientLifecycleForOwner,
+} = require("../services/client/lifecycleService");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -641,7 +648,7 @@ const sendCustomMessageToClients = async (req, res) => {
       _id: { $in: normalizedIds },
       business: business._id,
       isActive: true,
-    }).select("firstName lastName email phone");
+    }).select("firstName lastName email phone consentFlags");
 
     if (!clients || clients.length === 0) {
       return SuccessHandler(
@@ -668,22 +675,26 @@ const sendCustomMessageToClients = async (req, res) => {
       let smsSent = false;
       let smsError = null;
 
-      if (c.email) {
+      if (c.email && hasConsentForChannel(c, "marketingEmail")) {
         try {
           await sendMail(c.email, emailSubject, messageText);
           emailSent = true;
         } catch (err) {
           emailError = err?.message || "Failed to send email";
         }
+      } else if (c.email) {
+        emailError = "Missing marketing email consent";
       }
 
-      if (c.phone) {
+      if (c.phone && hasConsentForChannel(c, "marketingSms")) {
         try {
           await sendSMS(c.phone, `${smsBodyPrefix}${messageText}`);
           smsSent = true;
         } catch (err) {
           smsError = err?.message || "Failed to send SMS";
         }
+      } else if (c.phone) {
+        smsError = "Missing marketing SMS consent";
       }
 
       results.push({
@@ -746,6 +757,41 @@ const getClientById = async (req, res) => {
 };
 
 /**
+ * @desc Refresh a client's CRM lifecycle from paid commerce payments
+ * @route POST /api/business/clients/:clientId/lifecycle/refresh
+ * @access Private (Business Owner)
+ */
+const refreshClientLifecycle = async (req, res) => {
+  try {
+    const payload = await syncClientLifecycleForOwner(
+      req.user,
+      req.params.clientId
+    );
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
+/**
+ * @desc Update explicit communication consent flags for a client
+ * @route PATCH /api/business/clients/:clientId/consent
+ * @access Private (Business Owner)
+ */
+const updateClientConsent = async (req, res) => {
+  try {
+    const payload = await updateClientConsentForOwner(
+      req.user,
+      req.params.clientId,
+      req.body
+    );
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
+/**
  * @desc Update a client
  * @route PUT /api/business/clients/:clientId
  * @access Private (Business Owner)
@@ -792,6 +838,35 @@ const updateClient = async (req, res) => {
     }
 
     const updateData = { ...req.body };
+    const protectedFields = [
+      "consentFlags",
+      "firstPaidVisitAt",
+      "lastPaidVisitAt",
+      "lifecycleStatus",
+      "lifecycleUpdatedAt",
+      "wonBackAt",
+    ];
+    const updateKeys = Object.keys(updateData);
+    const hasUpdateOperator = updateKeys.some((field) => field.startsWith("$"));
+    const hasProtectedField = updateKeys.some((key) =>
+      protectedFields.some(
+        (field) => key === field || key.startsWith(`${field}.`)
+      )
+    );
+
+    if (hasUpdateOperator) {
+      return ErrorHandler("Update operators are not allowed.", 400, req, res);
+    }
+
+    if (hasProtectedField) {
+      return ErrorHandler(
+        "Lifecycle and consent fields must be updated through dedicated endpoints.",
+        400,
+        req,
+        res
+      );
+    }
+
     if (updateData.phone) {
       const { getCountryCode } = require("../utils/index");
       const countryHint = getCountryCode(business.contactInfo?.phone);
@@ -2779,6 +2854,8 @@ module.exports = {
   getClients,
   getClientsCount,
   getClientById,
+  refreshClientLifecycle,
+  updateClientConsent,
   updateClient,
   updatePrivateNotes,
   deleteClient,

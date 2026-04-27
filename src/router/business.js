@@ -26,6 +26,11 @@ router.get(
   businessController.getOperationalDashboard
 );
 router.get(
+  "/operational-reporting",
+  isAuthenticated,
+  businessController.getOperationalReporting
+);
+router.get(
   "/domain-events",
   isAuthenticated,
   businessController.getDomainEvents

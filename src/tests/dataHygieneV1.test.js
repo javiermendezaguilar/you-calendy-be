@@ -58,6 +58,32 @@ describe("Data hygiene v1", () => {
     ).toThrow("--drop-sample-mflix requires --confirm sample_mflix");
   });
 
+  test("requires explicit confirmation before applying invalid gallery deactivation", () => {
+    expect(() =>
+      validatePlan(
+        parseApplyArgs(["--deactivate-invalid-haircut-galleries", "--apply"])
+      )
+    ).toThrow(
+      "--deactivate-invalid-haircut-galleries with --apply requires --confirm haircutgalleries"
+    );
+
+    expect(
+      validatePlan(
+        parseApplyArgs([
+          "--deactivate-invalid-haircut-galleries",
+          "--apply",
+          "--confirm",
+          "haircutgalleries",
+        ])
+      ).actions
+    ).toEqual([
+      expect.objectContaining({
+        type: "deactivate_invalid_haircut_galleries",
+        collection: "haircutgalleries",
+      }),
+    ]);
+  });
+
   test("keeps cleanup dry-run unless apply is explicitly provided", () => {
     const plan = validatePlan(
       parseApplyArgs(["--ensure-translation-cache-ttl"])

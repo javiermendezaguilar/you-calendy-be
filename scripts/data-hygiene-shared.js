@@ -1,7 +1,12 @@
 const mongoose = require("mongoose");
+const {
+  COMPLETE_ACTIVE_HAIRCUT_GALLERY_FILTER,
+  INVALID_HAIRCUT_GALLERY_FILTER,
+} = require("../src/services/client/galleryFilters");
 
 const DEFAULT_RETENTION_DAYS = 90;
 const TTL_INDEX_NAME = "translation_cache_lastUsed_ttl_v1";
+const HAIRCUT_GALLERY_CONFIRMATION = "haircutgalleries";
 
 const secondsFromDays = (days) => days * 24 * 60 * 60;
 
@@ -37,6 +42,9 @@ const runCli = (main) => {
 
 module.exports = {
   DEFAULT_RETENTION_DAYS,
+  COMPLETE_ACTIVE_HAIRCUT_GALLERY_FILTER,
+  HAIRCUT_GALLERY_CONFIRMATION,
+  INVALID_HAIRCUT_GALLERY_FILTER,
   TTL_INDEX_NAME,
   connectToMongo,
   parseRetentionDaysValue,

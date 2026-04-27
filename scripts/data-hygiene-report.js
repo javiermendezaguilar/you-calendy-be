@@ -3,6 +3,7 @@
 const mongoose = require("mongoose");
 const {
   DEFAULT_RETENTION_DAYS,
+  INVALID_HAIRCUT_GALLERY_FILTER,
   TTL_INDEX_NAME,
   connectToMongo,
   parseRetentionDaysValue,
@@ -116,23 +117,14 @@ const inspectTranslationCache = async (db, retentionDays) => {
 
 const inspectHaircutGalleries = async (db) => {
   const collection = db.collection("haircutgalleries");
-  const invalidRequiredFilter = {
-    $or: [
-      { business: { $exists: false } },
-      { business: null },
-      { client: { $exists: false } },
-      { client: null },
-      { imageUrl: { $exists: false } },
-      { imageUrl: "" },
-      { title: { $exists: false } },
-      { title: "" },
-    ],
-  };
-
   return {
     exists: true,
     count: await collection.countDocuments({}),
-    invalidRequiredCount: await collection.countDocuments(invalidRequiredFilter),
+    activeInvalidRequiredCount: await collection.countDocuments({
+      ...INVALID_HAIRCUT_GALLERY_FILTER,
+      isActive: true,
+    }),
+    invalidRequiredCount: await collection.countDocuments(INVALID_HAIRCUT_GALLERY_FILTER),
     withoutBusinessCount: await collection.countDocuments({
       $or: [{ business: { $exists: false } }, { business: null }],
     }),

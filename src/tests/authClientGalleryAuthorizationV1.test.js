@@ -46,6 +46,9 @@ describe("Auth and client gallery authorization v1", () => {
     client = fixture.client;
     ownerToken = fixture.token;
 
+    business.isActive = true;
+    await business.save();
+
     intruderClient = await Client.create({
       business: business._id,
       firstName: "Intruder",
@@ -153,5 +156,21 @@ describe("Auth and client gallery authorization v1", () => {
 
     const stored = await HaircutGallery.findById(galleryEntry._id).lean();
     expect(stored.isActive).toBe(false);
+  });
+
+  test("public business gallery excludes active residual entries without required fields", async () => {
+    await HaircutGallery.collection.insertOne({
+      business: business._id,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(app).get(`/client/business/${business._id}/gallery`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0]._id.toString()).toBe(galleryEntry._id.toString());
+    expect(res.body.data[0].imageUrl).toBe("https://example.com/gallery.jpg");
   });
 });

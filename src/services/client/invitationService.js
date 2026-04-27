@@ -1,6 +1,9 @@
 const Client = require("../../models/client");
 const Business = require("../../models/User/business");
 const HaircutGallery = require("../../models/haircutGallery");
+const {
+  COMPLETE_ACTIVE_HAIRCUT_GALLERY_FILTER,
+} = require("./galleryFilters");
 const { generateInvitationToken } = require("../../utils/index");
 const {
   buildServiceError,
@@ -129,7 +132,7 @@ const getBusinessGalleryById = async (businessId) => {
 
   return HaircutGallery.find({
     business: validBusinessId,
-    isActive: true,
+    ...COMPLETE_ACTIVE_HAIRCUT_GALLERY_FILTER,
   })
     .populate("client", "firstName lastName")
     .populate("staff", "firstName lastName")

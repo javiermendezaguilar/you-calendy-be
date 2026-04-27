@@ -3,6 +3,8 @@
 const mongoose = require("mongoose");
 const {
   DEFAULT_RETENTION_DAYS,
+  HAIRCUT_GALLERY_CONFIRMATION,
+  INVALID_HAIRCUT_GALLERY_FILTER,
   TTL_INDEX_NAME,
   connectToMongo,
   parseRetentionDaysValue,
@@ -14,6 +16,7 @@ const parseArgs = (argv = []) => {
   const args = {
     apply: false,
     confirm: "",
+    deactivateInvalidHaircutGalleries: false,
     dropSampleMflix: false,
     ensureTranslationCacheTtl: false,
     retentionDays: DEFAULT_RETENTION_DAYS,
@@ -25,6 +28,8 @@ const parseArgs = (argv = []) => {
       args.apply = true;
     } else if (arg === "--confirm") {
       args.confirm = argv[++index] || "";
+    } else if (arg === "--deactivate-invalid-haircut-galleries") {
+      args.deactivateInvalidHaircutGalleries = true;
     } else if (arg === "--drop-sample-mflix") {
       args.dropSampleMflix = true;
     } else if (arg === "--ensure-translation-cache-ttl") {
@@ -62,9 +67,26 @@ const validatePlan = (args) => {
     });
   }
 
+  if (args.deactivateInvalidHaircutGalleries) {
+    if (args.apply && args.confirm !== HAIRCUT_GALLERY_CONFIRMATION) {
+      throw new Error(
+        "--deactivate-invalid-haircut-galleries with --apply requires --confirm haircutgalleries"
+      );
+    }
+
+    actions.push({
+      type: "deactivate_invalid_haircut_galleries",
+      collection: "haircutgalleries",
+      filter: {
+        ...INVALID_HAIRCUT_GALLERY_FILTER,
+        isActive: true,
+      },
+    });
+  }
+
   if (actions.length === 0) {
     throw new Error(
-      "No action selected. Use --ensure-translation-cache-ttl or --drop-sample-mflix"
+      "No action selected. Use --ensure-translation-cache-ttl, --deactivate-invalid-haircut-galleries or --drop-sample-mflix"
     );
   }
 
@@ -121,6 +143,37 @@ const dropSampleMflix = async (client, action) => {
   };
 };
 
+const deactivateInvalidHaircutGalleries = async (db, action) => {
+  const collection = db.collection("haircutgalleries");
+  const matchedCount = await collection.countDocuments(action.filter);
+
+  if (!action.apply) {
+    return {
+      action: action.type,
+      collection: action.collection,
+      matchedCount,
+      applied: false,
+      dryRun: true,
+    };
+  }
+
+  const result = await collection.updateMany(action.filter, {
+    $set: {
+      isActive: false,
+      "dataHygiene.deactivatedAt": new Date(),
+      "dataHygiene.reason": "missing_required_gallery_fields",
+    },
+  });
+
+  return {
+    action: action.type,
+    collection: action.collection,
+    matchedCount,
+    applied: true,
+    modifiedCount: result.modifiedCount,
+  };
+};
+
 const executePlan = async (plan) => {
   const db = mongoose.connection.db;
   const client = mongoose.connection.getClient();
@@ -130,6 +183,8 @@ const executePlan = async (plan) => {
     const action = { ...rawAction, apply: plan.apply };
     if (action.type === "ensure_translation_cache_ttl") {
       results.push(await ensureTranslationCacheTtl(db, action));
+    } else if (action.type === "deactivate_invalid_haircut_galleries") {
+      results.push(await deactivateInvalidHaircutGalleries(db, action));
     } else if (action.type === "drop_database") {
       results.push(await dropSampleMflix(client, action));
     }

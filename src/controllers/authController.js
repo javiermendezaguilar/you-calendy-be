@@ -15,6 +15,9 @@ const { generateInvitationToken } = require("../utils/index");
 const {
   getCanonicalRevenueTotalsByBusiness,
 } = require("../services/payment/revenueProjection");
+const {
+  resolveActorContext,
+} = require("../services/identity/actorContext");
 
 const LEGACY_BARBER_OWNER_SCOPE = Object.freeze({
   entity: "owner_business_legacy",
@@ -34,6 +37,21 @@ const sanitizeAuthUser = (userDoc) => {
   delete user.pendingPenalties;
 
   return user;
+};
+
+const sanitizeAuthClient = (clientDoc) => {
+  if (!clientDoc) return clientDoc;
+
+  const client =
+    typeof clientDoc.toObject === "function"
+      ? clientDoc.toObject()
+      : { ...clientDoc };
+
+  delete client.password;
+  delete client.passwordResetToken;
+  delete client.passwordResetTokenExpires;
+
+  return client;
 };
 
 //register
@@ -518,8 +536,43 @@ const getMe = async (req, res) => {
      }
   */
   try {
+    if (req.user?.type === "client" || req.user?.role === "client") {
+      const Client = require("../models/client");
+      const client = req.client || (await Client.findById(req.user._id));
+      if (!client) {
+        return ErrorHandler("Client not found", 404, req, res);
+      }
+
+      const actorContext = await resolveActorContext({
+        user: req.user,
+        client,
+      });
+
+      return SuccessHandler(
+        {
+          ...sanitizeAuthClient(client),
+          actorContext,
+        },
+        200,
+        res
+      );
+    }
+
     const user = await User.findById(req.user._id);
-    return SuccessHandler(sanitizeAuthUser(user), 200, res);
+    if (!user) {
+      return ErrorHandler("User not found", 404, req, res);
+    }
+
+    const actorContext = await resolveActorContext({ user });
+
+    return SuccessHandler(
+      {
+        ...sanitizeAuthUser(user),
+        actorContext,
+      },
+      200,
+      res
+    );
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }

@@ -9,6 +9,8 @@
     "start": "node ./src/index.js",
     "swagger": "node ./swagger.js",
     "seed:gallery": "node ./seeds/gallerySeeder.js",
+    "data:hygiene:report": "node ./scripts/data-hygiene-report.js",
+    "data:hygiene:apply": "node ./scripts/data-hygiene-apply.js",
     "stripe:clock": "node ./scripts/stripe-test-clock.mjs",
     "payments:reconcile-indexes": "node ./scripts/reconcile-payment-indexes.js",
     "migrate:legacy-gallery": "node ./scripts/migrateLegacyHaircutGallery.js"

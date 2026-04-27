@@ -57,6 +57,9 @@ const {
   getOperationalDashboardForOwner,
 } = require("../services/business/operationalDashboardService");
 const {
+  getOperationalReportingForOwner,
+} = require("../services/business/operationalReportingService");
+const {
   getDomainEventsForOwner,
 } = require("../services/domainEventService");
 const {
@@ -2994,6 +2997,16 @@ const getOperationalDashboard = async (req, res) => {
   }
 };
 
+const getOperationalReporting = async (req, res) => {
+  try {
+    const payload = await getOperationalReportingForOwner(req.user.id, req.query);
+    return SuccessHandler(payload, 200, res);
+  } catch (error) {
+    console.error("Get operational reporting error:", error.message);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 const getDomainEvents = async (req, res) => {
   try {
     const payload = await getDomainEventsForOwner(req.user.id, req.query);
@@ -3637,6 +3650,7 @@ module.exports = {
   createWalkIn,
   getWalkInQueue,
   getOperationalDashboard,
+  getOperationalReporting,
   getDomainEvents,
   getOnboardingStatus,
   createUnregisteredClient,

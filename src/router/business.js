@@ -233,6 +233,16 @@ router.get(
   isAuthenticated,
   clientController.getClientById
 );
+router.post(
+  "/clients/:clientId/lifecycle/refresh",
+  isAuthenticated,
+  clientController.refreshClientLifecycle
+);
+router.patch(
+  "/clients/:clientId/consent",
+  isAuthenticated,
+  clientController.updateClientConsent
+);
 router.put(
   "/clients/:clientId",
   isAuthenticated,

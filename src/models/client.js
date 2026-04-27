@@ -3,6 +3,45 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const Schema = mongoose.Schema;
 
+const consentChannelSchema = new Schema(
+  {
+    granted: {
+      type: Boolean,
+      default: false,
+    },
+    source: {
+      type: String,
+      enum: [
+        "unknown",
+        "owner_update",
+        "client_profile",
+        "import",
+        "checkout",
+        "booking",
+      ],
+      default: "unknown",
+    },
+    updatedAt: {
+      type: Date,
+      default: null,
+    },
+    grantedAt: {
+      type: Date,
+      default: null,
+    },
+    revokedAt: {
+      type: Date,
+      default: null,
+    },
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
 const clientSchema = new Schema(
   {
     business: {
@@ -158,6 +197,50 @@ const clientSchema = new Schema(
       default: true,
       description: "Whether the client wants to receive notifications",
     },
+    consentFlags: {
+      marketingEmail: {
+        type: consentChannelSchema,
+        default: () => ({}),
+      },
+      marketingSms: {
+        type: consentChannelSchema,
+        default: () => ({}),
+      },
+      transactionalEmail: {
+        type: consentChannelSchema,
+        default: () => ({}),
+      },
+      transactionalSms: {
+        type: consentChannelSchema,
+        default: () => ({}),
+      },
+    },
+    firstPaidVisitAt: {
+      type: Date,
+      default: null,
+      description:
+        "First paid commerce checkout visit. Derived from Payment, not booking creation.",
+    },
+    lastPaidVisitAt: {
+      type: Date,
+      default: null,
+      description:
+        "Most recent paid commerce checkout visit used for CRM lifecycle.",
+    },
+    lifecycleStatus: {
+      type: String,
+      enum: ["new", "active", "at_risk", "lost", "won_back"],
+      default: "new",
+      index: true,
+    },
+    lifecycleUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    wonBackAt: {
+      type: Date,
+      default: null,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -233,6 +316,7 @@ clientSchema.index({ email: 1, business: 1 });
 
 // Index for the default business-scoped client listing sorted by first name
 clientSchema.index({ business: 1, firstName: 1 });
+clientSchema.index({ business: 1, lifecycleStatus: 1, lastPaidVisitAt: -1 });
 
 // Pre-save middleware to check if profile is complete and normalize phone
 clientSchema.pre("save", function (next) {

@@ -8,7 +8,7 @@ const {
 const getClientPhonesForOwner = async (user) => {
   const business = await findOwnedBusinessOrThrow(user);
   const clients = await Client.find({ business: business._id }).select(
-    "_id phone firstName lastName email"
+    "_id phone firstName lastName email consentFlags"
   );
 
   return {
@@ -18,6 +18,7 @@ const getClientPhonesForOwner = async (user) => {
       firstName: client.firstName,
       lastName: client.lastName,
       email: client.email,
+      consentFlags: client.consentFlags,
     })),
   };
 };

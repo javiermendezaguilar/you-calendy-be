@@ -6,6 +6,13 @@ const ErrorHandler = require("../utils/ErrorHandler");
 const { sendBulkEmailWithCredits } = require("../utils/creditAwareMessaging");
 const { generateMessageBlastTemplate } = require("../utils/emailTemplates");
 
+const buildMarketingEmailRecipientQuery = (businessId, extra = {}) => ({
+  business: businessId,
+  email: { $exists: true, $nin: [null, ""] },
+  "consentFlags.marketingEmail.granted": true,
+  ...extra,
+});
+
 /**
  * @desc Send email blast to business clients
  * @route POST /api/business/message-blast/email
@@ -93,14 +100,13 @@ const sendEmailBlast = async (req, res) => {
     // If clientIds are provided, use those specific clients
     if (clientIds && Array.isArray(clientIds) && clientIds.length > 0) {
       recipients = await Client.find({
+        ...buildMarketingEmailRecipientQuery(businessId),
         _id: { $in: clientIds },
-        business: businessId,
-        email: { $exists: true, $ne: null, $ne: "" },
       }).select("email firstName lastName _id");
       
       if (recipients.length === 0) {
         return ErrorHandler(
-          "No clients found with the provided client IDs that have email addresses.",
+          "No clients found with email address and marketing email consent.",
           400,
           req,
           res
@@ -109,29 +115,29 @@ const sendEmailBlast = async (req, res) => {
     } else {
       // Get recipients based on recipient group (backward compatibility)
       if (recipientGroup === "all") {
-        recipients = await Client.find({
-          business: businessId,
-          isActive: true,
-          email: { $exists: true, $ne: null, $ne: "" },
-        }).select("email firstName lastName");
+        recipients = await Client.find(
+          buildMarketingEmailRecipientQuery(businessId, {
+            isActive: true,
+          })
+        ).select("email firstName lastName");
       } else if (recipientGroup === "active") {
-        recipients = await Client.find({
-          business: businessId,
-          isActive: true,
-          status: "activated",
-          email: { $exists: true, $ne: null, $ne: "" },
-        }).select("email firstName lastName");
+        recipients = await Client.find(
+          buildMarketingEmailRecipientQuery(businessId, {
+            isActive: true,
+            status: "activated",
+          })
+        ).select("email firstName lastName");
       } else if (recipientGroup === "new") {
         // Clients created in the last 30 days
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-        recipients = await Client.find({
-          business: businessId,
-          isActive: true,
-          createdAt: { $gte: thirtyDaysAgo },
-          email: { $exists: true, $ne: null, $ne: "" },
-        }).select("email firstName lastName");
+        recipients = await Client.find(
+          buildMarketingEmailRecipientQuery(businessId, {
+            isActive: true,
+            createdAt: { $gte: thirtyDaysAgo },
+          })
+        ).select("email firstName lastName");
       } else {
         return ErrorHandler(
           "Recipient group must be 'all', 'active', or 'new'.",
@@ -254,14 +260,12 @@ const getRecipientGroups = async (req, res) => {
 
     // Get counts for each group
     const allClientsCount = await Client.countDocuments({
-      business: businessId,
-      email: { $exists: true, $ne: null, $ne: "" },
+      ...buildMarketingEmailRecipientQuery(businessId),
     });
 
     const activeClientsCount = await Client.countDocuments({
-      business: businessId,
+      ...buildMarketingEmailRecipientQuery(businessId),
       isActive: true,
-      email: { $exists: true, $ne: null, $ne: "" },
     });
 
     // Clients created in the last 30 days
@@ -269,9 +273,8 @@ const getRecipientGroups = async (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const newClientsCount = await Client.countDocuments({
-      business: businessId,
+      ...buildMarketingEmailRecipientQuery(businessId),
       createdAt: { $gte: thirtyDaysAgo },
-      email: { $exists: true, $ne: null, $ne: "" },
     });
 
     const recipientGroups = [
@@ -316,17 +319,15 @@ const getMessageBlastStats = async (req, res) => {
 
     // Get total clients with email
     const totalClientsWithEmail = await Client.countDocuments({
-      business: businessId,
+      ...buildMarketingEmailRecipientQuery(businessId),
       isActive: true,
-      email: { $exists: true, $ne: null, $ne: "" },
     });
 
     // Get active clients
     const activeClients = await Client.countDocuments({
-      business: businessId,
+      ...buildMarketingEmailRecipientQuery(businessId),
       isActive: true,
       status: "activated",
-      email: { $exists: true, $ne: null, $ne: "" },
     });
 
     // Get new clients (last 30 days)
@@ -334,10 +335,9 @@ const getMessageBlastStats = async (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const newClients = await Client.countDocuments({
-      business: businessId,
+      ...buildMarketingEmailRecipientQuery(businessId),
       isActive: true,
       createdAt: { $gte: thirtyDaysAgo },
-      email: { $exists: true, $ne: null, $ne: "" },
     });
 
     const stats = {

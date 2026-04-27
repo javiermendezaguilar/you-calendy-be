@@ -58,7 +58,7 @@
     "stripe": "^16.8.0",
     "swagger-autogen": "^2.23.7",
     "swagger-ui-express": "^4.6.2",
-    "twilio": "^5.7.1",
+    "twilio": "^6.0.0",
     "validator": "^13.7.0",
     "winston": "^3.8.2",
     "zod": "^4.3.6"

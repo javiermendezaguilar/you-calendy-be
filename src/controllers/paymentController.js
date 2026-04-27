@@ -17,6 +17,9 @@ const {
 const {
   buildServiceRevenueBreakdown,
 } = require("../services/payment/serviceRevenueBreakdown");
+const {
+  buildStaffRevenueBreakdown,
+} = require("../services/payment/staffRevenueBreakdown");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -824,6 +827,7 @@ const getPaymentSummary = async (req, res) => {
       voidedCount: payments.filter((payment) => payment.status === "voided").length,
       methodBreakdown,
       serviceBreakdown: buildServiceRevenueBreakdown(payments),
+      staffBreakdown: buildStaffRevenueBreakdown(payments),
       rebooking: rebookingSummary,
     };
 

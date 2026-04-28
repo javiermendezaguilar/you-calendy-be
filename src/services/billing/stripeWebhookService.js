@@ -12,6 +12,10 @@ const {
   updateBusinessSubscriptionStatus,
 } = require("./subscriptionStatusService");
 const {
+  extractSubscriptionPriceId,
+  resolveActivePlanSnapshotByPriceId,
+} = require("./subscriptionPlanService");
+const {
   PAYMENT_PROVIDER,
   PAYMENT_SCOPE,
 } = require("../payment/paymentScope");
@@ -435,14 +439,22 @@ const processSubscriptionCheckoutSession = async (session) => {
     metadata: {
       ...(subscription.metadata || {}),
       businessId,
+      planPriceId:
+        normalizedSession.metadata?.planPriceId ||
+        subscription.metadata?.planPriceId ||
+        extractSubscriptionPriceId(subscription),
     },
   };
+  const planSnapshot = await resolveActivePlanSnapshotByPriceId(
+    normalizedSubscription.metadata.planPriceId
+  );
 
   const result = await updateBusinessSubscriptionStatus(
     business,
     normalizedSubscription,
     {
       allowReplace: true,
+      ...(planSnapshot ? { planSnapshot } : {}),
     }
   );
 
@@ -465,6 +477,9 @@ const processSubscriptionLifecycleEvent = async (
     ...subscription,
     status: fallbackStatus || subscription.status,
   });
+  const planSnapshot = await resolveActivePlanSnapshotByPriceId(
+    extractSubscriptionPriceId(subscription)
+  );
   const eventType =
     sourceEventType || `customer.subscription.${normalizedSubscription.status}`;
   const businessId = normalizedSubscription.metadata?.businessId;
@@ -489,7 +504,10 @@ const processSubscriptionLifecycleEvent = async (
   const result = await updateBusinessSubscriptionStatus(
     business,
     normalizedSubscription,
-    { allowReplace: false }
+    {
+      allowReplace: false,
+      ...(planSnapshot ? { planSnapshot } : {}),
+    }
   );
 
   if (result.stale) {
@@ -673,8 +691,13 @@ const syncBusinessSubscriptionFromInvoice = async (business, invoice) => {
     };
   }
 
+  const planSnapshot = await resolveActivePlanSnapshotByPriceId(
+    extractSubscriptionPriceId(subscription)
+  );
+
   return updateBusinessSubscriptionStatus(business, subscription, {
     allowReplace: false,
+    ...(planSnapshot ? { planSnapshot } : {}),
   });
 };
 

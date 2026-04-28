@@ -66,6 +66,10 @@ const updateBusinessSubscriptionStatus = async (
     business.trialEnd = business.trialEnd || null;
   }
 
+  if (options.planSnapshot) {
+    business.subscriptionPlan = options.planSnapshot;
+  }
+
   await business.save();
 
   return {

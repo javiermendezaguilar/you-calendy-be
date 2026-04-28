@@ -2,6 +2,10 @@ const Plan = require("../models/plan");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 const stripe = require("stripe")(process.env.STRIPE_SECRET);
+const {
+  normalizeFeatureKeys,
+  normalizePlanLimits,
+} = require("../services/billing/subscriptionPlanService");
 
 /**
  * @desc Get all active plans
@@ -100,6 +104,8 @@ const createPlan = async (req, res) => {
       description,
       amount,
       features,
+      featureKeys,
+      limits,
       currency,
       billingInterval,
       // sortOrder,
@@ -136,6 +142,8 @@ const createPlan = async (req, res) => {
       metadata: {
         type: "plan",
         features: JSON.stringify(features),
+        featureKeys: JSON.stringify(normalizeFeatureKeys(featureKeys)),
+        limits: JSON.stringify(normalizePlanLimits(limits)),
       },
     });
 
@@ -158,6 +166,8 @@ const createPlan = async (req, res) => {
       description,
       amount,
       features,
+      featureKeys: normalizeFeatureKeys(featureKeys),
+      limits: normalizePlanLimits(limits),
       stripeProductId: stripeProduct.id,
       stripePriceId: stripePrice.id,
       currency: currency || "usd",
@@ -215,7 +225,15 @@ const updatePlan = async (req, res) => {
      }
   */
   try {
-    const { title, description, amount, features, isActive } = req.body;
+    const {
+      title,
+      description,
+      amount,
+      features,
+      featureKeys,
+      limits,
+      isActive,
+    } = req.body;
     const planId = req.params.id;
 
     // Find the plan
@@ -232,6 +250,10 @@ const updatePlan = async (req, res) => {
         metadata: {
           type: "plan",
           features: JSON.stringify(features || plan.features),
+          featureKeys: JSON.stringify(
+            normalizeFeatureKeys(featureKeys || plan.featureKeys)
+          ),
+          limits: JSON.stringify(normalizePlanLimits(limits || plan.limits)),
         },
       });
     }
@@ -258,19 +280,19 @@ const updatePlan = async (req, res) => {
       plan.stripePriceId = newStripePrice.id;
     }
 
-    // Update plan in database
-    const updates = {};
-    if (title) updates.title = title;
-    if (description) updates.description = description;
-    if (amount) updates.amount = amount;
-    if (features) updates.features = features;
-    if (typeof isActive === "boolean") updates.isActive = isActive;
-    // if (typeof sortOrder === "number") updates.sortOrder = sortOrder;
+    if (title) plan.title = title;
+    if (description) plan.description = description;
+    if (amount !== undefined) plan.amount = amount;
+    if (features !== undefined) plan.features = features;
+    if (featureKeys !== undefined) {
+      plan.featureKeys = normalizeFeatureKeys(featureKeys);
+    }
+    if (limits !== undefined) plan.limits = normalizePlanLimits(limits);
+    if (typeof isActive === "boolean") plan.isActive = isActive;
+    // if (typeof sortOrder === "number") plan.sortOrder = sortOrder;
 
-    const updatedPlan = await Plan.findByIdAndUpdate(planId, updates, {
-      new: true,
-      runValidators: true,
-    }).select("-__v");
+    await plan.save();
+    const updatedPlan = await Plan.findById(planId).select("-__v");
 
     return SuccessHandler(updatedPlan, 200, res);
   } catch (error) {

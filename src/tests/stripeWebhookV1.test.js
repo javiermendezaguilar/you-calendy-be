@@ -305,6 +305,13 @@ describe("Stripe webhook v1", () => {
     expect(storedPayment).not.toBeNull();
     expect(storedPayment.method).toBe("stripe");
     expect(storedPayment.amount).toBe(49);
+    await expect(
+      Payment.countDocuments({
+        business: fixture.business._id,
+        paymentScope: "commerce_checkout",
+        provider: "stripe",
+      })
+    ).resolves.toBe(0);
     expect(mockStripe.webhooks.constructEvent).toHaveBeenCalledWith(
       expect.any(Buffer),
       "sig_credits",

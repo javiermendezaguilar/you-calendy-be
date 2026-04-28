@@ -13,6 +13,7 @@ const {
   PAYMENT_SCOPE,
   buildPolicyPaymentFilter,
 } = require("./paymentScope");
+const { stripePaymentProvider } = require("./providerAdapters");
 
 const POLICY_CHARGE_STATUS = Object.freeze({
   PROCESSING: "processing",
@@ -44,28 +45,14 @@ const createPolicyChargeError = (message, statusCode = 400) => {
   return error;
 };
 
-const normalizeCurrency = (value, fallback = "USD") => {
-  const normalized = String(value || fallback).trim().toUpperCase();
-  return normalized || fallback;
-};
+const normalizeCurrency = stripePaymentProvider.normalizeCurrency;
 
-const normalizeStripeCurrency = (value) => normalizeCurrency(value).toLowerCase();
-
-const normalizeAmount = (value) => {
-  const amount = Number(value);
-  if (Number.isNaN(amount) || amount < 0) {
-    return 0;
-  }
-
-  return Number(amount.toFixed(2));
-};
+const normalizeAmount = stripePaymentProvider.normalizeAmount;
 
 const amountsMatch = (left, right) =>
   Math.abs(normalizeAmount(left) - normalizeAmount(right)) < 0.000001;
 
-const toMinorUnit = (amount) => Math.round(normalizeAmount(amount) * 100);
-
-const fromMinorUnit = (amount) => normalizeAmount((Number(amount) || 0) / 100);
+const fromMinorUnit = stripePaymentProvider.fromMinorUnit;
 
 const normalizePolicyChargeType = (type) => {
   const normalized = String(type || "").trim();
@@ -205,7 +192,7 @@ const ensureStripeCustomerForClient = async ({ client, business, saveCardOnFile 
       client.cardOnFile = {
         ...(client.cardOnFile || {}),
         status: "pending",
-        provider: "stripe",
+        provider: stripePaymentProvider.provider,
         lastSyncedAt: new Date(),
       };
       await client.save();
@@ -221,7 +208,7 @@ const ensureStripeCustomerForClient = async ({ client, business, saveCardOnFile 
   if (saveCardOnFile) {
     client.cardOnFile = {
       status: "pending",
-      provider: "stripe",
+      provider: stripePaymentProvider.provider,
       paymentMethodId: "",
       sourceAppointment: null,
       lastSyncedAt: new Date(),
@@ -243,15 +230,6 @@ const findExistingActivePolicyCharge = ({ business, appointment, type }) =>
     type,
     status: { $in: ACTIVE_POLICY_CHARGE_STATUSES },
   });
-
-const buildStripeMetadata = ({ charge, business, appointment, client }) => ({
-  policyChargeId: String(charge._id),
-  policyChargeType: charge.type,
-  businessId: String(business._id),
-  appointmentId: String(appointment._id),
-  clientId: String(client._id),
-  saveCardOnFile: charge.saveCardOnFile ? "true" : "false",
-});
 
 const createPolicyChargeIntent = async ({
   appointment,
@@ -315,7 +293,7 @@ const createPolicyChargeIntent = async ({
     client: client._id,
     amount: quote.amount,
     currency: quote.currency,
-    provider: PAYMENT_PROVIDER.STRIPE,
+    provider: stripePaymentProvider.provider,
     providerCustomerId,
     idempotencyKey: normalizedKey,
     policySnapshot: quote.policySnapshot,
@@ -326,27 +304,30 @@ const createPolicyChargeIntent = async ({
   try {
     const intent = await stripe.paymentIntents.create(
       {
-        amount: toMinorUnit(quote.amount),
-        currency: normalizeStripeCurrency(quote.currency),
-        customer: providerCustomerId,
-        automatic_payment_methods: {
-          enabled: true,
-        },
-        ...(saveCardOnFile ? { setup_future_usage: "off_session" } : {}),
-        metadata: buildStripeMetadata({
-          charge: policyCharge,
-          business,
-          appointment,
-          client,
+        ...stripePaymentProvider.buildPolicyChargeIntentPayload({
+          amount: quote.amount,
+          currency: quote.currency,
+          customerId: providerCustomerId,
+          saveCardOnFile,
+          metadata: stripePaymentProvider.buildPolicyChargeMetadata({
+            charge: policyCharge,
+            business,
+            appointment,
+            client,
+          }),
         }),
       },
       {
-        idempotencyKey: `policy-charge:${business._id}:${normalizedKey}`,
+        idempotencyKey: stripePaymentProvider.buildIdempotencyKey(
+          "policy-charge",
+          business._id,
+          normalizedKey
+        ),
       }
     );
 
     policyCharge.status = intent.status || POLICY_CHARGE_STATUS.REQUIRES_PAYMENT_METHOD;
-    policyCharge.providerReference = intent.id || "";
+    policyCharge.providerReference = stripePaymentProvider.references.raw(intent.id);
     policyCharge.clientSecret = intent.client_secret || "";
     await policyCharge.save();
 
@@ -431,7 +412,9 @@ const createOrUpdatePolicyPayment = async ({
   eventId,
   mongoSession,
 }) => {
-  const providerReference = `payment_intent:${paymentIntent.id}`;
+  const providerReference = stripePaymentProvider.references.paymentIntent(
+    paymentIntent.id
+  );
   const existingPayment = await Payment.findOne(
     buildPolicyPaymentFilter({
       provider: PAYMENT_PROVIDER.STRIPE,
@@ -453,7 +436,7 @@ const createOrUpdatePolicyPayment = async ({
     client: policyCharge.client,
     staff: appointment?.staff || null,
     status: "captured",
-    method: "stripe",
+    method: stripePaymentProvider.method,
     provider: PAYMENT_PROVIDER.STRIPE,
     providerReference,
     providerEventId: eventId || "",
@@ -518,7 +501,7 @@ const markCardOnFileUsable = async ({ policyCharge, paymentIntent, mongoSession 
           paymentIntent.customer || policyCharge.providerCustomerId || "",
         cardOnFile: {
           status: "usable",
-          provider: "stripe",
+          provider: stripePaymentProvider.provider,
           paymentMethodId: paymentIntent.payment_method,
           sourceAppointment: policyCharge.appointment,
           lastSyncedAt: new Date(),

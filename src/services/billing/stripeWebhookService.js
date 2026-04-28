@@ -19,24 +19,15 @@ const {
   PAYMENT_PROVIDER,
   PAYMENT_SCOPE,
 } = require("../payment/paymentScope");
+const { stripePaymentProvider } = require("../payment/providerAdapters");
 const {
   processPolicyChargePaymentFailed,
   processPolicyChargePaymentSucceeded,
 } = require("../payment/policyChargeService");
 
-const normalizeStripeAmount = (value) => {
-  const normalizedValue = Number(value);
-  if (Number.isNaN(normalizedValue) || normalizedValue < 0) {
-    return 0;
-  }
+const normalizeStripeAmount = stripePaymentProvider.fromMinorUnit;
 
-  return Number((normalizedValue / 100).toFixed(2));
-};
-
-const normalizeCurrency = (value, fallback = "USD") => {
-  const normalizedValue = typeof value === "string" ? value.trim() : "";
-  return (normalizedValue || fallback).toUpperCase();
-};
+const normalizeCurrency = stripePaymentProvider.normalizeCurrency;
 
 const buildPlatformBillingSnapshot = (amount) => ({
   subtotal: amount,
@@ -62,12 +53,6 @@ const createWebhookProcessingResult = (message, meta = {}) => ({
   message,
   meta,
 });
-
-const isPolicyChargePaymentIntent = (paymentIntent) =>
-  Boolean(
-    paymentIntent?.metadata?.policyChargeId ||
-      paymentIntent?.metadata?.policyChargeType
-  );
 
 const resolveInvoiceAmount = (invoice) => {
   if (typeof invoice.amount_paid === "number" && invoice.amount_paid > 0) {
@@ -178,7 +163,7 @@ const upsertPlatformBillingPayment = async ({
     paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
     business: business._id,
     status,
-    method: "stripe",
+    method: stripePaymentProvider.method,
     provider: PAYMENT_PROVIDER.STRIPE,
     providerReference,
     providerEventId,
@@ -376,7 +361,9 @@ const processCreditPurchaseSession = async (session) => {
             ? normalizeStripeAmount(session.amount_total)
             : Number(productDoc.amount) || 0,
         currency: session.currency || productDoc.currency || "USD",
-        providerReference: `checkout_session:${session.id}`,
+        providerReference: stripePaymentProvider.references.checkoutSession(
+          session.id
+        ),
         providerEventId: session.id,
         reference: session.id,
         mongoSession,
@@ -609,7 +596,9 @@ const buildInvoicePlatformBillingInput = ({
   status,
   amount,
   currency: normalizedInvoice.currency || "USD",
-  providerReference: `invoice:${normalizedInvoice.id}`,
+  providerReference: stripePaymentProvider.references.invoice(
+    normalizedInvoice.id
+  ),
   providerEventId: eventId,
   providerCustomerId: normalizedInvoice.customer || "",
   providerSubscriptionId: normalizedInvoice.subscription || "",
@@ -795,15 +784,17 @@ const processInvoiceVoidedEvent = async (invoice, eventId) =>
 
 const processStripeWebhookEvent = async (event) => {
   if (event.type === "payment_intent.succeeded") {
+    const providerEvent = stripePaymentProvider.classifyWebhookEvent(event);
     const paymentIntent = event.data.object;
-    if (isPolicyChargePaymentIntent(paymentIntent)) {
+    if (providerEvent.targetScope === PAYMENT_SCOPE.COMMERCE_POLICY) {
       return processPolicyChargePaymentSucceeded(paymentIntent, event.id || "");
     }
   }
 
   if (event.type === "payment_intent.payment_failed") {
+    const providerEvent = stripePaymentProvider.classifyWebhookEvent(event);
     const paymentIntent = event.data.object;
-    if (isPolicyChargePaymentIntent(paymentIntent)) {
+    if (providerEvent.targetScope === PAYMENT_SCOPE.COMMERCE_POLICY) {
       return processPolicyChargePaymentFailed(paymentIntent, event.id || "");
     }
   }

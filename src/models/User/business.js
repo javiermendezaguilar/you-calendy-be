@@ -1,5 +1,68 @@
 const mongoose = require("mongoose");
 const { buildPolicyRuleFields } = require("../policySchemaFields");
+const { buildPlanLimitFields } = require("../planLimitFields");
+
+const subscriptionPlanLimitsSchema = new mongoose.Schema(
+  buildPlanLimitFields(),
+  { _id: false }
+);
+
+const subscriptionPlanSchema = new mongoose.Schema(
+  {
+    planId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Plan",
+      default: null,
+    },
+    title: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    stripePriceId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    stripeProductId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    billingInterval: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    currency: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    amount: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    featureKeys: [
+      {
+        type: String,
+        trim: true,
+        lowercase: true,
+      },
+    ],
+    limits: {
+      type: subscriptionPlanLimitsSchema,
+      default: () => ({}),
+    },
+    source: {
+      type: String,
+      trim: true,
+      default: "plan_snapshot",
+    },
+  },
+  { _id: false }
+);
 
 const businessSchema = new mongoose.Schema({
   owner: {
@@ -290,6 +353,10 @@ const businessSchema = new mongoose.Schema({
     ],
     default: "none",
     description: "Current Stripe subscription status",
+  },
+  subscriptionPlan: {
+    type: subscriptionPlanSchema,
+    default: null,
   },
   // Google Business Profile Place ID for direct review links
   googlePlaceId: {

@@ -79,6 +79,12 @@ const {
   updateBusinessSubscriptionStatus,
 } = require("../services/billing/subscriptionStatusService");
 const {
+  buildBusinessEntitlements,
+} = require("../services/billing/entitlementService");
+const {
+  requireActivePlanSnapshotByPriceId,
+} = require("../services/billing/subscriptionPlanService");
+const {
   handleStripeWebhook,
 } = require("./webhookController");
 
@@ -1158,10 +1164,27 @@ const getSubscriptionStatus = async (req, res) => {
         message,
         source,
         billingScope: PLATFORM_BILLING_SCOPE,
+        entitlements: buildBusinessEntitlements(business),
       },
       200,
       res
     );
+  } catch (err) {
+    return ErrorHandler(err.message, 500, req, res);
+  }
+};
+
+/**
+ * @desc Get subscription-derived product entitlements for the business
+ * @route GET /api/business/entitlements
+ * @access Private
+ */
+const getBusinessEntitlements = async (req, res) => {
+  try {
+    const { business } = await resolveBusinessForRequest(req);
+    if (!business) return ErrorHandler("Business not found", 404, req, res);
+
+    return SuccessHandler(buildBusinessEntitlements(business), 200, res);
   } catch (err) {
     return ErrorHandler(err.message, 500, req, res);
   }
@@ -1198,6 +1221,8 @@ const createStripeSubscription = async (req, res) => {
         res
       );
     }
+
+    const planSnapshot = await requireActivePlanSnapshotByPriceId(priceId);
 
     // Check if trial has ended
     // Handle both 'trialing' and 'incomplete_expired' statuses
@@ -1247,7 +1272,10 @@ const createStripeSubscription = async (req, res) => {
           mode: "subscription",
           success_url: `${process.env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${process.env.FRONTEND_URL}/payment/failure`,
-          metadata: { businessId: business._id.toString() },
+          metadata: {
+            businessId: business._id.toString(),
+            planPriceId: planSnapshot.stripePriceId,
+          },
         });
 
         // business.subscriptionStatus = "active";
@@ -1273,7 +1301,10 @@ const createStripeSubscription = async (req, res) => {
       customer: customerId,
       items: [{ price: priceId }],
       trial_period_days: daysLeft,
-      metadata: { businessId: business._id.toString() },
+      metadata: {
+        businessId: business._id.toString(),
+        planPriceId: planSnapshot.stripePriceId,
+      },
     };
 
     try {
@@ -1282,7 +1313,9 @@ const createStripeSubscription = async (req, res) => {
       );
 
       // Update business with subscription details using helper function
-      await updateBusinessSubscriptionStatus(business, subscription);
+      await updateBusinessSubscriptionStatus(business, subscription, {
+        planSnapshot,
+      });
 
       // Send notification to admins
       await sendNotificationToAdmins(
@@ -1301,7 +1334,11 @@ const createStripeSubscription = async (req, res) => {
       );
 
       return SuccessHandler(
-        { subscriptionId: subscription.id, status: subscription.status },
+        {
+          subscriptionId: subscription.id,
+          status: subscription.status,
+          entitlements: buildBusinessEntitlements(business),
+        },
         200,
         res
       );
@@ -1312,6 +1349,9 @@ const createStripeSubscription = async (req, res) => {
   } catch (err) {
     if (err.name === "ZodError") {
       return ErrorHandler(err.issues?.[0]?.message || "Invalid subscription payload", 400, req, res);
+    }
+    if (err.statusCode) {
+      return ErrorHandler(err.message, err.statusCode, req, res);
     }
     console.error("Create Stripe subscription error:", err);
     return ErrorHandler(err.message, 500, req, res);
@@ -3629,6 +3669,7 @@ module.exports = {
   getBusinessSettings,
   startFreeTrial,
   getSubscriptionStatus,
+  getBusinessEntitlements,
   createStripeSubscription,
   handleStripeWebhook,
   // testWebhook,

@@ -1,5 +1,11 @@
 const mongoose = require("mongoose");
 const Schema = mongoose.Schema;
+const { buildPlanLimitFields } = require("./planLimitFields");
+
+const planLimitsSchema = new Schema(
+  buildPlanLimitFields(),
+  { _id: false }
+);
 
 const planSchema = new Schema(
   {
@@ -24,6 +30,17 @@ const planSchema = new Schema(
         trim: true,
       },
     ],
+    featureKeys: [
+      {
+        type: String,
+        trim: true,
+        lowercase: true,
+      },
+    ],
+    limits: {
+      type: planLimitsSchema,
+      default: () => ({}),
+    },
     stripePriceId: {
       type: String,
       required: true,

@@ -369,6 +369,12 @@ router.get(
   isBusinessOwner,
   businessController.getSubscriptionStatus
 );
+router.get(
+  "/entitlements",
+  isAuthenticated,
+  isBusinessOwner,
+  businessController.getBusinessEntitlements
+);
 router.post(
   "/create-subscription",
   isAuthenticated,

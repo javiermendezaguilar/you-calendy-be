@@ -2,8 +2,11 @@ const { sendSMS } = require("./twilio");
 const sendMail = require("./sendMail");
 const {
   checkSmsCredits,
+  checkEmailCredits,
   deductSmsCredits,
-  validateAndDeductEmailCredits,
+  deductEmailCredits,
+  addSmsCredits,
+  addEmailCredits,
 } = require("./creditManager");
 
 /**
@@ -11,8 +14,95 @@ const {
  * Wrapper functions that handle credit validation and deduction around sending messages
  */
 
+const buildCreditReservationError = (error, creditsRequired, creditType) => ({
+  error: true,
+  message: error.message || `Insufficient ${creditType} credits`,
+  creditsRequired,
+});
+
+const refundCredits = async (businessId, creditsToRefund, creditType) => {
+  if (creditsToRefund <= 0) {
+    return null;
+  }
+
+  if (creditType === "sms") {
+    return addSmsCredits(businessId, creditsToRefund);
+  }
+
+  return addEmailCredits(businessId, creditsToRefund);
+};
+
+const createEmptyBulkCreditResult = (totalRecipients) => ({
+  totalRecipients,
+  successCount: 0,
+  failedCount: 0,
+  failedRecipients: [],
+  creditsUsed: 0,
+  creditsRefunded: 0,
+});
+
+const reserveBulkCredits = async (businessId, totalRecipients, creditType) => {
+  if (creditType === "sms") {
+    return deductSmsCredits(businessId, totalRecipients);
+  }
+
+  return deductEmailCredits(businessId, totalRecipients);
+};
+
+const sendBulkWithReservedCredits = async ({
+  recipients,
+  businessId,
+  creditType,
+  creditTypeName,
+  recipientKey,
+  sendRecipient,
+}) => {
+  const totalRecipients = recipients.length;
+
+  if (totalRecipients <= 0) {
+    return createEmptyBulkCreditResult(totalRecipients);
+  }
+
+  try {
+    await reserveBulkCredits(businessId, totalRecipients, creditType);
+  } catch (creditError) {
+    return buildCreditReservationError(
+      creditError,
+      totalRecipients,
+      creditTypeName
+    );
+  }
+
+  const results = createEmptyBulkCreditResult(totalRecipients);
+
+  for (const recipient of recipients) {
+    try {
+      await sendRecipient(recipient);
+      results.successCount++;
+    } catch (sendError) {
+      results.failedCount++;
+      results.failedRecipients.push({
+        [recipientKey]: recipient[recipientKey],
+        error: sendError.message,
+      });
+      console.error(
+        `Failed to send ${creditTypeName} to ${recipient[recipientKey]}:`,
+        sendError.message
+      );
+    }
+  }
+
+  results.creditsUsed = results.successCount;
+  results.creditsRefunded = results.failedCount;
+  if (results.creditsRefunded > 0) {
+    await refundCredits(businessId, results.creditsRefunded, creditType);
+  }
+
+  return results;
+};
+
 /**
- * Send SMS with credit validation and post-send deduction
+ * Send SMS with credit reservation and provider-failure refund.
  * @param {string} to - Recipient phone number
  * @param {string} body - Message content
  * @param {string} businessId - Business ID for credit deduction
@@ -21,19 +111,14 @@ const {
  * @returns {Promise<Object>} - SMS sending result
  */
 const sendSMSWithCredits = async (to, body, businessId, req, res) => {
+  const creditsReserved = 1;
+  let didReserveCredits = false;
+
   try {
     console.log(`Starting SMS credit validation for business ${businessId}`);
 
-    // Check credits first, but only deduct after the provider confirms success.
-    const creditCheck = await checkSmsCredits(businessId, 1);
-    if (!creditCheck.hasCredits) {
-      console.log(`Credit validation failed for business ${businessId}`);
-      return {
-        error: true,
-        message: "Insufficient SMS credits",
-        creditsRequired: 1,
-      };
-    }
+    await deductSmsCredits(businessId, creditsReserved);
+    didReserveCredits = true;
 
     console.log(
       `Credits validated successfully for business ${businessId}. Attempting to send SMS to ${to}`
@@ -41,7 +126,6 @@ const sendSMSWithCredits = async (to, body, businessId, req, res) => {
 
     // Send SMS
     const result = await sendSMS(to, body);
-    await deductSmsCredits(businessId, 1);
 
     console.log(
       `SMS sent successfully to ${to} using 1 credit from business ${businessId}. Message ID: ${result.sid}`
@@ -54,6 +138,9 @@ const sendSMSWithCredits = async (to, body, businessId, req, res) => {
     };
   } catch (error) {
     console.error("Error sending SMS with credits:", error);
+    if (didReserveCredits) {
+      await refundCredits(businessId, creditsReserved, "sms");
+    }
     return {
       error: true,
       message: error.message || "Failed to send SMS",
@@ -80,21 +167,12 @@ const sendEmailWithCredits = async (
   req,
   res
 ) => {
+  const creditsReserved = 1;
+  let didReserveCredits = false;
+
   try {
-    // Validate and deduct Email credits
-    const creditValid = await validateAndDeductEmailCredits(
-      businessId,
-      1,
-      req,
-      res
-    );
-    if (creditValid !== true) {
-      return {
-        error: true,
-        message: "Insufficient Email credits",
-        creditsRequired: 1,
-      };
-    }
+    await deductEmailCredits(businessId, creditsReserved);
+    didReserveCredits = true;
 
     // Send Email
     await sendMail(email, subject, content);
@@ -109,12 +187,19 @@ const sendEmailWithCredits = async (
     };
   } catch (error) {
     console.error("Error sending Email with credits:", error);
-    throw error;
+    if (didReserveCredits) {
+      await refundCredits(businessId, creditsReserved, "email");
+    }
+    return {
+      error: true,
+      message: error.message || "Failed to send Email",
+      details: error,
+    };
   }
 };
 
 /**
- * Send multiple SMS with credit validation and post-send deduction
+ * Send multiple SMS with upfront credit reservation and failed-send refund.
  * @param {Array} recipients - Array of recipient objects with 'phone' property
  * @param {string} body - Message content
  * @param {string} businessId - Business ID for credit deduction
@@ -130,51 +215,17 @@ const sendBulkSMSWithCredits = async (
   res
 ) => {
   try {
-    const totalRecipients = recipients.length;
-
-    // Check total credit availability up front, but deduct only for successful sends.
-    const creditCheck = await checkSmsCredits(businessId, totalRecipients);
-    if (!creditCheck.hasCredits) {
-      return {
-        error: true,
-        message: "Insufficient SMS credits",
-        creditsRequired: totalRecipients,
-      };
-    }
-
-    const results = {
-      totalRecipients,
-      successCount: 0,
-      failedCount: 0,
-      failedRecipients: [],
-      creditsUsed: 0,
-    };
-
-    // Send SMS to each recipient
-    for (const recipient of recipients) {
-      try {
-        await sendSMS(recipient.phone, body);
-        results.successCount++;
-      } catch (smsError) {
-        results.failedCount++;
-        results.failedRecipients.push({
-          phone: recipient.phone,
-          error: smsError.message,
-        });
-        console.error(
-          `Failed to send SMS to ${recipient.phone}:`,
-          smsError.message
-        );
-      }
-    }
-
-    if (results.successCount > 0) {
-      await deductSmsCredits(businessId, results.successCount);
-      results.creditsUsed = results.successCount;
-    }
+    const results = await sendBulkWithReservedCredits({
+      recipients,
+      businessId,
+      creditType: "sms",
+      creditTypeName: "SMS",
+      recipientKey: "phone",
+      sendRecipient: (recipient) => sendSMS(recipient.phone, body),
+    });
 
     console.log(
-      `Bulk SMS completed: ${results.successCount}/${totalRecipients} sent successfully using ${results.creditsUsed} credits from business ${businessId}`
+      `Bulk SMS completed: ${results.successCount}/${results.totalRecipients} sent successfully using ${results.creditsUsed} credits from business ${businessId}`
     );
 
     return results;
@@ -203,52 +254,17 @@ const sendBulkEmailWithCredits = async (
   res
 ) => {
   try {
-    const totalRecipients = recipients.length;
-
-    // Validate and deduct Email credits for all recipients
-    const creditValid = await validateAndDeductEmailCredits(
+    const results = await sendBulkWithReservedCredits({
+      recipients,
       businessId,
-      totalRecipients,
-      req,
-      res
-    );
-    if (creditValid !== true) {
-      return {
-        error: true,
-        message: "Insufficient Email credits",
-        creditsRequired: totalRecipients,
-      };
-    }
-
-    const results = {
-      totalRecipients,
-      successCount: 0,
-      failedCount: 0,
-      failedRecipients: [],
-      creditsUsed: 0,
-    };
-
-    // Send Email to each recipient
-    for (const recipient of recipients) {
-      try {
-        await sendMail(recipient.email, subject, content);
-        results.successCount++;
-        results.creditsUsed++;
-      } catch (emailError) {
-        results.failedCount++;
-        results.failedRecipients.push({
-          email: recipient.email,
-          error: emailError.message,
-        });
-        console.error(
-          `Failed to send Email to ${recipient.email}:`,
-          emailError.message
-        );
-      }
-    }
+      creditType: "email",
+      creditTypeName: "Email",
+      recipientKey: "email",
+      sendRecipient: (recipient) => sendMail(recipient.email, subject, content),
+    });
 
     console.log(
-      `Bulk Email completed: ${results.successCount}/${totalRecipients} sent successfully using ${results.creditsUsed} credits from business ${businessId}`
+      `Bulk Email completed: ${results.successCount}/${results.totalRecipients} sent successfully using ${results.creditsUsed} credits from business ${businessId}`
     );
 
     return results;
@@ -267,8 +283,6 @@ const sendBulkEmailWithCredits = async (
  */
 const checkBulkCredits = async (businessId, smsCount = 0, emailCount = 0) => {
   try {
-    const { checkSmsCredits, checkEmailCredits } = require("./creditManager");
-
     const smsCheck =
       smsCount > 0
         ? await checkSmsCredits(businessId, smsCount)

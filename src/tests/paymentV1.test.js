@@ -5,6 +5,7 @@ const Payment = require("../models/payment");
 const {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
+  createCompletedNoDiscountCommerceFixture,
   createPaymentCommerceFixture,
   openCashSessionForToken,
   captureCheckoutPaymentForToken,
@@ -67,6 +68,53 @@ describe("Payment v1", () => {
     expect(storedPayment.paymentScope).toBe("commerce_checkout");
     expect(storedPayment.snapshot.total).toBe(40);
     expect(storedPayment.snapshot.service.name).toBe("Signature Cut");
+  });
+
+  test("freezes checkout totalization in payment snapshot", async () => {
+    const customFixture = await createCompletedNoDiscountCommerceFixture({
+      ownerName: "Payment Total Owner",
+      ownerEmail: "payment-total-owner@example.com",
+      businessName: "Payment Total Shop",
+    });
+
+    const openRes = await request(app)
+      .post(`/checkout/appointment/${customFixture.appointment._id}/open`)
+      .set("Authorization", `Bearer ${customFixture.token}`);
+
+    const closeRes = await request(app)
+      .post(`/checkout/${openRes.body.data._id}/close`)
+      .set("Authorization", `Bearer ${customFixture.token}`)
+      .send({
+        tip: 3,
+        productLines: [{ name: "Pomade", quantity: 2, unitPrice: 6 }],
+        discountLines: [{ label: "Loyalty", amount: 5 }],
+        taxLines: [{ label: "VAT", source: "vat", rate: 10 }],
+      });
+
+    expect(closeRes.status).toBe(200);
+
+    const captureRes = await request(app)
+      .post(`/payment/checkout/${closeRes.body.data._id}/capture`)
+      .set("Authorization", `Bearer ${customFixture.token}`)
+      .send({
+        method: "card_manual",
+        amount: 65.7,
+      });
+
+    expect(captureRes.status).toBe(201);
+    expect(captureRes.body.data.amount).toBe(65.7);
+    expect(captureRes.body.data.snapshot.totalization).toMatchObject({
+      serviceSubtotal: 50,
+      productSubtotal: 12,
+      subtotal: 62,
+      discountTotal: 5,
+      taxableSubtotal: 57,
+      taxTotal: 5.7,
+      tipTotal: 3,
+      amountDue: 65.7,
+    });
+    expect(captureRes.body.data.snapshot.productLines[0].name).toBe("Pomade");
+    expect(captureRes.body.data.snapshot.taxLines[0].amount).toBe(5.7);
   });
 
   test("rejects cash payments when there is no active cash session", async () => {

@@ -29,16 +29,79 @@ const {
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
+const toMoneyNumber = (value, fallback = 0) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
+const hasMoneyValue = (value) =>
+  value !== undefined && value !== null && value !== "";
+
+const getCheckoutTotalizationMoney = (checkout, fieldName, fallback = 0) => {
+  const value = checkout.totalization?.[fieldName];
+  return toMoneyNumber(hasMoneyValue(value) ? value : fallback);
+};
+
 const buildPaymentSnapshot = (checkout) => ({
-  subtotal: Number(checkout.subtotal) || 0,
-  discountTotal: Number(checkout.discountTotal) || 0,
-  total: Number(checkout.total) || 0,
-  sourcePrice: Number(checkout.sourcePrice) || 0,
+  subtotal: toMoneyNumber(checkout.subtotal),
+  discountTotal: toMoneyNumber(checkout.discountTotal),
+  total: toMoneyNumber(checkout.total),
+  sourcePrice: toMoneyNumber(checkout.sourcePrice),
   service: {
     id: checkout.snapshot?.service?.id || null,
     name: checkout.snapshot?.service?.name || "",
   },
   serviceLines: buildServiceLineSnapshotList(checkout.serviceLines || []),
+  productLines: checkout.productLines || [],
+  discountLines: checkout.discountLines || [],
+  taxLines: checkout.taxLines || [],
+  totalization: {
+    serviceSubtotal: getCheckoutTotalizationMoney(
+      checkout,
+      "serviceSubtotal",
+      checkout.subtotal
+    ),
+    productSubtotal: getCheckoutTotalizationMoney(checkout, "productSubtotal"),
+    subtotal: getCheckoutTotalizationMoney(
+      checkout,
+      "subtotal",
+      checkout.subtotal
+    ),
+    discountTotal: getCheckoutTotalizationMoney(
+      checkout,
+      "discountTotal",
+      checkout.discountTotal
+    ),
+    taxableSubtotal: getCheckoutTotalizationMoney(
+      checkout,
+      "taxableSubtotal",
+      Math.max(
+        toMoneyNumber(checkout.subtotal) - toMoneyNumber(checkout.discountTotal),
+        0
+      )
+    ),
+    taxTotal: getCheckoutTotalizationMoney(checkout, "taxTotal"),
+    tipTotal: getCheckoutTotalizationMoney(checkout, "tipTotal", checkout.tip),
+    totalBeforeDeposit: getCheckoutTotalizationMoney(
+      checkout,
+      "totalBeforeDeposit",
+      checkout.total
+    ),
+    depositAppliedTotal: getCheckoutTotalizationMoney(
+      checkout,
+      "depositAppliedTotal"
+    ),
+    amountDue: getCheckoutTotalizationMoney(
+      checkout,
+      "amountDue",
+      checkout.total
+    ),
+    refundTotal: getCheckoutTotalizationMoney(
+      checkout,
+      "refundTotal",
+      checkout.refundSummary?.refundedTotal
+    ),
+  },
   client: {
     id: checkout.snapshot?.client?.id || null,
     firstName: checkout.snapshot?.client?.firstName || "",
@@ -247,7 +310,7 @@ const capturePayment = async (req, res) => {
       return ErrorHandler("Amount must be a non-negative number", 400, req, res);
     }
 
-    if (normalizedAmount !== Number(checkout.total)) {
+    if (!amountsMatch(normalizedAmount, Number(checkout.total))) {
       return ErrorHandler(
         "Payment amount must match checkout total",
         400,

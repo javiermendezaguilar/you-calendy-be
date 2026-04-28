@@ -1,6 +1,11 @@
 const mongoose = require("mongoose");
 const Service = require("../../models/service");
 const Staff = require("../../models/staff");
+const {
+  applyTotalizationToCheckout,
+  createTotalizationError,
+  roundMoney,
+} = require("./totalizationService");
 
 const SERVICE_LINE_SOURCE = {
   RESERVED_DEFAULT: "reserved_service_default",
@@ -12,14 +17,7 @@ const MAX_QUANTITY = 99;
 const MAX_DURATION_MINUTES = 1440;
 const MAX_NOTE_LENGTH = 500;
 
-const createServiceLineError = (message, statusCode = 400) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-};
-
-const roundMoney = (value) =>
-  Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const createServiceLineError = createTotalizationError;
 
 const toId = (documentOrId) => {
   if (!documentOrId) {
@@ -38,46 +36,45 @@ const toObjectIdOrThrow = (value, fieldName) => {
   return new mongoose.Types.ObjectId(rawValue.toString());
 };
 
-const normalizeQuantity = (value) => {
-  const quantity = value === undefined || value === null || value === ""
-    ? 1
+const normalizeIntegerRange = ({ value, fallback, fieldName, min, max }) => {
+  const normalized = value === undefined || value === null || value === ""
+    ? fallback
     : Number(value);
 
   if (
-    !Number.isInteger(quantity) ||
-    quantity < 1 ||
-    quantity > MAX_QUANTITY
+    !Number.isInteger(normalized) ||
+    normalized < min ||
+    normalized > max
   ) {
     throw createServiceLineError(
-      `quantity must be an integer from 1 to ${MAX_QUANTITY}`
+      `${fieldName} must be an integer from ${min} to ${max}`
     );
   }
 
-  return quantity;
+  return normalized;
 };
 
-const normalizeDurationMinutes = (value) => {
-  const durationMinutes = value === undefined || value === null || value === ""
-    ? 0
-    : Number(value);
+const normalizeQuantity = (value) =>
+  normalizeIntegerRange({
+    value,
+    fallback: 1,
+    fieldName: "quantity",
+    min: 1,
+    max: MAX_QUANTITY,
+  });
 
-  if (
-    !Number.isInteger(durationMinutes) ||
-    durationMinutes < 0 ||
-    durationMinutes > MAX_DURATION_MINUTES
-  ) {
-    throw createServiceLineError(
-      `durationMinutes must be an integer from 0 to ${MAX_DURATION_MINUTES}`
-    );
-  }
-
-  return durationMinutes;
-};
+const normalizeDurationMinutes = (value) =>
+  normalizeIntegerRange({
+    value,
+    fallback: 0,
+    fieldName: "durationMinutes",
+    min: 0,
+    max: MAX_DURATION_MINUTES,
+  });
 
 const normalizeMoney = (value, fieldName, { allowNegative = false } = {}) => {
-  const amount = value === undefined || value === null || value === ""
-    ? 0
-    : Number(value);
+  const inputIsBlank = value === undefined || value === null || value === "";
+  const amount = inputIsBlank ? 0 : Number(value);
 
   if (!Number.isFinite(amount) || (!allowNegative && amount < 0)) {
     throw createServiceLineError(
@@ -113,6 +110,19 @@ const buildStaffSnapshot = (staff) => {
     firstName: staff.firstName || "",
     lastName: staff.lastName || "",
   };
+};
+
+const getAppointmentServiceLineUnitPrice = (appointment) => {
+  if (appointment?.promotion?.applied && appointment?.promotion?.originalPrice) {
+    return Number(appointment.promotion.originalPrice) || 0;
+  }
+
+  if (appointment?.flashSale?.applied && appointment?.flashSale?.originalPrice) {
+    return Number(appointment.flashSale.originalPrice) || 0;
+  }
+
+  const service = appointment?.service || {};
+  return Number(appointment?.price) || Number(service.price) || 0;
 };
 
 const buildServiceLineSnapshot = ({
@@ -154,7 +164,7 @@ const buildServiceLineSnapshot = ({
 const buildDefaultServiceLinesFromAppointment = (appointment) => {
   const service = appointment?.service || {};
   const staff = appointment?.staff || null;
-  const unitPrice = Number(appointment?.price) || Number(service.price) || 0;
+  const unitPrice = getAppointmentServiceLineUnitPrice(appointment);
   const durationMinutes =
     Number(appointment?.duration) || Number(service.duration) || 0;
 
@@ -285,13 +295,7 @@ const normalizeCheckoutServiceLines = async ({
 };
 
 const applyServiceLinesToCheckout = (checkout, serviceLines) => {
-  const subtotal = sumServiceLines(serviceLines);
-
-  checkout.serviceLines = serviceLines;
-  checkout.subtotal = subtotal;
-  checkout.total = roundMoney(subtotal + (Number(checkout.tip) || 0));
-
-  return checkout;
+  return applyTotalizationToCheckout(checkout, { serviceLines });
 };
 
 const buildServiceLineSnapshotList = (serviceLines = []) =>
@@ -322,6 +326,7 @@ module.exports = {
   applyServiceLinesToCheckout,
   buildDefaultServiceLinesFromAppointment,
   buildServiceLineSnapshotList,
+  getAppointmentServiceLineUnitPrice,
   normalizeCheckoutServiceLines,
   sumServiceLines,
 };

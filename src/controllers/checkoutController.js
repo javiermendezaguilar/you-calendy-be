@@ -14,9 +14,13 @@ const {
 const {
   applyServiceLinesToCheckout,
   buildDefaultServiceLinesFromAppointment,
+  getAppointmentServiceLineUnitPrice,
   normalizeCheckoutServiceLines,
-  sumServiceLines,
 } = require("../services/checkout/serviceLineService");
+const {
+  applyTotalizationToCheckout,
+  buildAppointmentDiscountLines,
+} = require("../services/checkout/totalizationService");
 const moment = require("moment");
 const mongoose = require("mongoose");
 
@@ -55,25 +59,6 @@ const getOwnedCheckoutOrReply = async (req, res, businessId, checkoutId) => {
   return checkout;
 };
 
-const getAppointmentDiscountTotal = (appointment) => {
-  const promotionDiscount = Number(appointment?.promotion?.discountAmount) || 0;
-  const flashSaleDiscount = Number(appointment?.flashSale?.discountAmount) || 0;
-
-  return promotionDiscount + flashSaleDiscount;
-};
-
-const getAppointmentSourcePrice = (appointment) => {
-  if (appointment?.promotion?.applied && appointment?.promotion?.originalPrice) {
-    return Number(appointment.promotion.originalPrice) || 0;
-  }
-
-  if (appointment?.flashSale?.applied && appointment?.flashSale?.originalPrice) {
-    return Number(appointment.flashSale.originalPrice) || 0;
-  }
-
-  return Number(appointment?.price) || 0;
-};
-
 const buildCheckoutSnapshot = (appointment) => ({
   appointmentStatus: appointment.status || "",
   bookingStatus: appointment.bookingStatus || "",
@@ -109,24 +94,27 @@ const buildCheckoutSnapshot = (appointment) => ({
 
 const buildCheckoutPayload = (appointment) => {
   const serviceLines = buildDefaultServiceLinesFromAppointment(appointment);
-  const subtotal = sumServiceLines(serviceLines);
-  const discountTotal = getAppointmentDiscountTotal(appointment);
-  const sourcePrice = getAppointmentSourcePrice(appointment);
-
-  return {
+  const sourcePrice = getAppointmentServiceLineUnitPrice(appointment);
+  const payload = {
     appointment: appointment._id,
     business: appointment.business,
     client: appointment.client?._id || appointment.client,
     staff: appointment.staff?._id || appointment.staff || null,
     currency: appointment.service?.currency || "USD",
-    subtotal,
-    discountTotal,
+    subtotal: 0,
+    discountTotal: 0,
     tip: 0,
-    total: subtotal,
+    total: 0,
     sourcePrice,
     serviceLines,
+    productLines: [],
+    discountLines: buildAppointmentDiscountLines(appointment),
+    taxLines: [],
     snapshot: buildCheckoutSnapshot(appointment),
   };
+
+  applyTotalizationToCheckout(payload);
+  return payload;
 };
 
 const buildRebookingDateTime = (date, startTime) => {
@@ -403,11 +391,6 @@ const closeCheckout = async (req, res) => {
     const business = await getBusinessForOwnerOrReply(req, res);
     if (!business) return;
 
-    const tip = Number(req.body.tip ?? 0);
-    if (Number.isNaN(tip) || tip < 0) {
-      return ErrorHandler("Tip must be a non-negative number", 400, req, res);
-    }
-
     const checkout = await getOwnedCheckoutOrReply(
       req,
       res,
@@ -420,8 +403,17 @@ const closeCheckout = async (req, res) => {
       return ErrorHandler("Checkout is already finalized", 409, req, res);
     }
 
-    checkout.tip = tip;
-    checkout.total = Number(checkout.subtotal) + tip;
+    const totalizationOverrides = {
+      tip: req.body.tip ?? checkout.tip ?? 0,
+    };
+
+    ["productLines", "discountLines", "taxLines"].forEach((fieldName) => {
+      if (Object.prototype.hasOwnProperty.call(req.body, fieldName)) {
+        totalizationOverrides[fieldName] = req.body[fieldName];
+      }
+    });
+
+    applyTotalizationToCheckout(checkout, totalizationOverrides);
     checkout.status = "closed";
     checkout.closedAt = new Date();
     checkout.closedBy = req.user._id;
@@ -450,7 +442,7 @@ const closeCheckout = async (req, res) => {
 
     return SuccessHandler(hydratedCheckout, 200, res);
   } catch (error) {
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };
 

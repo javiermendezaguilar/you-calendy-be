@@ -1,10 +1,161 @@
 const Business = require("../models/User/business");
-const ErrorHandler = require("./ErrorHandler");
 
 /**
  * Credit Management Utility
  * Handles SMS and Email credit validation and deduction
  */
+
+const creditFields = {
+  sms: {
+    field: "smsCredits",
+    label: "SMS",
+  },
+  email: {
+    field: "emailCredits",
+    label: "Email",
+  },
+};
+
+const normalizeCreditAmount = (value, { label, allowZero = false }) => {
+  const amount = Number(value);
+  const isValidInteger = Number.isInteger(amount);
+  const minimum = allowZero ? 0 : 1;
+
+  if (!isValidInteger || amount < minimum) {
+    const kind = allowZero ? "non-negative integer" : "positive integer";
+    throw new Error(`${label} credits amount must be a ${kind}`);
+  }
+
+  return amount;
+};
+
+const getBusinessCreditBalance = async (businessId, field) => {
+  const business = await Business.findById(businessId).select(field).lean();
+  if (!business) {
+    throw new Error("Business not found");
+  }
+
+  return business[field] || 0;
+};
+
+const buildInsufficientCreditsError = (label, requiredCredits, currentCredits) =>
+  new Error(
+    `Insufficient ${label} credits. Required: ${requiredCredits}, Available: ${currentCredits}`
+  );
+
+const logCreditOutcome = (payload) => {
+  console.log("Business credit outcome:", JSON.stringify(payload));
+};
+
+const checkCredits = async (businessId, requiredCredits, creditType) => {
+  const { field, label } = creditFields[creditType];
+  const normalizedRequiredCredits = normalizeCreditAmount(requiredCredits, {
+    label,
+  });
+  const currentCredits = await getBusinessCreditBalance(businessId, field);
+
+  return {
+    hasCredits: currentCredits >= normalizedRequiredCredits,
+    currentCredits,
+    requiredCredits: normalizedRequiredCredits,
+  };
+};
+
+const deductCredits = async (businessId, creditsToDeduct, creditType) => {
+  const { field, label } = creditFields[creditType];
+  const normalizedCreditsToDeduct = normalizeCreditAmount(creditsToDeduct, {
+    label,
+  });
+
+  const business = await Business.findOneAndUpdate(
+    {
+      _id: businessId,
+      [field]: { $gte: normalizedCreditsToDeduct },
+    },
+    {
+      $inc: {
+        [field]: -normalizedCreditsToDeduct,
+      },
+    },
+    { new: true }
+  ).select(field);
+
+  if (!business) {
+    const currentCredits = await getBusinessCreditBalance(businessId, field);
+    logCreditOutcome({
+      businessId: String(businessId),
+      creditType,
+      action: "deduct_rejected",
+      credits: normalizedCreditsToDeduct,
+      currentCredits,
+      reason: "insufficient_credits",
+    });
+    throw buildInsufficientCreditsError(
+      label,
+      normalizedCreditsToDeduct,
+      currentCredits
+    );
+  }
+
+  logCreditOutcome({
+    businessId: String(businessId),
+    creditType,
+    action: "deducted",
+    credits: normalizedCreditsToDeduct,
+    remainingCredits: business[field] || 0,
+  });
+
+  return {
+    success: true,
+    remainingCredits: business[field] || 0,
+    deductedCredits: normalizedCreditsToDeduct,
+  };
+};
+
+const addCredits = async (businessId, creditsToAdd, creditType) => {
+  const { field, label } = creditFields[creditType];
+  const normalizedCreditsToAdd = normalizeCreditAmount(creditsToAdd, {
+    label,
+    allowZero: true,
+  });
+
+  if (normalizedCreditsToAdd === 0) {
+    const currentCredits = await getBusinessCreditBalance(businessId, field);
+    return {
+      success: true,
+      totalCredits: currentCredits,
+      addedCredits: 0,
+    };
+  }
+
+  const business = await Business.findByIdAndUpdate(
+    businessId,
+    {
+      $inc: {
+        [field]: normalizedCreditsToAdd,
+      },
+    },
+    { new: true }
+  ).select(field);
+
+  if (!business) {
+    throw new Error("Business not found");
+  }
+
+  logCreditOutcome({
+    businessId: String(businessId),
+    creditType,
+    action: "added",
+    credits: normalizedCreditsToAdd,
+    totalCredits: business[field] || 0,
+  });
+
+  return {
+    success: true,
+    totalCredits: business[field] || 0,
+    addedCredits: normalizedCreditsToAdd,
+  };
+};
 
 /**
  * Check if business has sufficient SMS credits
@@ -14,19 +165,7 @@ const ErrorHandler = require("./ErrorHandler");
  */
 const checkSmsCredits = async (businessId, requiredCredits = 1) => {
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      throw new Error("Business not found");
-    }
-
-    const currentCredits = business.smsCredits || 0;
-    const hasCredits = currentCredits >= requiredCredits;
-
-    return {
-      hasCredits,
-      currentCredits,
-      requiredCredits,
-    };
+    return checkCredits(businessId, requiredCredits, "sms");
   } catch (error) {
     console.error("Error checking SMS credits:", error);
     throw error;
@@ -41,19 +180,7 @@ const checkSmsCredits = async (businessId, requiredCredits = 1) => {
  */
 const checkEmailCredits = async (businessId, requiredCredits = 1) => {
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      throw new Error("Business not found");
-    }
-
-    const currentCredits = business.emailCredits || 0;
-    const hasCredits = currentCredits >= requiredCredits;
-
-    return {
-      hasCredits,
-      currentCredits,
-      requiredCredits,
-    };
+    return checkCredits(businessId, requiredCredits, "email");
   } catch (error) {
     console.error("Error checking Email credits:", error);
     throw error;
@@ -68,31 +195,7 @@ const checkEmailCredits = async (businessId, requiredCredits = 1) => {
  */
 const deductSmsCredits = async (businessId, creditsToDeduct = 1) => {
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      throw new Error("Business not found");
-    }
-
-    const currentCredits = business.smsCredits || 0;
-
-    if (currentCredits < creditsToDeduct) {
-      throw new Error(
-        `Insufficient SMS credits. Required: ${creditsToDeduct}, Available: ${currentCredits}`
-      );
-    }
-
-    business.smsCredits = Math.max(0, currentCredits - creditsToDeduct);
-    await business.save();
-
-    console.log(
-      `Deducted ${creditsToDeduct} SMS credits from business ${businessId}. Remaining: ${business.smsCredits}`
-    );
-
-    return {
-      success: true,
-      remainingCredits: business.smsCredits,
-      deductedCredits: creditsToDeduct,
-    };
+    return deductCredits(businessId, creditsToDeduct, "sms");
   } catch (error) {
     console.error("Error deducting SMS credits:", error);
     throw error;
@@ -107,31 +210,7 @@ const deductSmsCredits = async (businessId, creditsToDeduct = 1) => {
  */
 const deductEmailCredits = async (businessId, creditsToDeduct = 1) => {
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      throw new Error("Business not found");
-    }
-
-    const currentCredits = business.emailCredits || 0;
-
-    if (currentCredits < creditsToDeduct) {
-      throw new Error(
-        `Insufficient Email credits. Required: ${creditsToDeduct}, Available: ${currentCredits}`
-      );
-    }
-
-    business.emailCredits = Math.max(0, currentCredits - creditsToDeduct);
-    await business.save();
-
-    console.log(
-      `Deducted ${creditsToDeduct} Email credits from business ${businessId}. Remaining: ${business.emailCredits}`
-    );
-
-    return {
-      success: true,
-      remainingCredits: business.emailCredits,
-      deductedCredits: creditsToDeduct,
-    };
+    return deductCredits(businessId, creditsToDeduct, "email");
   } catch (error) {
     console.error("Error deducting Email credits:", error);
     throw error;
@@ -146,23 +225,7 @@ const deductEmailCredits = async (businessId, creditsToDeduct = 1) => {
  */
 const addSmsCredits = async (businessId, creditsToAdd) => {
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      throw new Error("Business not found");
-    }
-
-    business.smsCredits = (business.smsCredits || 0) + creditsToAdd;
-    await business.save();
-
-    console.log(
-      `Added ${creditsToAdd} SMS credits to business ${businessId}. Total: ${business.smsCredits}`
-    );
-
-    return {
-      success: true,
-      totalCredits: business.smsCredits,
-      addedCredits: creditsToAdd,
-    };
+    return addCredits(businessId, creditsToAdd, "sms");
   } catch (error) {
     console.error("Error adding SMS credits:", error);
     throw error;
@@ -177,23 +240,7 @@ const addSmsCredits = async (businessId, creditsToAdd) => {
  */
 const addEmailCredits = async (businessId, creditsToAdd) => {
   try {
-    const business = await Business.findById(businessId);
-    if (!business) {
-      throw new Error("Business not found");
-    }
-
-    business.emailCredits = (business.emailCredits || 0) + creditsToAdd;
-    await business.save();
-
-    console.log(
-      `Added ${creditsToAdd} Email credits to business ${businessId}. Total: ${business.emailCredits}`
-    );
-
-    return {
-      success: true,
-      totalCredits: business.emailCredits,
-      addedCredits: creditsToAdd,
-    };
+    return addCredits(businessId, creditsToAdd, "email");
   } catch (error) {
     console.error("Error adding Email credits:", error);
     throw error;
@@ -237,16 +284,6 @@ const validateAndDeductSmsCredits = async (
   res
 ) => {
   try {
-    const creditCheck = await checkSmsCredits(businessId, requiredCredits);
-
-    if (!creditCheck.hasCredits) {
-      // Log the error but don't send response - let calling function handle it
-      console.error(
-        `Insufficient SMS credits for business ${businessId}. Required: ${requiredCredits}, Available: ${creditCheck.currentCredits}`
-      );
-      return false;
-    }
-
     await deductSmsCredits(businessId, requiredCredits);
     return true;
   } catch (error) {
@@ -270,16 +307,6 @@ const validateAndDeductEmailCredits = async (
   res
 ) => {
   try {
-    const creditCheck = await checkEmailCredits(businessId, requiredCredits);
-
-    if (!creditCheck.hasCredits) {
-      // Log the error but don't send response - let calling function handle it
-      console.error(
-        `Insufficient Email credits for business ${businessId}. Required: ${requiredCredits}, Available: ${creditCheck.currentCredits}`
-      );
-      return false;
-    }
-
     await deductEmailCredits(businessId, requiredCredits);
     return true;
   } catch (error) {

@@ -126,6 +126,11 @@ const paymentSchema = new Schema(
       trim: true,
       default: "",
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      maxlength: 128,
+    },
     capturedAt: {
       type: Date,
       default: Date.now,
@@ -255,6 +260,17 @@ paymentSchema.index(
       paymentScope: PAYMENT_SCOPE.COMMERCE_CHECKOUT,
       status: "captured",
       checkout: { $exists: true },
+    },
+  }
+);
+
+paymentSchema.index(
+  { business: 1, paymentScope: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      paymentScope: PAYMENT_SCOPE.COMMERCE_CHECKOUT,
+      idempotencyKey: { $exists: true },
     },
   }
 );

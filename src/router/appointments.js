@@ -4,6 +4,7 @@ const { isAuthenticated, tryAuthenticate } = require("../middleware/auth");
 const checkNoShowBlock = require("../middleware/checkBlock");
 const appointmentController = require("../controllers/appointmentController");
 const policyChargeController = require("../controllers/policyChargeController");
+const { policyChargeWriteLimiter } = require("../middleware/economicRateLimit");
 const multer = require("multer");
 
 // Multer setup for file uploads
@@ -87,6 +88,7 @@ router.post(
 router.post(
   "/:id/policy-charges",
   isAuthenticated,
+  policyChargeWriteLimiter,
   policyChargeController.createPolicyCharge
 );
 router.get(

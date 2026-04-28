@@ -28,6 +28,13 @@ describe("Payment v1", () => {
   const captureCheckout = (payload = {}) =>
     captureCheckoutPaymentForToken(app, token, checkout._id, payload);
 
+  const captureCheckoutWithIdempotency = (idempotencyKey, payload = {}) =>
+    request(app)
+      .post(`/payment/checkout/${checkout._id}/capture`)
+      .set("Authorization", `Bearer ${token}`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(payload);
+
   beforeEach(async () => {
     ({ fixture, appointment, checkout, token } =
       await createPaymentCommerceFixture({
@@ -148,6 +155,74 @@ describe("Payment v1", () => {
 
     expect(duplicateCapture.status).toBe(409);
     expect(duplicateCapture.body.message).toMatch(/terminal payment already exists/i);
+  });
+
+  test("returns the existing payment when checkout capture is retried with the same idempotency key", async () => {
+    const capturePayload = {
+      method: "card_manual",
+      amount: 40,
+      reference: "terminal-idempotent-001",
+    };
+
+    const firstCapture = await captureCheckoutWithIdempotency(
+      "checkout-capture-retry-1",
+      capturePayload
+    );
+
+    expect(firstCapture.status).toBe(201);
+
+    const retryCapture = await captureCheckoutWithIdempotency(
+      "checkout-capture-retry-1",
+      capturePayload
+    );
+
+    expect(retryCapture.status).toBe(200);
+    expect(retryCapture.body.data._id).toBe(firstCapture.body.data._id);
+
+    const paymentCount = await Payment.countDocuments({ checkout: checkout._id });
+    expect(paymentCount).toBe(1);
+
+    const storedPayment = await Payment.findById(firstCapture.body.data._id).lean();
+    expect(storedPayment.idempotencyKey).toBe("checkout-capture-retry-1");
+  });
+
+  test("rejects checkout capture when an idempotency key is reused with a different economic shape", async () => {
+    const firstCapture = await captureCheckoutWithIdempotency(
+      "checkout-capture-conflict-1",
+      {
+        method: "card_manual",
+        amount: 40,
+      }
+    );
+
+    expect(firstCapture.status).toBe(201);
+
+    const conflictingRetry = await captureCheckoutWithIdempotency(
+      "checkout-capture-conflict-1",
+      {
+        method: "other",
+        amount: 40,
+      }
+    );
+
+    expect(conflictingRetry.status).toBe(409);
+    expect(conflictingRetry.body.message).toMatch(/different payment capture/i);
+
+    const paymentCount = await Payment.countDocuments({ checkout: checkout._id });
+    expect(paymentCount).toBe(1);
+  });
+
+  test("rejects oversized checkout capture idempotency keys", async () => {
+    const oversizedKey = "k".repeat(129);
+
+    const captureRes = await captureCheckoutWithIdempotency(oversizedKey, {
+      method: "card_manual",
+      amount: 40,
+    });
+
+    expect(captureRes.status).toBe(400);
+    expect(captureRes.body.message).toMatch(/128 characters or fewer/i);
+    expect(await Payment.countDocuments({ checkout: checkout._id })).toBe(0);
   });
 
   test("allows recapturing the same checkout after a payment was voided", async () => {

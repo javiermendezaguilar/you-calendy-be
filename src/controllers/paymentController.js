@@ -203,8 +203,35 @@ const getRefundIdempotencyKey = (req) => {
   return String(rawKey).trim();
 };
 
+const getCaptureIdempotencyKey = (req) => {
+  const rawKey = req.get?.("Idempotency-Key") || req.body?.idempotencyKey || "";
+  return String(rawKey).trim();
+};
+
+const CAPTURE_PAYMENT_METHODS = ["cash", "card_manual", "other", "stripe"];
+const MAX_CAPTURE_IDEMPOTENCY_KEY_LENGTH = 128;
+
 const amountsMatch = (left, right) =>
   Math.abs((Number(left) || 0) - (Number(right) || 0)) < 0.000001;
+
+const isSameCaptureShape = (payment, { checkoutId, amount, method }) =>
+  String(payment.checkout) === String(checkoutId) &&
+  amountsMatch(payment.amount, amount) &&
+  payment.method === method;
+
+const findIdempotentCapture = (businessId, idempotencyKey, mongoSession) => {
+  if (!idempotencyKey) {
+    return null;
+  }
+
+  return withOptionalSession(
+    Payment.findOne(buildCommercePaymentFilter({
+      business: businessId,
+      idempotencyKey,
+    })),
+    mongoSession
+  );
+};
 
 const findIdempotentRefund = (paymentId, businessId, idempotencyKey, mongoSession) => {
   if (!idempotencyKey) {
@@ -267,11 +294,22 @@ const recalculateCashSessionSummary = async (
 };
 
 const capturePayment = async (req, res) => {
+  let businessForIdempotency = null;
+  let checkoutForIdempotency = null;
+  let normalizedAmount = null;
+  let captureMethod = "";
+  let idempotencyKey = "";
+
   try {
     const business = await resolveBusinessOrReply(req, res);
     if (!business) return;
 
-    const { method, amount, reference = "" } = req.body;
+    businessForIdempotency = business;
+
+    const { amount, reference = "" } = req.body;
+    captureMethod = String(req.body.method || "").trim();
+    idempotencyKey = getCaptureIdempotencyKey(req);
+
     const checkout = await Checkout.findOne({
       _id: req.params.checkoutId,
       business: business._id,
@@ -279,6 +317,62 @@ const capturePayment = async (req, res) => {
 
     if (!checkout) {
       return ErrorHandler("Checkout not found", 404, req, res);
+    }
+
+    checkoutForIdempotency = checkout;
+
+    if (idempotencyKey.length > MAX_CAPTURE_IDEMPOTENCY_KEY_LENGTH) {
+      return ErrorHandler(
+        "Idempotency key must be 128 characters or fewer",
+        400,
+        req,
+        res
+      );
+    }
+
+    if (!CAPTURE_PAYMENT_METHODS.includes(captureMethod)) {
+      return ErrorHandler("Payment method is not supported", 400, req, res);
+    }
+
+    normalizedAmount = Number(amount);
+    if (Number.isNaN(normalizedAmount) || normalizedAmount < 0) {
+      return ErrorHandler("Amount must be a non-negative number", 400, req, res);
+    }
+
+    if (!amountsMatch(normalizedAmount, Number(checkout.total))) {
+      return ErrorHandler(
+        "Payment amount must match checkout total",
+        400,
+        req,
+        res
+      );
+    }
+
+    const existingIdempotentPayment = await findIdempotentCapture(
+      business._id,
+      idempotencyKey
+    );
+
+    if (existingIdempotentPayment) {
+      if (
+        !isSameCaptureShape(existingIdempotentPayment, {
+          checkoutId: checkout._id,
+          amount: normalizedAmount,
+          method: captureMethod,
+        })
+      ) {
+        return ErrorHandler(
+          "Idempotency key already used for a different payment capture",
+          409,
+          req,
+          res
+        );
+      }
+
+      const hydratedExistingPayment = await hydratePayment(
+        existingIdempotentPayment._id
+      );
+      return SuccessHandler(hydratedExistingPayment, 200, res);
     }
 
     const existingPayment = await Payment.findOne({
@@ -305,22 +399,8 @@ const capturePayment = async (req, res) => {
       );
     }
 
-    const normalizedAmount = Number(amount);
-    if (Number.isNaN(normalizedAmount) || normalizedAmount < 0) {
-      return ErrorHandler("Amount must be a non-negative number", 400, req, res);
-    }
-
-    if (!amountsMatch(normalizedAmount, Number(checkout.total))) {
-      return ErrorHandler(
-        "Payment amount must match checkout total",
-        400,
-        req,
-        res
-      );
-    }
-
     let activeCashSession = null;
-    if (method === "cash") {
+    if (captureMethod === "cash") {
       activeCashSession = await CashSession.findOne({
         business: business._id,
         status: "open",
@@ -336,7 +416,7 @@ const capturePayment = async (req, res) => {
       }
     }
 
-    const payment = await Payment.create({
+    const paymentPayload = {
       paymentScope: "commerce_checkout",
       checkout: checkout._id,
       appointment: checkout.appointment,
@@ -345,7 +425,7 @@ const capturePayment = async (req, res) => {
       staff: checkout.staff,
       cashSession: activeCashSession?._id || null,
       status: "captured",
-      method,
+      method: captureMethod,
       currency: checkout.currency,
       amount: normalizedAmount,
       tip: Number(checkout.tip) || 0,
@@ -353,7 +433,13 @@ const capturePayment = async (req, res) => {
       capturedAt: new Date(),
       capturedBy: req.user._id,
       snapshot: buildPaymentSnapshot(checkout),
-    });
+    };
+
+    if (idempotencyKey) {
+      paymentPayload.idempotencyKey = idempotencyKey;
+    }
+
+    const payment = await Payment.create(paymentPayload);
 
     checkout.status = "paid";
     await checkout.save();
@@ -370,9 +456,10 @@ const capturePayment = async (req, res) => {
         paymentId: payment._id,
         checkoutId: checkout._id,
         appointmentId: checkout.appointment,
-        method,
+        method: captureMethod,
         amount: normalizedAmount,
         tip: Number(checkout.tip) || 0,
+        idempotencyKeyPresent: Boolean(idempotencyKey),
       },
     });
     await syncClientLifecycleAfterPayment(payment);
@@ -381,6 +468,39 @@ const capturePayment = async (req, res) => {
 
     return SuccessHandler(hydratedPayment, 201, res);
   } catch (error) {
+    if (
+      error?.code === 11000 &&
+      idempotencyKey &&
+      businessForIdempotency &&
+      checkoutForIdempotency
+    ) {
+      const existingIdempotentPayment = await findIdempotentCapture(
+        businessForIdempotency._id,
+        idempotencyKey
+      );
+
+      if (
+        existingIdempotentPayment &&
+        isSameCaptureShape(existingIdempotentPayment, {
+          checkoutId: checkoutForIdempotency._id,
+          amount: normalizedAmount,
+          method: captureMethod,
+        })
+      ) {
+        const hydratedExistingPayment = await hydratePayment(
+          existingIdempotentPayment._id
+        );
+        return SuccessHandler(hydratedExistingPayment, 200, res);
+      }
+
+      return ErrorHandler(
+        "Idempotency key already used for a different payment capture",
+        409,
+        req,
+        res
+      );
+    }
+
     if (error?.code === 11000) {
       return ErrorHandler(
         "A terminal payment already exists for this checkout",

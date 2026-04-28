@@ -30,6 +30,7 @@ const webhookController = require("./controllers/webhookController");
 const {
   logStripeWebhookSecretMode,
 } = require("./services/billing/stripeWebhookService");
+const { stripeWebhookLimiter } = require("./middleware/economicRateLimit");
 
 const parseAllowedOrigins = (value) =>
   (value || "")
@@ -92,6 +93,7 @@ app.use(analyticsMiddleware);
 // Stripe webhook raw body parser
 app.post(
   "/webhook/stripe",
+  stripeWebhookLimiter,
   express.raw({ type: "application/json" }),
   (req, res, next) => {
     req.rawBody = req.body;

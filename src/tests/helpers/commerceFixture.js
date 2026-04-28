@@ -268,6 +268,20 @@ const createOperationalCommerceFixture = async (
   return fixture;
 };
 
+const createCompletedNoDiscountCommerceFixture = (overrides = {}) =>
+  createCommerceFixture({
+    ownerName: "Completed No Discount Owner",
+    ownerEmail: "completed-no-discount-owner@example.com",
+    businessName: "Completed No Discount Shop",
+    appointmentStatus: "Completed",
+    bookingStatus: "confirmed",
+    visitStatus: "completed",
+    appointmentPrice: 50,
+    promotion: createNoPromotionState(),
+    flashSale: createNoPromotionState(),
+    ...overrides,
+  });
+
 const createClosedCheckoutForFixture = async (fixture, overrides = {}) => {
   return Checkout.create({
     appointment: fixture.appointment._id,
@@ -405,6 +419,7 @@ module.exports = {
   connectCommerceTestDatabase,
   disconnectCommerceTestDatabase,
   createCommerceFixture,
+  createCompletedNoDiscountCommerceFixture,
   createOperationalCommerceFixture,
   createClosedCheckoutForFixture,
   createPaymentCommerceFixture,

@@ -7,6 +7,9 @@ const {
 const {
   createServiceLineSnapshotSchema,
 } = require("./serviceLineSnapshotSchema");
+const {
+  createCheckoutFinancialSnapshotFields,
+} = require("./checkoutTotalizationSchemas");
 
 const paymentSchema = new Schema(
   {
@@ -189,6 +192,7 @@ const paymentSchema = new Schema(
         },
       },
       serviceLines: [createServiceLineSnapshotSchema(Schema)],
+      ...createCheckoutFinancialSnapshotFields(Schema),
       client: {
         id: {
           type: Schema.Types.ObjectId,

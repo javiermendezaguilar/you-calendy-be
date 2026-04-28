@@ -584,4 +584,102 @@ describe("Payment summary v1", () => {
       netStaffRevenue: 85,
     });
   });
+
+  test("allocates totalized product tax and discount payments to service revenue without tips", async () => {
+    const serviceLines = [buildSummaryServiceLine({ fixture, lineTotal: 50 })];
+    const checkout = await createSummaryCheckout(fixture, {
+      subtotal: 62,
+      tip: 3,
+      total: 65.7,
+      openedAt: new Date("2026-04-22T09:00:00.000Z"),
+      serviceLines,
+    });
+
+    await Payment.create({
+      paymentScope: "commerce_checkout",
+      checkout: checkout._id,
+      appointment: fixture.appointment._id,
+      business: fixture.business._id,
+      client: fixture.client._id,
+      staff: fixture.staff._id,
+      status: "captured",
+      method: "card_manual",
+      currency: "EUR",
+      amount: 65.7,
+      tip: 3,
+      reference: "summary-totalized-checkout",
+      capturedAt: new Date("2026-04-22T09:10:00.000Z"),
+      capturedBy: fixture.owner._id,
+      snapshot: {
+        subtotal: 62,
+        discountTotal: 5,
+        total: 65.7,
+        sourcePrice: 62,
+        serviceLines,
+        productLines: [
+          {
+            name: "Pomade",
+            quantity: 2,
+            unitPrice: 6,
+            adjustmentAmount: 0,
+            lineTotal: 12,
+            source: "manual",
+            note: "",
+          },
+        ],
+        discountLines: [
+          {
+            label: "Loyalty",
+            source: "manual",
+            amount: 5,
+            rate: 0,
+            note: "",
+          },
+        ],
+        taxLines: [
+          {
+            label: "VAT",
+            source: "vat",
+            amount: 5.7,
+            rate: 10,
+            note: "",
+          },
+        ],
+        totalization: {
+          serviceSubtotal: 50,
+          productSubtotal: 12,
+          subtotal: 62,
+          discountTotal: 5,
+          taxableSubtotal: 57,
+          taxTotal: 5.7,
+          tipTotal: 3,
+          totalBeforeDeposit: 65.7,
+          depositAppliedTotal: 0,
+          amountDue: 65.7,
+          refundTotal: 0,
+        },
+        service: { id: fixture.service._id, name: fixture.service.name },
+        client: {
+          id: fixture.client._id,
+          firstName: fixture.client.firstName,
+          lastName: fixture.client.lastName,
+        },
+        discounts: { promotionAmount: 0, flashSaleAmount: 0 },
+      },
+    });
+
+    const res = await request(app)
+      .get("/payment/summary?startDate=2026-04-22T00:00:00.000Z&endDate=2026-04-22T23:59:59.999Z")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    const serviceItem = res.body.data.serviceBreakdown.items.find(
+      (item) => item.serviceId === fixture.service._id.toString()
+    );
+
+    expect(serviceItem).toMatchObject({
+      grossServiceRevenue: 50,
+      netServiceRevenue: 45.97,
+    });
+  });
 });

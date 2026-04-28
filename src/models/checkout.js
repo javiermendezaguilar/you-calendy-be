@@ -3,6 +3,9 @@ const Schema = mongoose.Schema;
 const {
   createServiceLineSnapshotSchema,
 } = require("./serviceLineSnapshotSchema");
+const {
+  createCheckoutFinancialSnapshotFields,
+} = require("./checkoutTotalizationSchemas");
 
 const currencyEnum = [
   "USD",
@@ -87,6 +90,7 @@ const checkoutSchema = new Schema(
       min: 0,
     },
     serviceLines: [createServiceLineSnapshotSchema(Schema)],
+    ...createCheckoutFinancialSnapshotFields(Schema),
     snapshot: {
       appointmentStatus: {
         type: String,

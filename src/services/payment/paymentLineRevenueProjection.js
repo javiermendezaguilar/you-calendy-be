@@ -19,6 +19,13 @@ const getPaymentKey = (payment, index) =>
   payment?._id?.toString() || `payment:${index}`;
 
 const getGrossServiceAmount = (payment) => {
+  const totalizedServiceSubtotal = toNumber(
+    payment?.snapshot?.totalization?.serviceSubtotal
+  );
+  if (totalizedServiceSubtotal > 0) {
+    return totalizedServiceSubtotal;
+  }
+
   const subtotal = toNumber(payment?.snapshot?.subtotal);
   if (subtotal > 0) {
     return subtotal;
@@ -27,7 +34,46 @@ const getGrossServiceAmount = (payment) => {
   return Math.max(toNumber(payment?.amount) - toNumber(payment?.tip), 0);
 };
 
+const getTotalizedServiceAmountBeforeRefund = (payment) => {
+  const totalization = payment?.snapshot?.totalization;
+  const serviceSubtotal = toNumber(totalization?.serviceSubtotal);
+
+  if (!totalization || serviceSubtotal <= 0) {
+    return null;
+  }
+
+  const subtotal = toNumber(totalization.subtotal);
+  const discountTotal = toNumber(totalization.discountTotal);
+  if (subtotal <= 0 || discountTotal <= 0) {
+    return serviceSubtotal;
+  }
+
+  const serviceDiscountShare = roundMoney(
+    (discountTotal * serviceSubtotal) / subtotal
+  );
+  return roundMoney(Math.max(serviceSubtotal - serviceDiscountShare, 0));
+};
+
 const getRetainedServiceAmount = (payment, grossServiceAmount) => {
+  const totalizedServiceAmount = getTotalizedServiceAmountBeforeRefund(payment);
+  if (totalizedServiceAmount !== null) {
+    const nonTipTotal = Math.max(
+      toNumber(payment?.amount) - toNumber(payment?.tip),
+      0
+    );
+    if (nonTipTotal <= 0) {
+      return 0;
+    }
+
+    const retainedNonTipTotal = Math.max(
+      nonTipTotal - toNumber(payment?.refundedTotal),
+      0
+    );
+    const retainedRatio = Math.min(retainedNonTipTotal / nonTipTotal, 1);
+
+    return roundMoney(totalizedServiceAmount * retainedRatio);
+  }
+
   const retainedPaymentAmount = Math.max(
     toNumber(payment?.amount) - toNumber(payment?.refundedTotal),
     0

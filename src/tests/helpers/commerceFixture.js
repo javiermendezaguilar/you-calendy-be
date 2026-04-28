@@ -20,6 +20,7 @@ const CashSession = require("../../models/cashSession");
 const Refund = require("../../models/refund");
 const DomainEvent = require("../../models/domainEvent");
 const CapacityLock = require("../../models/capacityLock");
+const PolicyCharge = require("../../models/policyCharge");
 
 let mongoServer;
 let mongoServerUri;
@@ -122,6 +123,7 @@ const resetCommerceCollections = async () => {
     CashSession.deleteMany({}),
     DomainEvent.deleteMany({}),
     CapacityLock.deleteMany({}),
+    PolicyCharge.deleteMany({}),
   ]);
 };
 

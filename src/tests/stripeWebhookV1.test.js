@@ -24,6 +24,29 @@ const {
 
 registerStripeBillingTestHooks({ clearLegacyWebhookSecrets: true });
 
+const handleWebhookAndCaptureOutcome = async (signature) => {
+  const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+  const res = createWebhookResponse();
+
+  await handleStripeWebhook(
+    {
+      rawBody: Buffer.from("{}"),
+      headers: { "stripe-signature": signature },
+    },
+    res
+  );
+
+  const outcomeCall = consoleSpy.mock.calls.find(
+    (call) => call[0] === "Stripe webhook outcome:"
+  );
+  consoleSpy.mockRestore();
+
+  return {
+    res,
+    outcome: outcomeCall?.[1] || "",
+  };
+};
+
 describe("Stripe webhook v1", () => {
   test("logs structured outcome metadata for invoice.paid", async () => {
     const fixture = await createCommerceFixture({
@@ -501,6 +524,175 @@ describe("Stripe webhook v1", () => {
     expect(storedPayments[0].amount).toBe(39);
     expect(storedPayments[0].currency).toBe("EUR");
     expect(storedPayments[0].providerSubscriptionId).toBe("sub_invoice");
+  });
+
+  test("syncs subscription status from Stripe when invoice.paid recovers a past due business", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Paid Recovery Owner",
+      ownerEmail: "stripe-paid-recovery-owner@example.com",
+      businessName: "Stripe Paid Recovery Shop",
+    });
+
+    fixture.business.subscriptionStatus = "past_due";
+    fixture.business.stripeSubscriptionId = "sub_recovered";
+    fixture.business.stripeCustomerId = "cus_recovered";
+    await fixture.business.save();
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createInvoicePaidEvent({
+        eventId: "evt_invoice_paid_recovered",
+        invoiceId: "in_paid_recovered",
+        customerId: "cus_recovered",
+        subscriptionId: "sub_recovered",
+        businessId: fixture.business._id.toString(),
+        amountPaid: 4900,
+      })
+    );
+    mockStripe.subscriptions.retrieve.mockResolvedValue({
+      id: "sub_recovered",
+      status: "active",
+      customer: "cus_recovered",
+      metadata: {
+        businessId: fixture.business._id.toString(),
+      },
+    });
+
+    const res = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_paid_recovered" },
+      },
+      res
+    );
+
+    const updatedBusiness = await Business.findById(fixture.business._id).lean();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Invoice payment recorded");
+    expect(updatedBusiness.subscriptionStatus).toBe("active");
+  });
+
+  test("resolves invoice.paid by known subscription id when business metadata is missing", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Invoice Subscription Resolve Owner",
+      ownerEmail: "stripe-invoice-subscription-resolve-owner@example.com",
+      businessName: "Stripe Invoice Subscription Resolve Shop",
+    });
+
+    fixture.business.subscriptionStatus = "past_due";
+    fixture.business.stripeSubscriptionId = "sub_invoice_resolve";
+    fixture.business.stripeCustomerId = "cus_invoice_resolve";
+    await fixture.business.save();
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createInvoicePaidEvent({
+        eventId: "evt_invoice_paid_subscription_resolve",
+        invoiceId: "in_paid_subscription_resolve",
+        customerId: "cus_invoice_resolve",
+        subscriptionId: "sub_invoice_resolve",
+        amountPaid: 3900,
+      })
+    );
+    mockStripe.subscriptions.retrieve.mockResolvedValue({
+      id: "sub_invoice_resolve",
+      status: "active",
+      customer: "cus_invoice_resolve",
+      metadata: {},
+    });
+
+    const res = createWebhookResponse();
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_invoice_subscription_resolve" },
+      },
+      res
+    );
+
+    const storedPayment = await Payment.findOne({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "invoice:in_paid_subscription_resolve",
+    }).lean();
+    const updatedBusiness = await Business.findById(fixture.business._id).lean();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Invoice payment recorded");
+    expect(storedPayment).not.toBeNull();
+    expect(storedPayment.providerSubscriptionId).toBe("sub_invoice_resolve");
+    expect(updatedBusiness.subscriptionStatus).toBe("active");
+  });
+
+  test("does not create platform billing payment when invoice business cannot be resolved", async () => {
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createInvoicePaidEvent({
+        eventId: "evt_invoice_paid_unresolved",
+        invoiceId: "in_paid_unresolved",
+        customerId: "cus_unknown",
+        subscriptionId: "sub_unknown",
+        amountPaid: 3900,
+      })
+    );
+
+    const { res, outcome } = await handleWebhookAndCaptureOutcome(
+      "sig_invoice_unresolved"
+    );
+
+    const storedPayment = await Payment.findOne({
+      paymentScope: "platform_billing",
+      providerReference: "invoice:in_paid_unresolved",
+    }).lean();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Stripe billing business not resolved, skipping");
+    expect(storedPayment).toBeNull();
+    expect(outcome).toContain('"reason":"business_not_resolved"');
+    expect(outcome).toContain('"businessResolution":"not_resolved"');
+  });
+
+  test("does not fallback to subscription id when invoice metadata points to a missing business", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Missing Business Owner",
+      ownerEmail: "stripe-missing-business-owner@example.com",
+      businessName: "Stripe Missing Business Shop",
+    });
+
+    fixture.business.subscriptionStatus = "past_due";
+    fixture.business.stripeSubscriptionId = "sub_missing_business";
+    fixture.business.stripeCustomerId = "cus_missing_business";
+    await fixture.business.save();
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createInvoicePaidEvent({
+        eventId: "evt_invoice_paid_missing_business",
+        invoiceId: "in_paid_missing_business",
+        customerId: "cus_missing_business",
+        subscriptionId: "sub_missing_business",
+        businessId: "507f1f77bcf86cd799439011",
+        amountPaid: 3900,
+      })
+    );
+
+    const { res, outcome } = await handleWebhookAndCaptureOutcome(
+      "sig_invoice_missing_business"
+    );
+
+    const storedPayment = await Payment.findOne({
+      business: fixture.business._id,
+      paymentScope: "platform_billing",
+      providerReference: "invoice:in_paid_missing_business",
+    }).lean();
+    const updatedBusiness = await Business.findById(fixture.business._id).lean();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Stripe billing business not resolved, skipping");
+    expect(storedPayment).toBeNull();
+    expect(updatedBusiness.subscriptionStatus).toBe("past_due");
+    expect(outcome).toContain('"reason":"business_not_found"');
+    expect(outcome).toContain(
+      '"businessResolution":"metadata_business_id_not_found"'
+    );
   });
 
   test("records invoice.payment_failed as failed platform billing and syncs negative subscription status", async () => {

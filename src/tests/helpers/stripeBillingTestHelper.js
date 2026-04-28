@@ -54,6 +54,27 @@ const createSubscriptionDeletedEvent = ({
   },
 });
 
+const createSubscriptionUpdatedEvent = ({
+  subscriptionId,
+  customerId,
+  businessId,
+  status = "active",
+}) => ({
+  type: "customer.subscription.updated",
+  data: {
+    object: {
+      id: subscriptionId,
+      status,
+      customer: customerId,
+      metadata: businessId
+        ? {
+            businessId,
+          }
+        : {},
+    },
+  },
+});
+
 const buildInvoiceEvent = ({
   eventId,
   eventType,
@@ -77,13 +98,15 @@ const buildInvoiceEvent = ({
       status,
       number: `INV-${invoiceId}`,
       created,
-      parent: {
-        subscription_details: {
-          metadata: {
-            businessId,
-          },
-        },
-      },
+      parent: businessId
+        ? {
+            subscription_details: {
+              metadata: {
+                businessId,
+              },
+            },
+          }
+        : null,
       ...extraFields,
     },
   },
@@ -197,6 +220,7 @@ module.exports = {
   mockStripe,
   createWebhookResponse,
   createSubscriptionDeletedEvent,
+  createSubscriptionUpdatedEvent,
   createInvoicePaidEvent,
   createInvoicePaymentFailedEvent,
   createInvoiceVoidedEvent,

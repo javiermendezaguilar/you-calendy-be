@@ -200,6 +200,83 @@ const extractBusinessIdFromInvoice = (invoice) =>
     ?.businessId ||
   null;
 
+const resolveStripeBillingBusiness = async ({
+  businessId,
+  subscriptionId,
+  customerId,
+}) => {
+  if (businessId) {
+    const business = await Business.findById(businessId);
+    return {
+      business,
+      businessId,
+      businessResolution: business
+        ? "metadata_business_id"
+        : "metadata_business_id_not_found",
+      reason: business ? null : "business_not_found",
+    };
+  }
+
+  if (subscriptionId) {
+    const business = await Business.findOne({
+      stripeSubscriptionId: subscriptionId,
+    });
+
+    if (business) {
+      return {
+        business,
+        businessId: String(business._id),
+        businessResolution: "subscription_id",
+        reason: null,
+      };
+    }
+  }
+
+  if (customerId) {
+    const business = await Business.findOne({
+      stripeCustomerId: customerId,
+    });
+
+    if (business) {
+      return {
+        business,
+        businessId: String(business._id),
+        businessResolution: "customer_id",
+        reason: null,
+      };
+    }
+  }
+
+  return {
+    business: null,
+    businessId: null,
+    businessResolution: "not_resolved",
+    reason: "business_not_resolved",
+  };
+};
+
+const createStripeBillingBusinessNotResolvedResult = ({
+  eventType,
+  businessId,
+  invoiceId,
+  subscriptionId,
+  customerId,
+  businessResolution,
+  reason,
+}) =>
+  createWebhookProcessingResult(
+    "Stripe billing business not resolved, skipping",
+    {
+      eventType,
+      businessId: businessId || null,
+      invoiceId: invoiceId || null,
+      subscriptionId: subscriptionId || "",
+      customerId: customerId || "",
+      businessResolution: businessResolution || "not_resolved",
+      reason: reason || "business_not_resolved",
+    }
+  );
+
 const getStripeWebhookSecretInfo = () => {
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
     return {
@@ -379,35 +456,36 @@ const processSubscriptionCheckoutSession = async (session) => {
   });
 };
 
-const processSubscriptionLifecycleEvent = async (subscription, fallbackStatus) => {
+const processSubscriptionLifecycleEvent = async (
+  subscription,
+  fallbackStatus,
+  sourceEventType = null
+) => {
   const normalizedSubscription = stripeSubscriptionSchema.parse({
     ...subscription,
     status: fallbackStatus || subscription.status,
   });
+  const eventType =
+    sourceEventType || `customer.subscription.${normalizedSubscription.status}`;
   const businessId = normalizedSubscription.metadata?.businessId;
+  const businessResolution = await resolveStripeBillingBusiness({
+    businessId,
+    subscriptionId: normalizedSubscription.id,
+    customerId: normalizedSubscription.customer || "",
+  });
 
-  if (!businessId) {
-    return createWebhookProcessingResult(
-      "Subscription metadata missing businessId, skipping",
-      {
-        eventType: `customer.subscription.${normalizedSubscription.status}`,
-        subscriptionId: normalizedSubscription.id,
-        reason: "missing_business_id",
-      }
-    );
-  }
-
-  const business = await Business.findById(businessId);
-
-  if (!business) {
-    return createWebhookProcessingResult("Business not found, skipping", {
-      eventType: `customer.subscription.${normalizedSubscription.status}`,
+  if (!businessResolution.business) {
+    return createStripeBillingBusinessNotResolvedResult({
+      eventType,
       businessId,
       subscriptionId: normalizedSubscription.id,
-      reason: "business_not_found",
+      customerId: normalizedSubscription.customer || "",
+      businessResolution: businessResolution.businessResolution,
+      reason: businessResolution.reason,
     });
   }
 
+  const business = businessResolution.business;
   const result = await updateBusinessSubscriptionStatus(
     business,
     normalizedSubscription,
@@ -416,9 +494,10 @@ const processSubscriptionLifecycleEvent = async (subscription, fallbackStatus) =
 
   if (result.stale) {
     return createWebhookProcessingResult("Stale subscription event ignored", {
-      eventType: `customer.subscription.${normalizedSubscription.status}`,
+      eventType,
       businessId: String(business._id),
       subscriptionId: normalizedSubscription.id,
+      businessResolution: businessResolution.businessResolution,
       reason: result.reason,
       stale: true,
       subscriptionStatus: result.status,
@@ -431,73 +510,152 @@ const processSubscriptionLifecycleEvent = async (subscription, fallbackStatus) =
       businessId: String(business._id),
       subscriptionId: normalizedSubscription.id,
       customerId: normalizedSubscription.customer || "",
+      businessResolution: businessResolution.businessResolution,
       result: result.reason,
       subscriptionStatus: result.status,
     });
   }
 
   return createWebhookProcessingResult("Subscription updated", {
-    eventType: `customer.subscription.${normalizedSubscription.status}`,
+    eventType,
     businessId: String(business._id),
     subscriptionId: normalizedSubscription.id,
     customerId: normalizedSubscription.customer || "",
+    businessResolution: businessResolution.businessResolution,
     result: result.reason,
     subscriptionStatus: result.status,
   });
 };
 
+const resolveInvoiceEventCapturedAt = (invoice) =>
+  new Date((invoice.created || Math.floor(Date.now() / 1000)) * 1000);
+
+const resolvePaidInvoiceCapturedAt = (invoice) => {
+  const paidAtSeconds = invoice.status_transitions?.paid_at;
+  return typeof paidAtSeconds === "number"
+    ? new Date(paidAtSeconds * 1000)
+    : resolveInvoiceEventCapturedAt(invoice);
+};
+
+const resolveInvoiceBillingContext = async (normalizedInvoice, eventType) => {
+  const businessId = extractBusinessIdFromInvoice(normalizedInvoice);
+  const businessResolution = await resolveStripeBillingBusiness({
+    businessId,
+    subscriptionId: normalizedInvoice.subscription || "",
+    customerId: normalizedInvoice.customer || "",
+  });
+
+  if (!businessResolution.business) {
+    return {
+      unresolvedResult: createStripeBillingBusinessNotResolvedResult({
+        eventType,
+        businessId,
+        invoiceId: normalizedInvoice.id,
+        subscriptionId: normalizedInvoice.subscription || "",
+        customerId: normalizedInvoice.customer || "",
+        businessResolution: businessResolution.businessResolution,
+        reason: businessResolution.reason,
+      }),
+    };
+  }
+
+  return {
+    business: businessResolution.business,
+    businessResolution: businessResolution.businessResolution,
+  };
+};
+
+const buildInvoicePlatformBillingInput = ({
+  business,
+  normalizedInvoice,
+  eventId,
+  status,
+  amount,
+  capturedAt,
+  failedAt = null,
+  failureReason = "",
+  voidedAt = null,
+  voidReason = "",
+}) => ({
+  business,
+  status,
+  amount,
+  currency: normalizedInvoice.currency || "USD",
+  providerReference: `invoice:${normalizedInvoice.id}`,
+  providerEventId: eventId,
+  providerCustomerId: normalizedInvoice.customer || "",
+  providerSubscriptionId: normalizedInvoice.subscription || "",
+  reference: normalizedInvoice.number || normalizedInvoice.id,
+  capturedAt,
+  failedAt,
+  failureReason,
+  voidedAt,
+  voidReason,
+});
+
+const buildInvoiceWebhookMeta = ({
+  eventType,
+  business,
+  normalizedInvoice,
+  payment,
+  action,
+  businessResolution,
+  subscriptionSyncResult,
+}) => ({
+  eventType,
+  businessId: String(business._id),
+  invoiceId: normalizedInvoice.id,
+  subscriptionId: normalizedInvoice.subscription || "",
+  paymentId: String(payment._id),
+  paymentStatus: payment.status,
+  providerReference: payment.providerReference,
+  businessResolution,
+  action,
+  subscriptionSyncResult: subscriptionSyncResult
+    ? subscriptionSyncResult.reason || "synced"
+    : null,
+  stale: Boolean(subscriptionSyncResult?.stale),
+});
+
 const processInvoicePaidEvent = async (invoice, eventId) => {
   const normalizedInvoice = stripeInvoiceSchema.parse(invoice);
-  const businessId = extractBusinessIdFromInvoice(normalizedInvoice);
+  const invoiceContext = await resolveInvoiceBillingContext(
+    normalizedInvoice,
+    "invoice.paid"
+  );
+  if (invoiceContext.unresolvedResult) return invoiceContext.unresolvedResult;
 
-  if (!businessId) {
-    return createWebhookProcessingResult("Invoice metadata missing businessId, skipping", {
-      eventType: "invoice.paid",
-      invoiceId: normalizedInvoice.id,
-      reason: "missing_business_id",
-    });
-  }
+  const business = invoiceContext.business;
+  const capturedAt = resolvePaidInvoiceCapturedAt(normalizedInvoice);
 
-  const business = await Business.findById(businessId);
+  const { payment, action } = await upsertPlatformBillingPayment(
+    buildInvoicePlatformBillingInput({
+      business,
+      normalizedInvoice,
+      eventId,
+      status: "captured",
+      amount: normalizeStripeAmount(normalizedInvoice.amount_paid),
+      capturedAt,
+    })
+  );
 
-  if (!business) {
-    return createWebhookProcessingResult("Business not found, skipping", {
-      eventType: "invoice.paid",
-      businessId,
-      invoiceId: normalizedInvoice.id,
-      reason: "business_not_found",
-    });
-  }
-
-  const paidAtSeconds = normalizedInvoice.status_transitions?.paid_at;
-  const capturedAt =
-    typeof paidAtSeconds === "number"
-      ? new Date(paidAtSeconds * 1000)
-      : new Date((normalizedInvoice.created || Math.floor(Date.now() / 1000)) * 1000);
-
-  const { payment, action } = await upsertPlatformBillingPayment({
+  const subscriptionSyncResult = await syncBusinessSubscriptionFromInvoice(
     business,
-    status: "captured",
-    amount: normalizeStripeAmount(normalizedInvoice.amount_paid),
-    currency: normalizedInvoice.currency || "USD",
-    providerReference: `invoice:${normalizedInvoice.id}`,
-    providerEventId: eventId,
-    providerCustomerId: normalizedInvoice.customer || "",
-    providerSubscriptionId: normalizedInvoice.subscription || "",
-    reference: normalizedInvoice.number || normalizedInvoice.id,
-    capturedAt,
-  });
+    normalizedInvoice
+  );
 
-  return createWebhookProcessingResult("Invoice payment recorded", {
-    eventType: "invoice.paid",
-    businessId: String(business._id),
-    invoiceId: normalizedInvoice.id,
-    subscriptionId: normalizedInvoice.subscription || "",
-    paymentId: String(payment._id),
-    paymentStatus: payment.status,
-    providerReference: payment.providerReference,
-    action,
-  });
+  return createWebhookProcessingResult(
+    "Invoice payment recorded",
+    buildInvoiceWebhookMeta({
+      eventType: "invoice.paid",
+      business,
+      normalizedInvoice,
+      payment,
+      action,
+      businessResolution: invoiceContext.businessResolution,
+      subscriptionSyncResult,
+    })
+  );
 };
 
 const syncBusinessSubscriptionFromInvoice = async (business, invoice) => {
@@ -506,13 +664,19 @@ const syncBusinessSubscriptionFromInvoice = async (business, invoice) => {
   }
 
   const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+  if (!subscription?.id) {
+    return {
+      updated: false,
+      stale: false,
+      reason: "subscription_retrieve_empty",
+      status: business.subscriptionStatus,
+    };
+  }
+
   return updateBusinessSubscriptionStatus(business, subscription, {
     allowReplace: false,
   });
 };
-
-const resolveInvoiceEventCapturedAt = (invoice) =>
-  new Date((invoice.created || Math.floor(Date.now() / 1000)) * 1000);
 
 const getInvoiceEventResultMessage = (status) => {
   if (status === "failed") {
@@ -536,62 +700,45 @@ const processNegativeInvoiceEvent = async ({
   syncSubscription = false,
 }) => {
   const normalizedInvoice = stripeInvoiceSchema.parse(invoice);
-  const businessId = extractBusinessIdFromInvoice(normalizedInvoice);
+  const invoiceContext = await resolveInvoiceBillingContext(
+    normalizedInvoice,
+    eventType
+  );
+  if (invoiceContext.unresolvedResult) return invoiceContext.unresolvedResult;
 
-  if (!businessId) {
-    return createWebhookProcessingResult("Invoice metadata missing businessId, skipping", {
-      eventType,
-      invoiceId: normalizedInvoice.id,
-      reason: "missing_business_id",
-    });
-  }
-
-  const business = await Business.findById(businessId);
-  if (!business) {
-    return createWebhookProcessingResult("Business not found, skipping", {
-      eventType,
-      businessId,
-      invoiceId: normalizedInvoice.id,
-      reason: "business_not_found",
-    });
-  }
-
+  const business = invoiceContext.business;
   const eventDate = resolveInvoiceEventCapturedAt(normalizedInvoice);
 
-  const { payment, action } = await upsertPlatformBillingPayment({
-    business,
-    status,
-    amount: resolveInvoiceAmount(normalizedInvoice),
-    currency: normalizedInvoice.currency || "USD",
-    providerReference: `invoice:${normalizedInvoice.id}`,
-    providerEventId: eventId,
-    providerCustomerId: normalizedInvoice.customer || "",
-    providerSubscriptionId: normalizedInvoice.subscription || "",
-    reference: normalizedInvoice.number || normalizedInvoice.id,
-    failedAt: status === "failed" ? eventDate : null,
-    failureReason,
-    voidedAt: status === "voided" ? eventDate : null,
-    voidReason,
-  });
+  const { payment, action } = await upsertPlatformBillingPayment(
+    buildInvoicePlatformBillingInput({
+      business,
+      normalizedInvoice,
+      eventId,
+      status,
+      amount: resolveInvoiceAmount(normalizedInvoice),
+      failedAt: status === "failed" ? eventDate : null,
+      failureReason,
+      voidedAt: status === "voided" ? eventDate : null,
+      voidReason,
+    })
+  );
 
   const subscriptionSyncResult = syncSubscription
     ? await syncBusinessSubscriptionFromInvoice(business, normalizedInvoice)
     : null;
 
-  return createWebhookProcessingResult(getInvoiceEventResultMessage(status), {
-    eventType,
-    businessId: String(business._id),
-    invoiceId: normalizedInvoice.id,
-    subscriptionId: normalizedInvoice.subscription || "",
-    paymentId: String(payment._id),
-    paymentStatus: payment.status,
-    providerReference: payment.providerReference,
-    action,
-    subscriptionSyncResult: subscriptionSyncResult
-      ? subscriptionSyncResult.reason || "synced"
-      : null,
-    stale: Boolean(subscriptionSyncResult?.stale),
-  });
+  return createWebhookProcessingResult(
+    getInvoiceEventResultMessage(status),
+    buildInvoiceWebhookMeta({
+      eventType,
+      business,
+      normalizedInvoice,
+      payment,
+      action,
+      businessResolution: invoiceContext.businessResolution,
+      subscriptionSyncResult,
+    })
+  );
 };
 
 const processInvoicePaymentFailedEvent = async (invoice, eventId) =>
@@ -640,11 +787,19 @@ const processStripeWebhookEvent = async (event) => {
     event.type === "customer.subscription.updated" ||
     event.type === "customer.subscription.created"
   ) {
-    return processSubscriptionLifecycleEvent(event.data.object);
+    return processSubscriptionLifecycleEvent(
+      event.data.object,
+      null,
+      event.type
+    );
   }
 
   if (event.type === "customer.subscription.deleted") {
-    return processSubscriptionLifecycleEvent(event.data.object, "canceled");
+    return processSubscriptionLifecycleEvent(
+      event.data.object,
+      "canceled",
+      event.type
+    );
   }
 
   return createWebhookProcessingResult("Unhandled event", {

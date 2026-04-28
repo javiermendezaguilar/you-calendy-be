@@ -5,6 +5,7 @@ const {
   mockStripe,
   createWebhookResponse,
   createSubscriptionDeletedEvent,
+  createSubscriptionUpdatedEvent,
   registerStripeBillingTestHooks,
 } = require("./helpers/stripeBillingTestHelper");
 const {
@@ -95,6 +96,45 @@ describe("Stripe subscription status v2", () => {
     expect(updatedBusiness.subscriptionStatus).toBe("active");
     expect(updatedBusiness.stripeSubscriptionId).toBe("sub_current");
     expect(updatedBusiness.stripeCustomerId).toBe("cus_current");
+  });
+
+  test("resolves subscription updates by known subscription id when business metadata is missing", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Stripe Metadata Fallback Owner",
+      ownerEmail: "stripe-metadata-fallback-owner@example.com",
+      businessName: "Stripe Metadata Fallback Shop",
+    });
+
+    fixture.business.subscriptionStatus = "past_due";
+    fixture.business.stripeSubscriptionId = "sub_metadata_fallback";
+    fixture.business.stripeCustomerId = "cus_metadata_fallback";
+    await fixture.business.save();
+
+    mockStripe.webhooks.constructEvent.mockReturnValue(
+      createSubscriptionUpdatedEvent({
+        subscriptionId: "sub_metadata_fallback",
+        customerId: "cus_metadata_fallback",
+        status: "active",
+      })
+    );
+
+    const res = createWebhookResponse();
+
+    await handleStripeWebhook(
+      {
+        rawBody: Buffer.from("{}"),
+        headers: { "stripe-signature": "sig_subscription_metadata_fallback" },
+      },
+      res
+    );
+
+    const updatedBusiness = await Business.findById(fixture.business._id).lean();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toBe("Subscription updated");
+    expect(updatedBusiness.subscriptionStatus).toBe("active");
+    expect(updatedBusiness.stripeSubscriptionId).toBe("sub_metadata_fallback");
+    expect(updatedBusiness.stripeCustomerId).toBe("cus_metadata_fallback");
   });
 
   test("rejects invalid create-subscription payloads through runtime validation", async () => {

@@ -241,6 +241,37 @@ const clientSchema = new Schema(
       type: Date,
       default: null,
     },
+    stripeCustomerId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    cardOnFile: {
+      status: {
+        type: String,
+        enum: ["none", "pending", "usable", "failed"],
+        default: "none",
+      },
+      provider: {
+        type: String,
+        enum: ["", "stripe"],
+        default: "",
+      },
+      paymentMethodId: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      sourceAppointment: {
+        type: Schema.Types.ObjectId,
+        ref: "Appointment",
+        default: null,
+      },
+      lastSyncedAt: {
+        type: Date,
+        default: null,
+      },
+    },
     isActive: {
       type: Boolean,
       default: true,

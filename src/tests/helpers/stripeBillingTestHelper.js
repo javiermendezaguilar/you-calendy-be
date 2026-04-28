@@ -12,6 +12,9 @@ const mockStripe = {
     create: jest.fn(),
     retrieve: jest.fn(),
   },
+  paymentIntents: {
+    create: jest.fn(),
+  },
   customers: {
     create: jest.fn(),
   },

@@ -3,6 +3,7 @@ const router = express.Router();
 const { isAuthenticated, tryAuthenticate } = require("../middleware/auth");
 const checkNoShowBlock = require("../middleware/checkBlock");
 const appointmentController = require("../controllers/appointmentController");
+const policyChargeController = require("../controllers/policyChargeController");
 const multer = require("multer");
 
 // Multer setup for file uploads
@@ -83,6 +84,16 @@ router.post(
 );
 
 // Parameterized routes (must come after specific routes)
+router.post(
+  "/:id/policy-charges",
+  isAuthenticated,
+  policyChargeController.createPolicyCharge
+);
+router.get(
+  "/:id/policy-charges",
+  isAuthenticated,
+  policyChargeController.getAppointmentPolicyCharges
+);
 router.get("/:id", isAuthenticated, appointmentController.getAppointmentById);
 router.put("/:id", isAuthenticated, appointmentController.updateAppointment);
 router.put(

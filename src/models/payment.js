@@ -27,7 +27,10 @@ const paymentSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Appointment",
       required() {
-        return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
+        return [
+          PAYMENT_SCOPE.COMMERCE_CHECKOUT,
+          PAYMENT_SCOPE.COMMERCE_POLICY,
+        ].includes(this.paymentScope);
       },
     },
     business: {
@@ -39,7 +42,10 @@ const paymentSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Client",
       required() {
-        return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
+        return [
+          PAYMENT_SCOPE.COMMERCE_CHECKOUT,
+          PAYMENT_SCOPE.COMMERCE_POLICY,
+        ].includes(this.paymentScope);
       },
     },
     staff: {
@@ -125,7 +131,10 @@ const paymentSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "User",
       required() {
-        return this.paymentScope === PAYMENT_SCOPE.COMMERCE_CHECKOUT;
+        return [
+          PAYMENT_SCOPE.COMMERCE_CHECKOUT,
+          PAYMENT_SCOPE.COMMERCE_POLICY,
+        ].includes(this.paymentScope);
       },
     },
     failedAt: {
@@ -205,6 +214,25 @@ const paymentSchema = new Schema(
           default: 0,
         },
       },
+      policyCharge: {
+        id: {
+          type: Schema.Types.ObjectId,
+          ref: "PolicyCharge",
+          default: null,
+        },
+        type: {
+          type: String,
+          default: "",
+        },
+        policySource: {
+          type: String,
+          default: "",
+        },
+        policyVersion: {
+          type: Number,
+          default: 0,
+        },
+      },
     },
     refundedTotal: {
       type: Number,
@@ -233,6 +261,18 @@ paymentSchema.index(
     unique: true,
     partialFilterExpression: {
       paymentScope: PAYMENT_SCOPE.PLATFORM_BILLING,
+      provider: PAYMENT_PROVIDER.STRIPE,
+      providerReference: { $exists: true },
+    },
+  }
+);
+
+paymentSchema.index(
+  { paymentScope: 1, provider: 1, providerReference: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      paymentScope: PAYMENT_SCOPE.COMMERCE_POLICY,
       provider: PAYMENT_PROVIDER.STRIPE,
       providerReference: { $exists: true },
     },

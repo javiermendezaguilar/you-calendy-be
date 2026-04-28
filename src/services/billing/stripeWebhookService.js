@@ -19,6 +19,10 @@ const {
   PAYMENT_PROVIDER,
   PAYMENT_SCOPE,
 } = require("../payment/paymentScope");
+const {
+  processPolicyChargePaymentFailed,
+  processPolicyChargePaymentSucceeded,
+} = require("../payment/policyChargeService");
 
 const normalizeStripeAmount = (value) => {
   const normalizedValue = Number(value);
@@ -58,6 +62,12 @@ const createWebhookProcessingResult = (message, meta = {}) => ({
   message,
   meta,
 });
+
+const isPolicyChargePaymentIntent = (paymentIntent) =>
+  Boolean(
+    paymentIntent?.metadata?.policyChargeId ||
+      paymentIntent?.metadata?.policyChargeType
+  );
 
 const resolveInvoiceAmount = (invoice) => {
   if (typeof invoice.amount_paid === "number" && invoice.amount_paid > 0) {
@@ -784,6 +794,20 @@ const processInvoiceVoidedEvent = async (invoice, eventId) =>
   });
 
 const processStripeWebhookEvent = async (event) => {
+  if (event.type === "payment_intent.succeeded") {
+    const paymentIntent = event.data.object;
+    if (isPolicyChargePaymentIntent(paymentIntent)) {
+      return processPolicyChargePaymentSucceeded(paymentIntent, event.id || "");
+    }
+  }
+
+  if (event.type === "payment_intent.payment_failed") {
+    const paymentIntent = event.data.object;
+    if (isPolicyChargePaymentIntent(paymentIntent)) {
+      return processPolicyChargePaymentFailed(paymentIntent, event.id || "");
+    }
+  }
+
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
 

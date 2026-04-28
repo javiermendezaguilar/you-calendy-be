@@ -280,21 +280,19 @@ const updatePlan = async (req, res) => {
       plan.stripePriceId = newStripePrice.id;
     }
 
-    // Update plan in database
-    const updates = {};
-    if (title) updates.title = title;
-    if (description) updates.description = description;
-    if (amount) updates.amount = amount;
-    if (features) updates.features = features;
-    if (featureKeys) updates.featureKeys = normalizeFeatureKeys(featureKeys);
-    if (limits) updates.limits = normalizePlanLimits(limits);
-    if (typeof isActive === "boolean") updates.isActive = isActive;
-    // if (typeof sortOrder === "number") updates.sortOrder = sortOrder;
+    if (title) plan.title = title;
+    if (description) plan.description = description;
+    if (amount !== undefined) plan.amount = amount;
+    if (features !== undefined) plan.features = features;
+    if (featureKeys !== undefined) {
+      plan.featureKeys = normalizeFeatureKeys(featureKeys);
+    }
+    if (limits !== undefined) plan.limits = normalizePlanLimits(limits);
+    if (typeof isActive === "boolean") plan.isActive = isActive;
+    // if (typeof sortOrder === "number") plan.sortOrder = sortOrder;
 
-    const updatedPlan = await Plan.findByIdAndUpdate(planId, updates, {
-      new: true,
-      runValidators: true,
-    }).select("-__v");
+    await plan.save();
+    const updatedPlan = await Plan.findById(planId).select("-__v");
 
     return SuccessHandler(updatedPlan, 200, res);
   } catch (error) {

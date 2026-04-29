@@ -9,6 +9,7 @@ const {
   updatePassword,
   // updateProfile,
   getMe,
+  getRolePermissions,
   socialAuth,
   // updateAdminProfile,
   getBarber,
@@ -60,6 +61,7 @@ router.route("/forgotPassword").post(authWriteLimiter, forgotPassword);
 router.route("/resetPassword").put(authWriteLimiter, resetPassword);
 router.route("/updatePassword").put(isAuthenticated, updatePassword);
 router.route("/me").get(isAuthenticated, getMe);
+router.route("/role-permissions").get(isAuthenticated, getRolePermissions);
 // router.route("/updateProfile").put(
 //   isAuthenticated,
 //   uploader.fields([

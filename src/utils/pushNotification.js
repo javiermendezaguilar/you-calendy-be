@@ -1,6 +1,5 @@
-const admin = require("firebase-admin");
 const createNotification = require("./createNotification");
-const { google } = require("googleapis");
+const { GoogleAuth } = require("google-auth-library");
 const path = require("path");
 const {
   loadServiceAccount,
@@ -21,13 +20,7 @@ console.log(
   describeServiceAccountSource(firebaseServiceAccount.source, firebaseFallbackPaths)
 );
 
-if (firebaseServiceAccount.credentials || firebaseServiceAccount.keyFilename) {
-  admin.initializeApp({
-    credential: firebaseServiceAccount.credentials
-      ? admin.credential.cert(firebaseServiceAccount.credentials)
-      : admin.credential.cert(firebaseServiceAccount.keyFilename),
-  });
-} else {
+if (!firebaseServiceAccount.credentials && !firebaseServiceAccount.keyFilename) {
   console.warn("Firebase service account not configured. Push notifications will be disabled.");
 }
 
@@ -41,7 +34,7 @@ const sendNotification = async (user, title, body, type, data) => {
       user.isNotificationEnabled &&
       (firebaseServiceAccount.credentials || firebaseServiceAccount.keyFilename)
     ) {
-      const auth = new google.auth.GoogleAuth({
+      const auth = new GoogleAuth({
         ...(firebaseServiceAccount.credentials
           ? { credentials: firebaseServiceAccount.credentials }
           : { keyFile: firebaseServiceAccount.keyFilename }),

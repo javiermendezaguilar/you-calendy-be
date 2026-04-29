@@ -12,6 +12,11 @@ router.post(
 );
 router.get("/summary", isAuthenticated, paymentController.getPaymentSummary);
 router.get(
+  "/reconciliation",
+  isAuthenticated,
+  paymentController.getPaymentReconciliation
+);
+router.get(
   "/checkout/:checkoutId",
   isAuthenticated,
   paymentController.getPaymentByCheckout

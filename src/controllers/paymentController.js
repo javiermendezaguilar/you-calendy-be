@@ -24,6 +24,9 @@ const {
   buildRebookingSummary,
 } = require("../services/payment/rebookingSummary");
 const {
+  buildFinancialReconciliation,
+} = require("../services/payment/financialReconciliation");
+const {
   syncClientLifecycleAfterPayment,
 } = require("../services/client/lifecycleService");
 const SuccessHandler = require("../utils/SuccessHandler");
@@ -974,6 +977,23 @@ const getPaymentSummary = async (req, res) => {
   }
 };
 
+const getPaymentReconciliation = async (req, res) => {
+  try {
+    const business = await resolveBusinessOrReply(req, res);
+    if (!business) return;
+
+    const reconciliation = await buildFinancialReconciliation({
+      businessId: business._id,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+    });
+
+    return SuccessHandler(reconciliation, 200, res);
+  } catch (error) {
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  }
+};
+
 module.exports = {
   capturePayment,
   getPaymentById,
@@ -982,4 +1002,5 @@ module.exports = {
   voidPayment,
   getRefundsByPayment,
   getPaymentSummary,
+  getPaymentReconciliation,
 };

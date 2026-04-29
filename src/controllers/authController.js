@@ -18,6 +18,9 @@ const {
 const {
   resolveActorContext,
 } = require("../services/identity/actorContext");
+const {
+  buildRolePermissionMatrix,
+} = require("../services/identity/rolePermissionMatrix");
 
 const LEGACY_BARBER_OWNER_SCOPE = Object.freeze({
   entity: "owner_business_legacy",
@@ -569,6 +572,39 @@ const getMe = async (req, res) => {
       {
         ...sanitizeAuthUser(user),
         actorContext,
+      },
+      200,
+      res
+    );
+  } catch (error) {
+    return ErrorHandler(error.message, 500, req, res);
+  }
+};
+
+const getRolePermissions = async (req, res) => {
+  try {
+    let actorContext;
+
+    if (req.user?.type === "client" || req.user?.role === "client") {
+      const Client = require("../models/client");
+      const client = req.client || (await Client.findById(req.user._id));
+      if (!client) {
+        return ErrorHandler("Client not found", 404, req, res);
+      }
+      actorContext = await resolveActorContext({ user: req.user, client });
+    } else {
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        return ErrorHandler("User not found", 404, req, res);
+      }
+      actorContext = await resolveActorContext({ user });
+    }
+
+    return SuccessHandler(
+      {
+        ...buildRolePermissionMatrix(),
+        actorContext,
+        effectiveCapabilities: actorContext.capabilities,
       },
       200,
       res
@@ -1754,6 +1790,7 @@ module.exports = {
   resetPassword,
   updatePassword,
   getMe,
+  getRolePermissions,
   // updateProfile,
   // updateAdminProfile,
   socialAuth,

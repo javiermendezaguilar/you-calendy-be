@@ -1,5 +1,8 @@
 const Business = require("../../models/User/business");
 const Staff = require("../../models/staff");
+const {
+  resolveCapabilitiesForActor,
+} = require("./rolePermissionMatrix");
 
 const toIdString = (value) => {
   if (!value) return null;
@@ -18,13 +21,18 @@ const mapStaffMembership = (staff) => ({
   displayName: [staff.firstName, staff.lastName].filter(Boolean).join(" ").trim(),
 });
 
+const withCapabilities = (actorContext) => ({
+  ...actorContext,
+  capabilities: resolveCapabilitiesForActor(actorContext),
+});
+
 const resolveActorContext = async ({ user, client } = {}) => {
   if (client || user?.type === "client" || user?.role === "client") {
     const clientDoc = client || null;
     const businessId = toIdString(clientDoc?.business || user?.businessId);
     const staffId = toIdString(clientDoc?.staff);
 
-    return {
+    return withCapabilities({
       actorType: "client",
       authSubjectType: "client",
       userId: null,
@@ -38,11 +46,11 @@ const resolveActorContext = async ({ user, client } = {}) => {
       isClient: true,
       staffMemberships: [],
       legacyResolution: null,
-    };
+    });
   }
 
   if (!user) {
-    return {
+    return withCapabilities({
       actorType: "anonymous",
       authSubjectType: "none",
       userId: null,
@@ -56,7 +64,7 @@ const resolveActorContext = async ({ user, client } = {}) => {
       isClient: false,
       staffMemberships: [],
       legacyResolution: null,
-    };
+    });
   }
 
   const userId = toIdString(user._id || user.id);
@@ -64,7 +72,9 @@ const resolveActorContext = async ({ user, client } = {}) => {
   const isPlatformAdmin = role === "admin" || role === "sub-admin";
 
   if (isPlatformAdmin) {
-    return {
+    const ownedBusiness = await Business.findOne({ owner: userId }).select("_id");
+
+    return withCapabilities({
       actorType: role === "admin" ? "admin" : "sub-admin",
       authSubjectType: "user",
       userId,
@@ -72,18 +82,24 @@ const resolveActorContext = async ({ user, client } = {}) => {
       businessId: null,
       staffId: null,
       role,
-      permissions: user.permissions ? [user.permissions] : [],
+      permissions: user.permissions || [],
       isBusinessOwner: false,
       isPlatformAdmin: true,
       isClient: false,
       staffMemberships: [],
-      legacyResolution: null,
-    };
+      legacyResolution: ownedBusiness
+        ? {
+            type: "platform_admin_owner_hybrid",
+            decision: "platform_admin_takes_precedence",
+            businessId: toIdString(ownedBusiness._id),
+          }
+        : null,
+    });
   }
 
   const ownedBusiness = await Business.findOne({ owner: userId }).select("_id");
   if (ownedBusiness) {
-    return {
+    return withCapabilities({
       actorType: "owner",
       authSubjectType: "user",
       userId,
@@ -97,7 +113,7 @@ const resolveActorContext = async ({ user, client } = {}) => {
       isClient: false,
       staffMemberships: [],
       legacyResolution: null,
-    };
+    });
   }
 
   const email = normalizeEmail(user.email);
@@ -108,7 +124,7 @@ const resolveActorContext = async ({ user, client } = {}) => {
   const primaryStaff = mappedStaffMemberships[0] || null;
 
   if (primaryStaff) {
-    return {
+    return withCapabilities({
       actorType: "staff",
       authSubjectType: "user",
       userId,
@@ -126,10 +142,10 @@ const resolveActorContext = async ({ user, client } = {}) => {
         type: "staff_email_match",
         field: "email",
       },
-    };
+    });
   }
 
-  return {
+  return withCapabilities({
     actorType: "user",
     authSubjectType: "user",
     userId,
@@ -143,7 +159,7 @@ const resolveActorContext = async ({ user, client } = {}) => {
     isClient: false,
     staffMemberships: [],
     legacyResolution: null,
-  };
+  });
 };
 
 module.exports = {

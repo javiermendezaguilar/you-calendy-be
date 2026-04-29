@@ -1,10 +1,10 @@
 const createNotification = require("./createNotification");
-const { GoogleAuth } = require("google-auth-library");
 const path = require("path");
 const {
   loadServiceAccount,
   describeServiceAccountSource,
 } = require("./serviceAccount");
+const { getGoogleAccessToken } = require("./googleServiceAccountAuth");
 
 const firebaseFallbackPaths = [path.join(__dirname, "fcm.json")];
 
@@ -34,13 +34,12 @@ const sendNotification = async (user, title, body, type, data) => {
       user.isNotificationEnabled &&
       (firebaseServiceAccount.credentials || firebaseServiceAccount.keyFilename)
     ) {
-      const auth = new GoogleAuth({
+      const accessToken = await getGoogleAccessToken({
         ...(firebaseServiceAccount.credentials
           ? { credentials: firebaseServiceAccount.credentials }
-          : { keyFile: firebaseServiceAccount.keyFilename }),
+          : { keyFilename: firebaseServiceAccount.keyFilename }),
         scopes: ["https://www.googleapis.com/auth/cloud-platform"],
       });
-      const accessToken = await auth.getAccessToken();
 
       const message = {
         notification: {

@@ -17,16 +17,15 @@ describe("push notification auth dependency", () => {
     delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     global.fetch = originalFetch;
     jest.dontMock("../utils/createNotification");
-    jest.dontMock("google-auth-library");
+    jest.dontMock("../utils/googleServiceAccountAuth");
   });
 
-  test("uses google-auth-library directly to send FCM HTTP v1 notifications", async () => {
+  test("uses service account OAuth token to send FCM HTTP v1 notifications", async () => {
     const createNotification = jest.fn().mockResolvedValue({ _id: "notification-1" });
-    const getAccessToken = jest.fn().mockResolvedValue("access-token-1");
-    const GoogleAuth = jest.fn(() => ({ getAccessToken }));
+    const getGoogleAccessToken = jest.fn().mockResolvedValue("access-token-1");
 
     jest.doMock("../utils/createNotification", () => createNotification);
-    jest.doMock("google-auth-library", () => ({ GoogleAuth }));
+    jest.doMock("../utils/googleServiceAccountAuth", () => ({ getGoogleAccessToken }));
 
     const sendNotification = require("../utils/pushNotification");
 
@@ -44,11 +43,11 @@ describe("push notification auth dependency", () => {
       "client",
       { appointmentId: "appointment-1" }
     );
-    expect(GoogleAuth).toHaveBeenCalledWith({
+    expect(getGoogleAccessToken).toHaveBeenCalledWith({
       credentials: expect.objectContaining({ project_id: "barbermanagement-42d90" }),
       scopes: ["https://www.googleapis.com/auth/cloud-platform"],
     });
-    expect(getAccessToken).toHaveBeenCalledTimes(1);
+    expect(getGoogleAccessToken).toHaveBeenCalledTimes(1);
     expect(global.fetch).toHaveBeenCalledWith(
       "https://fcm.googleapis.com/v1/projects/barbermanagement-42d90/messages:send",
       expect.objectContaining({

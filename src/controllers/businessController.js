@@ -2840,12 +2840,19 @@ const createUnregisteredClient = async (req, res) => {
         }
      }
      #swagger.responses[200] = {
-        description: 'Existing client found - returns existing client',
+        description: 'Existing client found and returned',
         schema: {
           success: true,
           data: {
             message: 'Client already exists',
-            client: { ... },
+            client: {
+              _id: 'client_id',
+              firstName: 'John',
+              lastName: 'Doe',
+              phone: '+1234567890',
+              email: 'john.doe@example.com',
+              registrationStatus: 'registered'
+            },
             isNew: false
           }
         }

@@ -98,6 +98,9 @@
                 },
                 "services": {
                   "example": "any"
+                },
+                "googlePlaceId": {
+                  "example": "any"
                 }
               }
             }
@@ -154,6 +157,16 @@
           },
           "400": {
             "description": "User does not exist or invalid credentials"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "description": "",
+        "responses": {
+          "default": {
+            "description": ""
           }
         }
       }
@@ -245,6 +258,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Password update information",
@@ -299,6 +317,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -325,6 +348,34 @@
         ]
       }
     },
+    "/auth/role-permissions": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/auth/profile-settings": {
       "get": {
         "tags": [
@@ -334,6 +385,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -426,6 +482,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -569,6 +630,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Notification settings to update",
@@ -674,10 +740,15 @@
         "tags": [
           "Auth"
         ],
-        "description": "Get all users with role barber, with filtering, sorting, and pagination. Includes total revenue and appointment count for each barber.",
+        "description": "Get legacy barber accounts. In the current model this surface represents owner/business accounts, not staff individual revenue. Includes business-level revenue and appointment count.",
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -706,12 +777,37 @@
             "type": "integer"
           },
           {
-            "name": "description",
+            "name": "_id",
             "in": "query",
             "type": "string"
           },
           {
-            "name": "schema",
+            "name": "name",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "phone",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "totalRevenue",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "totalAppointments",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "business",
             "in": "query",
             "type": "string"
           }
@@ -722,6 +818,23 @@
             "schema": {
               "type": "object",
               "properties": {
+                "semanticScope": {
+                  "type": "object",
+                  "properties": {
+                    "entity": {
+                      "type": "string",
+                      "example": "owner_business_legacy"
+                    },
+                    "revenue": {
+                      "type": "string",
+                      "example": "business"
+                    },
+                    "activity": {
+                      "type": "string",
+                      "example": "business"
+                    }
+                  }
+                },
                 "barbers": {
                   "type": "array",
                   "items": {
@@ -827,6 +940,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Status update",
@@ -868,7 +986,7 @@
         "tags": [
           "Auth"
         ],
-        "description": "Get detailed info for a specific barber, including total appointments, revenue, client insights, and business details.",
+        "description": "Get detailed info for a legacy barber account. In the current model this surface represents the owner/business account and returns business-level appointments and revenue, not staff individual production.",
         "parameters": [
           {
             "name": "id",
@@ -879,6 +997,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -916,11 +1039,19 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
           "401": {
             "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           },
           "404": {
             "description": "Not Found"
@@ -945,6 +1076,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -1018,6 +1154,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "status",
             "in": "query",
             "description": "Filter by activation status (activated, deactivated)",
@@ -1086,6 +1227,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -1122,6 +1268,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -1174,6 +1325,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -1206,6 +1362,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -1241,6 +1402,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -1384,6 +1550,146 @@
         ]
       }
     },
+    "/business/operational-dashboard": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/operational-reporting": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/domain-events": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/onboarding-status": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/visits": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/business/info": {
       "put": {
         "tags": [
@@ -1393,6 +1699,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -1469,6 +1780,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Business address information",
@@ -1533,6 +1849,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Business location information",
@@ -1592,6 +1913,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -1700,6 +2026,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -1745,6 +2076,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -1823,6 +2159,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Updated service information",
@@ -1894,6 +2235,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -1917,6 +2263,116 @@
         ]
       }
     },
+    "/business/waitlist": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/waitlist/fill-gaps": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/waitlist/find-match": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/business/settings": {
       "get": {
         "tags": [
@@ -1926,6 +2382,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -1991,6 +2452,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -2063,6 +2529,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -2087,6 +2558,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -2227,6 +2703,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "search",
             "in": "query",
             "description": "Search by name or email",
@@ -2354,6 +2835,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -2388,6 +2874,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -2522,6 +3013,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "reason",
             "in": "body",
             "description": "Reason for deletion",
@@ -2564,6 +3060,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -2660,6 +3161,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -2989,6 +3495,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Client phone number.",
@@ -3033,6 +3544,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "search",
             "in": "query",
             "description": "Search by name, email, or phone",
@@ -3067,6 +3583,167 @@
             "in": "query",
             "description": "Number of items per page",
             "type": "integer"
+          },
+          {
+            "name": "includeCount",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/business/clients/count": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "isProfileComplete",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/clients/phones-simple": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Retrieve phone numbers of clients for the current business owner (no pagination or filters).",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/business/clients/messages": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Send a custom message to one or more selected clients (email + SMS).",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Selected client IDs and message text",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "clientIds": {
+                  "type": "array",
+                  "example": [
+                    "clientId1",
+                    "clientId2"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "message": {
+                  "type": "string",
+                  "example": "Your custom message here"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -3093,6 +3770,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -3122,6 +3804,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3165,6 +3852,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3220,6 +3912,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3280,6 +3977,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Response details.",
@@ -3328,6 +4030,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3390,6 +4097,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3457,6 +4169,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -3490,6 +4207,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3585,6 +4307,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "body",
             "in": "body",
             "schema": {
@@ -3615,6 +4342,74 @@
         ]
       }
     },
+    "/business/clients/{clientId}/lifecycle/refresh": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/clients/{clientId}/consent": {
+      "patch": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/business/clients/{clientId}/private-notes": {
       "put": {
         "tags": [
@@ -3630,6 +4425,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3667,6 +4467,48 @@
         ]
       }
     },
+    "/business/clients/{clientId}/unblock": {
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Unblock a client from app booking. Recording the action in the audit trail.",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/business/clients/{clientId}/invitation-link": {
       "get": {
         "tags": [
@@ -3682,6 +4524,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -3721,6 +4568,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -3756,6 +4608,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -3795,6 +4652,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -3828,6 +4690,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3883,6 +4750,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -3983,6 +4855,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "page",
             "in": "query",
             "description": "Page number for pagination",
@@ -4037,6 +4914,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -4112,6 +4994,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -4200,6 +5087,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "status",
             "in": "query",
             "description": "Filter by report status (pending, reviewed, resolved, dismissed)",
@@ -4261,6 +5153,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Review details.",
@@ -4315,6 +5212,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4359,6 +5261,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -4425,6 +5332,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "body",
             "in": "body",
             "schema": {
@@ -4437,6 +5349,9 @@
                   "example": "any"
                 },
                 "recipientGroup": {
+                  "example": "any"
+                },
+                "clientIds": {
                   "example": "any"
                 },
                 "deliveryOption": {
@@ -4476,6 +5391,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4497,6 +5417,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -4522,6 +5447,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4545,11 +5475,50 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
           "401": {
             "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/entitlements": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           },
           "404": {
             "description": "Not Found"
@@ -4570,16 +5539,9 @@
             "type": "string"
           },
           {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "priceId": {
-                  "example": "any"
-                }
-              }
-            }
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4607,6 +5569,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -4697,6 +5664,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4739,6 +5711,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -4804,6 +5781,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4845,6 +5827,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4877,6 +5864,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -4913,6 +5905,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4945,6 +5942,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -4990,6 +5992,9 @@
                   "example": "any"
                 },
                 "deliveryType": {
+                  "example": "any"
+                },
+                "clientIds": {
                   "example": "any"
                 },
                 "scheduledDate": {
@@ -5038,6 +6043,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -5139,6 +6149,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -5201,6 +6216,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -5242,6 +6262,122 @@
             "Bearer": []
           }
         ]
+      }
+    },
+    "/business/client-check": {
+      "post": {
+        "tags": [
+          "Client Profiles"
+        ],
+        "description": "Check if a client with the given email exists for the specified business. Returns client data if found.",
+        "parameters": [
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Client email and business ID",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "example": "john.doe@example.com"
+                },
+                "businessId": {
+                  "type": "string",
+                  "example": "business_id"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client found",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "exists": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "client": {
+                      "type": "object",
+                      "properties": {
+                        "_id": {
+                          "type": "string",
+                          "example": "client_id"
+                        },
+                        "firstName": {
+                          "type": "string",
+                          "example": "John"
+                        },
+                        "lastName": {
+                          "type": "string",
+                          "example": "Doe"
+                        },
+                        "email": {
+                          "type": "string",
+                          "example": "john.doe@example.com"
+                        },
+                        "phone": {
+                          "type": "string",
+                          "example": "+1234567890"
+                        }
+                      }
+                    },
+                    "token": {
+                      "type": "string",
+                      "example": "jwt_token"
+                    },
+                    "clientId": {
+                      "type": "string",
+                      "example": "client_id"
+                    }
+                  }
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "404": {
+            "description": "Client not found",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "exists": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "No client found with this email"
+                    }
+                  }
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          }
+        }
       }
     },
     "/business/client-profiles": {
@@ -5424,6 +6560,364 @@
         ]
       }
     },
+    "/business/walk-ins": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/walk-ins/{appointmentId}/abandon": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "appointmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/walk-ins/queue": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/business/unregistered-client": {
+      "post": {
+        "tags": [
+          "Client Profiles"
+        ],
+        "description": "Create a new unregistered client for internal business use (walk-ins, phone bookings). If client with same phone/email exists, returns existing client.",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Unregistered client information",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "firstName": {
+                  "type": "string",
+                  "example": "John"
+                },
+                "lastName": {
+                  "type": "string",
+                  "example": "Doe"
+                },
+                "phone": {
+                  "type": "string",
+                  "example": "+1234567890"
+                },
+                "email": {
+                  "type": "string",
+                  "example": "john.doe@example.com"
+                },
+                "internalNotes": {
+                  "type": "string",
+                  "example": "Prefers morning appointments"
+                },
+                "haircutPhotos": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "example": "https://..."
+                      },
+                      "description": {
+                        "type": "string",
+                        "example": "Style preference"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Existing client found and returned",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Client already exists"
+                    },
+                    "client": {
+                      "type": "object",
+                      "properties": {
+                        "_id": {
+                          "type": "string",
+                          "example": "client_id"
+                        },
+                        "firstName": {
+                          "type": "string",
+                          "example": "John"
+                        },
+                        "lastName": {
+                          "type": "string",
+                          "example": "Doe"
+                        },
+                        "phone": {
+                          "type": "string",
+                          "example": "+1234567890"
+                        },
+                        "email": {
+                          "type": "string",
+                          "example": "john.doe@example.com"
+                        },
+                        "registrationStatus": {
+                          "type": "string",
+                          "example": "registered"
+                        }
+                      }
+                    },
+                    "isNew": {
+                      "type": "boolean",
+                      "example": false
+                    }
+                  }
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "201": {
+            "description": "Unregistered client created successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Unregistered client created successfully"
+                    },
+                    "client": {
+                      "type": "object",
+                      "properties": {
+                        "_id": {
+                          "type": "string",
+                          "example": "client_id"
+                        },
+                        "firstName": {
+                          "type": "string",
+                          "example": "John"
+                        },
+                        "lastName": {
+                          "type": "string",
+                          "example": "Doe"
+                        },
+                        "phone": {
+                          "type": "string",
+                          "example": "+1234567890"
+                        },
+                        "email": {
+                          "type": "string",
+                          "example": "john.doe@example.com"
+                        },
+                        "registrationStatus": {
+                          "type": "string",
+                          "example": "unregistered"
+                        },
+                        "internalNotes": {
+                          "type": "string",
+                          "example": "Prefers morning appointments"
+                        },
+                        "haircutPhotos": {
+                          "type": "array",
+                          "example": [],
+                          "items": {}
+                        }
+                      }
+                    },
+                    "isNew": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/business/clients/{clientId}/convert-to-registered": {
+      "post": {
+        "tags": [
+          "Client Profiles"
+        ],
+        "description": "Convert an unregistered client to a registered client when they verify their data and accept terms",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Client ID"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Registration data",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "password": {
+                  "type": "string",
+                  "example": "securePassword123"
+                },
+                "acceptedTerms": {
+                  "type": "boolean",
+                  "example": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/business/{id}": {
       "get": {
         "tags": [
@@ -5457,8 +6951,13 @@
         "tags": [
           "Appointments"
         ],
-        "description": "Get available time slots for a business on a specific date, optionally for a specific staff member. Respects booking buffer settings to prevent last-minute bookings.",
+        "description": "Get available time slots for a business on a specific date, optionally for a specific staff member. Respects booking buffer settings to prevent last-minute bookings. Time slots are filtered based on the user\\'s local timezone to ensure past slots are not shown.",
         "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
           {
             "name": "businessId",
             "in": "query",
@@ -5484,6 +6983,22 @@
             "name": "staffId",
             "in": "query",
             "description": "Optional: Staff Member ID to check availability for. If provided, uses staff-specific booking buffer. If not provided, uses business default booking buffer.",
+            "type": "string"
+          },
+          {
+            "name": "timezoneOffset",
+            "in": "query",
+            "description": "Optional timezone offset in minutes or HH:MM offset. Used to avoid showing past slots in the user local timezone.",
+            "type": "string"
+          },
+          {
+            "name": "x-timezone-offset",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "clientId",
+            "in": "query",
             "type": "string"
           },
           {
@@ -5529,85 +7044,6 @@
         }
       }
     },
-    "/appointments/public": {
-      "post": {
-        "tags": [
-          "Appointments"
-        ],
-        "description": "Create a new appointment for public clients",
-        "parameters": [
-          {
-            "name": "obj",
-            "in": "body",
-            "description": "Appointment information",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "businessId": {
-                  "type": "string",
-                  "example": "business_id"
-                },
-                "serviceId": {
-                  "type": "string",
-                  "example": "service_id"
-                },
-                "date": {
-                  "type": "string",
-                  "example": "2025-03-15"
-                },
-                "time": {
-                  "type": "string",
-                  "example": "10:00"
-                },
-                "clientInfo": {
-                  "type": "object",
-                  "properties": {
-                    "firstName": {
-                      "type": "string",
-                      "example": "John"
-                    },
-                    "lastName": {
-                      "type": "string",
-                      "example": "Doe"
-                    },
-                    "email": {
-                      "type": "string",
-                      "example": "john@example.com"
-                    },
-                    "phone": {
-                      "type": "string",
-                      "example": "+1234567890"
-                    }
-                  }
-                },
-                "personalization": {
-                  "type": "object",
-                  "properties": {
-                    "pastHaircut": {
-                      "type": "string",
-                      "example": "fade"
-                    },
-                    "instructions": {
-                      "type": "string",
-                      "example": "Please keep it short"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Appointment created successfully",
-            "schema": {
-              "$ref": "#/definitions/Appointment"
-            }
-          }
-        }
-      }
-    },
     "/appointments/": {
       "post": {
         "tags": [
@@ -5618,6 +7054,21 @@
           {
             "name": "authorization",
             "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "clientId",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "businessId",
+            "in": "query",
             "type": "string"
           },
           {
@@ -5706,6 +7157,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "status",
             "in": "query",
             "description": "Filter by status",
@@ -5723,6 +7179,12 @@
             "name": "date",
             "in": "query",
             "description": "Filter by date (YYYY-MM-DD)",
+            "type": "string"
+          },
+          {
+            "name": "staffId",
+            "in": "query",
+            "description": "Filter by staff member ID",
             "type": "string"
           },
           {
@@ -5769,6 +7231,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -5855,6 +7322,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -5975,6 +7447,65 @@
         ]
       }
     },
+    "/appointments/dashboard-stats": {
+      "get": {
+        "tags": [
+          "Appointments"
+        ],
+        "description": "Get dashboard statistics including agenda occupancy, appointment status breakdown, and previous period comparison",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "description": "Month (1-12)",
+            "type": "integer",
+            "example": 2
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "description": "Year (e.g., 2026)",
+            "type": "integer",
+            "example": 2026
+          },
+          {
+            "name": "staffId",
+            "in": "query",
+            "description": "Staff ID for individual barber stats (optional, omit for global stats)",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dashboard statistics retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/appointments/revenue-projection": {
       "get": {
         "tags": [
@@ -5984,6 +7515,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -6013,6 +7549,12 @@
               "month"
             ],
             "default": "year"
+          },
+          {
+            "name": "staffId",
+            "in": "query",
+            "description": "Staff ID to filter by individual barber (optional)",
+            "type": "string"
           },
           {
             "name": "description",
@@ -6133,6 +7675,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "status",
             "in": "query",
             "description": "Filter by status",
@@ -6203,6 +7750,384 @@
         ]
       }
     },
+    "/appointments/automated-reminder": {
+      "post": {
+        "tags": [
+          "Appointments"
+        ],
+        "description": "Send automated appointment reminders to clients based on their stored reminder settings, or filter by reminderTime and appointmentReminder toggle from the frontend.",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "reminderTime",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "example": "any"
+                },
+                "schema": {
+                  "example": "any"
+                }
+              }
+            },
+            "description": "Optional: Only send reminders for this reminderTime interval (e.g., 1_hour_before)",
+            "required": false,
+            "enum": [
+              "1_hour_before",
+              "2_hours_before",
+              "3_hours_before",
+              "4_hours_before"
+            ]
+          },
+          {
+            "name": "appointmentReminder",
+            "in": "body",
+            "description": "Whether to send reminders only for appointments with reminders enabled (toggle from frontend)",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reminders sent successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string",
+                  "example": "Reminders sent successfully"
+                },
+                "totalReminders": {
+                  "type": "number",
+                  "example": 10
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "400": {
+            "description": "No appointments found or no reminders sent"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/appointments/reminder-settings": {
+      "get": {
+        "tags": [
+          "Appointments"
+        ],
+        "description": "Get current reminder settings for the business",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reminder settings retrieved successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "appointmentReminder": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "reminderTime": {
+                  "type": "string",
+                  "example": "2_hours_before"
+                },
+                "messageReminder": {
+                  "type": "string",
+                  "example": "Custom message"
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Business not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/appointments/bulk-update-reminder-settings": {
+      "put": {
+        "tags": [
+          "Appointments"
+        ],
+        "description": "Bulk update reminder settings for all future appointments (from today onwards)",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Reminder settings to apply to all future appointments",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "reminderTime": {
+                  "type": "string",
+                  "example": "2_hours_before"
+                },
+                "appointmentReminder": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "messageReminder": {
+                  "type": "string",
+                  "example": "Optional custom message"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reminder settings updated successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string",
+                  "example": "Reminder settings updated for X appointments"
+                },
+                "appointmentsUpdated": {
+                  "type": "number",
+                  "example": 10
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/appointments/generate-review-link": {
+      "post": {
+        "tags": [
+          "Appointments"
+        ],
+        "description": "Generate and send a Google review link to a client via SMS",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Review link generation data",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "clientId": {
+                  "type": "string",
+                  "example": "string"
+                },
+                "message": {
+                  "type": "string",
+                  "example": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Review link sent successfully via SMS",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string",
+                  "example": "Review link sent successfully"
+                },
+                "reviewLink": {
+                  "type": "string",
+                  "example": "string"
+                },
+                "smsSent": {
+                  "type": "boolean",
+                  "example": true
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "400": {
+            "description": "Client has no phone number or business has no review link configured"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Client not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/appointments/{id}/policy-charges": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/appointments/{id}": {
       "get": {
         "tags": [
@@ -6219,6 +8144,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -6261,6 +8191,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -6340,6 +8275,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Status update. Possible values: Pending, Confirmed, Canceled, Completed, No-Show, Missed",
@@ -6379,6 +8319,74 @@
         ]
       }
     },
+    "/appointments/{id}/check-in": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/appointments/{id}/start-service": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/appointments/{id}/penalty": {
       "post": {
         "tags": [
@@ -6395,6 +8403,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -6457,6 +8470,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -6546,6 +8564,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Payment information",
@@ -6618,6 +8641,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -6703,6 +8731,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -6775,6 +8808,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Reminder settings",
@@ -6821,161 +8859,6 @@
           },
           "404": {
             "description": "Appointment not found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/appointments/automated-reminder": {
-      "post": {
-        "tags": [
-          "Appointments"
-        ],
-        "description": "Send automated appointment reminders to clients based on their stored reminder settings, or filter by reminderTime and appointmentReminder toggle from the frontend.",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "reminderTime",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "description": {
-                  "example": "any"
-                },
-                "schema": {
-                  "example": "any"
-                }
-              }
-            },
-            "description": "Optional: Only send reminders for this reminderTime interval (e.g., 1_hour_before)",
-            "required": false,
-            "enum": [
-              "1_hour_before",
-              "2_hours_before",
-              "3_hours_before",
-              "4_hours_before"
-            ]
-          },
-          {
-            "name": "appointmentReminder",
-            "in": "body",
-            "description": "Whether to send reminders only for appointments with reminders enabled (toggle from frontend)",
-            "required": false,
-            "schema": {
-              "type": "object",
-              "properties": {}
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Reminders sent successfully",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "message": {
-                  "type": "string",
-                  "example": "Reminders sent successfully"
-                },
-                "totalReminders": {
-                  "type": "number",
-                  "example": 10
-                }
-              },
-              "xml": {
-                "name": "main"
-              }
-            }
-          },
-          "400": {
-            "description": "No appointments found or no reminders sent"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/appointments/generate-review-link": {
-      "post": {
-        "tags": [
-          "Appointments"
-        ],
-        "description": "Generate a review link for a client",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "obj",
-            "in": "body",
-            "description": "Review link generation data",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "clientId": {
-                  "type": "string",
-                  "example": "string"
-                },
-                "message": {
-                  "type": "string",
-                  "example": "string"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Review link generated successfully",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "message": {
-                  "type": "string",
-                  "example": "Review link generated successfully"
-                },
-                "reviewLink": {
-                  "type": "string",
-                  "example": "string"
-                }
-              },
-              "xml": {
-                "name": "main"
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Client not found"
           },
           "500": {
             "description": "Internal Server Error"
@@ -7119,6 +9002,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Updated service information",
@@ -7187,6 +9075,16 @@
             "description": "Service ID"
           },
           {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "reason",
             "in": "body",
             "schema": {
@@ -7205,8 +9103,14 @@
           "200": {
             "description": "Service deleted successfully"
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "404": {
             "description": "Service not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         },
         "security": [
@@ -7300,6 +9204,183 @@
                 "clientId": {
                   "type": "string",
                   "example": "client_id_here"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/client/logout": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Logout client by clearing authentication cookie. Works even with expired tokens.",
+        "responses": {
+          "200": {
+            "description": "Client logged out successfully"
+          }
+        }
+      }
+    },
+    "/client/signup": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Client sign up with email and password. If an unregistered client exists with the same phone/email, they will be converted to a registered client and their history will be preserved.",
+        "parameters": [
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Client sign up data.",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "firstName": {
+                  "type": "string",
+                  "example": "John"
+                },
+                "lastName": {
+                  "type": "string",
+                  "example": "Doe"
+                },
+                "email": {
+                  "type": "string",
+                  "example": "john.doe@example.com"
+                },
+                "phone": {
+                  "type": "string",
+                  "example": "+1234567890"
+                },
+                "password": {
+                  "type": "string",
+                  "example": "password123"
+                },
+                "businessId": {
+                  "type": "string",
+                  "example": "business_id_here"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/client/signin": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Client sign in with email and password",
+        "parameters": [
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Client sign in data.",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "example": "john.doe@example.com"
+                },
+                "password": {
+                  "type": "string",
+                  "example": "password123"
+                },
+                "businessId": {
+                  "type": "string",
+                  "example": "business_id_here"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/client/forgot-password": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Send password reset token to client email",
+        "parameters": [
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Client email and business ID",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "example": "john.doe@example.com"
+                },
+                "businessId": {
+                  "type": "string",
+                  "example": "business_id_here"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/client/reset-password": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Reset client password using reset token",
+        "parameters": [
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Password reset information",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "example": "john.doe@example.com"
+                },
+                "businessId": {
+                  "type": "string",
+                  "example": "business_id_here"
+                },
+                "passwordResetToken": {
+                  "type": "string",
+                  "example": "123456"
+                },
+                "password": {
+                  "type": "string",
+                  "example": "newpassword123"
                 }
               }
             }
@@ -7414,14 +9495,25 @@
         "description": "Get current authenticated client profile.",
         "parameters": [
           {
-            "name": "x-client-id",
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         },
         "security": [
@@ -7430,21 +9522,93 @@
           }
         ]
       },
+      "patch": {
+        "tags": [
+          "Clients"
+        ],
+        "description": "Update client profile including profile image (client-side).",
+        "consumes": [
+          "multipart/form-data"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "profileImage",
+            "in": "formData",
+            "type": "file",
+            "description": "Profile image (optional)"
+          },
+          {
+            "name": "removeProfileImage",
+            "in": "formData",
+            "type": "boolean",
+            "description": "Remove profile image if true"
+          },
+          {
+            "name": "invitationToken",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "removeProfileImage": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Clients"
         ],
-        "description": "Delete client account (client-side).",
+        "description": "Permanently delete client account and all associated data including photos (client-side). This action cannot be undone and complies with data protection regulations.",
         "parameters": [
           {
-            "name": "x-client-id",
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         },
         "security": [
@@ -7462,14 +9626,25 @@
         "description": "Get client\\'s own notification preferences.",
         "parameters": [
           {
-            "name": "x-client-id",
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         }
       },
@@ -7479,6 +9654,16 @@
         ],
         "description": "Toggle client\\'s own notification preferences.",
         "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
           {
             "name": "obj",
             "in": "body",
@@ -7493,16 +9678,17 @@
                 }
               }
             }
-          },
-          {
-            "name": "x-client-id",
-            "in": "header",
-            "type": "string"
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         }
       }
@@ -7537,6 +9723,16 @@
             "type": "string"
           },
           {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "body",
             "in": "body",
             "schema": {
@@ -7550,8 +9746,14 @@
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         }
       }
@@ -7570,6 +9772,16 @@
             "name": "galleryId",
             "in": "path",
             "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
             "type": "string"
           },
           {
@@ -7611,8 +9823,14 @@
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         }
       }
@@ -7631,6 +9849,16 @@
             "name": "galleryId",
             "in": "path",
             "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
             "type": "string"
           },
           {
@@ -7690,8 +9918,63 @@
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/client/gallery/{galleryId}": {
+      "delete": {
+        "tags": [
+          "Client Gallery"
+        ],
+        "description": "Delete a haircut image from the gallery by client.",
+        "parameters": [
+          {
+            "name": "galleryId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-client-id",
+            "in": "header",
+            "type": "string",
+            "description": "Client ID (optional if invitationToken provided)"
+          },
+          {
+            "name": "invitationToken",
+            "in": "query",
+            "type": "string",
+            "description": "Invitation token (optional if x-client-id provided)"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         }
       }
@@ -7705,6 +9988,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -7771,6 +10059,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -7800,6 +10093,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -7867,6 +10165,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Status update",
@@ -7919,6 +10222,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "file",
             "in": "formData",
             "type": "file",
@@ -7953,6 +10261,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -8111,10 +10424,15 @@
         "tags": [
           "Notifications"
         ],
-        "description": "Get all notifications for the authenticated user, with filtering by read/unread and pagination.",
+        "description": "Get all notifications for the authenticated user or client, with filtering by read/unread and pagination.",
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -8160,10 +10478,15 @@
         "tags": [
           "Notifications"
         ],
-        "description": "Mark all notifications as read for the authenticated user.",
+        "description": "Mark all notifications as read for the authenticated user or client.",
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -8195,6 +10518,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -8301,6 +10629,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Promotion details",
@@ -8341,6 +10674,10 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "confirmMultiple": {
+                  "type": "boolean",
+                  "example": false
                 }
               }
             }
@@ -8362,283 +10699,29 @@
           "404": {
             "description": "Business or services not found"
           },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/promotions/{id}": {
-      "get": {
-        "tags": [
-          "Promotions"
-        ],
-        "description": "Get a specific promotion by ID",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string",
-            "description": "Promotion ID"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Promotion retrieved successfully",
-            "schema": {
-              "$ref": "#/definitions/Promotion"
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Promotion not found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      },
-      "put": {
-        "tags": [
-          "Promotions"
-        ],
-        "description": "Update a promotion",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string",
-            "description": "Promotion ID"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "obj",
-            "in": "body",
-            "description": "Promotion details to update",
-            "required": true,
+          "409": {
+            "description": "Multiple discounts warning - requires confirmation",
             "schema": {
               "type": "object",
               "properties": {
-                "name": {
+                "message": {
                   "type": "string",
-                  "example": "Updated Happy Hours"
+                  "example": "You already have Happy Hours active. Are you sure you want to activate Monday Happy Hours as well?"
                 },
-                "description": {
+                "code": {
                   "type": "string",
-                  "example": "Updated description"
+                  "example": "MULTIPLE_DISCOUNTS_WARNING"
                 },
-                "startTime": {
-                  "type": "string",
-                  "example": "15:00"
-                },
-                "endTime": {
-                  "type": "string",
-                  "example": "19:00"
-                },
-                "discountPercentage": {
-                  "type": "number",
-                  "example": 25
-                },
-                "services": {
+                "existingPromotions": {
                   "type": "array",
-                  "example": [
-                    "service_id_1"
-                  ],
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "isActive": {
-                  "type": "boolean",
-                  "example": true
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Promotion updated successfully",
-            "schema": {
-              "$ref": "#/definitions/Promotion"
-            }
-          },
-          "400": {
-            "description": "Validation error or time conflict"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Promotion not found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      },
-      "delete": {
-        "tags": [
-          "Promotions"
-        ],
-        "description": "Delete a promotion",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string",
-            "description": "Promotion ID"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Promotion deleted successfully"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Promotion not found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/promotions/{id}/toggle": {
-      "patch": {
-        "tags": [
-          "Promotions"
-        ],
-        "description": "Toggle promotion active status",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string",
-            "description": "Promotion ID"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Promotion status toggled successfully",
-            "schema": {
-              "$ref": "#/definitions/Promotion"
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Promotion not found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/promotions/stats": {
-      "get": {
-        "tags": [
-          "Promotions"
-        ],
-        "description": "Get promotion statistics for the business",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Promotion statistics retrieved successfully",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "totalPromotions": {
-                  "type": "number",
-                  "example": 5
-                },
-                "activePromotions": {
-                  "type": "number",
-                  "example": 3
-                },
-                "totalBookings": {
-                  "type": "number",
-                  "example": 25
-                },
-                "totalRevenue": {
-                  "type": "number",
-                  "example": 1500
-                },
-                "averageDiscount": {
-                  "type": "number",
-                  "example": 15.5
+                  "example": [],
+                  "items": {}
                 }
               },
               "xml": {
                 "name": "main"
               }
             }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Not Found"
           },
           "500": {
             "description": "Internal Server Error"
@@ -8710,6 +10793,349 @@
         }
       }
     },
+    "/promotions/stats": {
+      "get": {
+        "tags": [
+          "Promotions"
+        ],
+        "description": "Get promotion statistics for the business",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion statistics retrieved successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "totalPromotions": {
+                  "type": "number",
+                  "example": 5
+                },
+                "activePromotions": {
+                  "type": "number",
+                  "example": 3
+                },
+                "totalBookings": {
+                  "type": "number",
+                  "example": 25
+                },
+                "totalRevenue": {
+                  "type": "number",
+                  "example": 1500
+                },
+                "averageDiscount": {
+                  "type": "number",
+                  "example": 15.5
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/promotions/{id}": {
+      "get": {
+        "tags": [
+          "Promotions"
+        ],
+        "description": "Get a specific promotion by ID",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Promotion ID"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion retrieved successfully",
+            "schema": {
+              "$ref": "#/definitions/Promotion"
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Promotion not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Promotions"
+        ],
+        "description": "Update a promotion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Promotion ID"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "obj",
+            "in": "body",
+            "description": "Promotion details to update",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "example": "Updated Happy Hours"
+                },
+                "description": {
+                  "type": "string",
+                  "example": "Updated description"
+                },
+                "startTime": {
+                  "type": "string",
+                  "example": "15:00"
+                },
+                "endTime": {
+                  "type": "string",
+                  "example": "19:00"
+                },
+                "discountPercentage": {
+                  "type": "number",
+                  "example": 25
+                },
+                "services": {
+                  "type": "array",
+                  "example": [
+                    "service_id_1"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "isActive": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "confirmMultiple": {
+                  "type": "boolean",
+                  "example": false
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion updated successfully",
+            "schema": {
+              "$ref": "#/definitions/Promotion"
+            }
+          },
+          "400": {
+            "description": "Validation error or time conflict"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Promotion not found"
+          },
+          "409": {
+            "description": "Multiple discounts warning - requires confirmation",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string",
+                  "example": "You already have Happy Hours active. Are you sure you want to activate this promotion as well?"
+                },
+                "code": {
+                  "type": "string",
+                  "example": "MULTIPLE_DISCOUNTS_WARNING"
+                },
+                "existingPromotions": {
+                  "type": "array",
+                  "example": [],
+                  "items": {}
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Promotions"
+        ],
+        "description": "Delete a promotion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Promotion ID"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion deleted successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Promotion not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/promotions/{id}/toggle": {
+      "patch": {
+        "tags": [
+          "Promotions"
+        ],
+        "description": "Toggle promotion active status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Promotion ID"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "applyBothDiscounts": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Promotion status toggled successfully",
+            "schema": {
+              "$ref": "#/definitions/Promotion"
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Promotion not found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/flash-sales/": {
       "get": {
         "tags": [
@@ -8719,6 +11145,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -8819,6 +11250,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Flash sale details",
@@ -8877,6 +11313,123 @@
         ]
       }
     },
+    "/flash-sales/active": {
+      "get": {
+        "tags": [
+          "Flash Sales"
+        ],
+        "description": "Get active flash sales for a business",
+        "parameters": [
+          {
+            "name": "businessId",
+            "in": "query",
+            "description": "Business ID",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "schema",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active flash sales retrieved successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "flashSales": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/FlashSale"
+                  }
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/flash-sales/stats": {
+      "get": {
+        "tags": [
+          "Flash Sales"
+        ],
+        "description": "Get flash sale statistics for the business",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Flash sale statistics retrieved successfully",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "totalFlashSales": {
+                  "type": "number",
+                  "example": 5
+                },
+                "activeFlashSales": {
+                  "type": "number",
+                  "example": 2
+                },
+                "upcomingFlashSales": {
+                  "type": "number",
+                  "example": 1
+                },
+                "totalBookings": {
+                  "type": "number",
+                  "example": 25
+                },
+                "totalRevenue": {
+                  "type": "number",
+                  "example": 1500
+                },
+                "averageDiscount": {
+                  "type": "number",
+                  "example": 25.5
+                }
+              },
+              "xml": {
+                "name": "main"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/flash-sales/{id}": {
       "get": {
         "tags": [
@@ -8893,6 +11446,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -8935,6 +11493,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -9017,6 +11580,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -9058,6 +11626,23 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "applyBothDiscounts": {
+                  "example": "any"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -9082,118 +11667,6 @@
             "Bearer": []
           }
         ]
-      }
-    },
-    "/flash-sales/stats": {
-      "get": {
-        "tags": [
-          "Flash Sales"
-        ],
-        "description": "Get flash sale statistics for the business",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Flash sale statistics retrieved successfully",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "totalFlashSales": {
-                  "type": "number",
-                  "example": 5
-                },
-                "activeFlashSales": {
-                  "type": "number",
-                  "example": 2
-                },
-                "upcomingFlashSales": {
-                  "type": "number",
-                  "example": 1
-                },
-                "totalBookings": {
-                  "type": "number",
-                  "example": 25
-                },
-                "totalRevenue": {
-                  "type": "number",
-                  "example": 1500
-                },
-                "averageDiscount": {
-                  "type": "number",
-                  "example": 25.5
-                }
-              },
-              "xml": {
-                "name": "main"
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "404": {
-            "description": "Not Found"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/flash-sales/active": {
-      "get": {
-        "tags": [
-          "Flash Sales"
-        ],
-        "description": "Get active flash sales for a business",
-        "parameters": [
-          {
-            "name": "businessId",
-            "in": "query",
-            "description": "Business ID",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "description",
-            "in": "query",
-            "type": "string"
-          },
-          {
-            "name": "schema",
-            "in": "query",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Active flash sales retrieved successfully",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "flashSales": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/FlashSale"
-                  }
-                }
-              },
-              "xml": {
-                "name": "main"
-              }
-            }
-          }
-        }
       }
     },
     "/admin/send-email": {
@@ -9941,7 +12414,7 @@
         "tags": [
           "Admin Stats"
         ],
-        "description": "Get top barbers ranked by completed appointments for a given year.",
+        "description": "Get top staff ranked by completed appointments for a given year. Keeps ranking by completed appointments and adds canonical commerce revenue attributed to each staff member.",
         "parameters": [
           {
             "name": "authorization",
@@ -10441,6 +12914,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Support ticket details.",
@@ -10489,6 +12967,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -10550,6 +13033,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "priority",
             "in": "query",
             "description": "Filter by priority (Low, Medium, High, Critical)",
@@ -10607,6 +13095,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -10648,6 +13141,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -10682,6 +13180,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -10739,6 +13242,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -10775,6 +13283,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -10831,6 +13344,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -11119,6 +13637,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Plan information",
@@ -11237,6 +13760,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "obj",
             "in": "body",
             "description": "Updated plan information",
@@ -11317,6 +13845,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -11352,6 +13885,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           }
@@ -11392,6 +13930,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -11637,6 +14180,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -11812,6 +14360,11 @@
             "type": "string"
           },
           {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
             "name": "body",
             "in": "body",
             "schema": {
@@ -11870,6 +14423,11 @@
           },
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -11935,6 +14493,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -11962,6 +14525,11 @@
         "parameters": [
           {
             "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
             "in": "header",
             "type": "string"
           },
@@ -12002,6 +14570,11 @@
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
           }
         ],
         "responses": {
@@ -12022,7 +14595,7 @@
         "tags": [
           "Barber Profile"
         ],
-        "description": "Get comprehensive barber profile information using link token (public access)",
+        "description": "Get the legacy public barber profile using link token. In the current model this surface behaves as an owner/business public profile and exposes business-level stats, not staff individual production.",
         "parameters": [
           {
             "name": "linkToken",
@@ -12038,6 +14611,23 @@
             "schema": {
               "type": "object",
               "properties": {
+                "semanticScope": {
+                  "type": "object",
+                  "properties": {
+                    "entity": {
+                      "type": "string",
+                      "example": "owner_business_legacy"
+                    },
+                    "revenue": {
+                      "type": "string",
+                      "example": "business"
+                    },
+                    "activity": {
+                      "type": "string",
+                      "example": "business"
+                    }
+                  }
+                },
                 "barber": {
                   "type": "object",
                   "properties": {
@@ -12229,6 +14819,902 @@
           },
           "404": {
             "description": "Invalid or expired barber link"
+          }
+        }
+      }
+    },
+    "/checkout/appointment/{appointmentId}/open": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "appointmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/checkout/appointment/{appointmentId}": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "appointmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/checkout/{id}": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/checkout/{id}/service-lines": {
+      "put": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "serviceLines": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/checkout/{id}/close": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "tip": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/checkout/{id}/rebook": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "example": "any"
+                },
+                "date": {
+                  "example": "any"
+                },
+                "startTime": {
+                  "example": "any"
+                },
+                "serviceId": {
+                  "example": "any"
+                },
+                "staffId": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/checkout/{id}/rebooking-outcome": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "example": "any"
+                },
+                "source": {
+                  "example": "any"
+                },
+                "note": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/checkout/{checkoutId}/capture": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "checkoutId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "example": "any"
+                },
+                "amount": {
+                  "example": "any"
+                },
+                "reference": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/summary": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/reconciliation": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/checkout/{checkoutId}": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "checkoutId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/{id}/void": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/{id}/refund": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "example": "any"
+                },
+                "reason": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/{id}/refunds": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/payment/{id}": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/cash-sessions/open": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "openingFloat": {
+                  "example": "any"
+                },
+                "openingReason": {
+                  "example": "any"
+                },
+                "openingNote": {
+                  "example": "any"
+                },
+                "handoffFromSessionId": {
+                  "example": "any"
+                },
+                "currency": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/cash-sessions/active": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "closingDeclaredPreview",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/cash-sessions/": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/cash-sessions/report": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/cash-sessions/{id}": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/cash-sessions/{id}/close": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "x-user-context",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "closingDeclared": {
+                  "example": "any"
+                },
+                "closingNote": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
           }
         }
       }

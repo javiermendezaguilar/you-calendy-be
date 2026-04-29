@@ -103,10 +103,28 @@ const applyWalkInQueueStatusForLegacyStatus = (
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 
-const getAppointmentBusinessContext = async (appointment, userId) => {
+const PLATFORM_ADMIN_ROLES = new Set(["admin", "sub-admin"]);
+
+const getActorId = (user) => String(user?.id || user?._id || "");
+
+const isClientActor = (user) =>
+  user?.type === "client" || user?.role === "client";
+
+const canManageBusinessAppointments = (user, business) => {
+  if (!user || !business || isClientActor(user)) {
+    return false;
+  }
+
+  if (PLATFORM_ADMIN_ROLES.has(user.role)) {
+    return false;
+  }
+
+  return business.owner?.toString() === getActorId(user);
+};
+
+const getAppointmentBusinessContext = async (appointment, user) => {
   const business = await Business.findById(appointment.business);
-  const isBusinessOwner =
-    business && business.owner.toString() === String(userId);
+  const isBusinessOwner = canManageBusinessAppointments(user, business);
 
   return {
     business,
@@ -115,10 +133,9 @@ const getAppointmentBusinessContext = async (appointment, userId) => {
 };
 
 const getOperationalAppointmentContext = async (appointment, user) => {
-  const userId = user.id || user._id;
   const { business, isBusinessOwner } = await getAppointmentBusinessContext(
     appointment,
-    userId
+    user
   );
 
   let assignedStaff = null;
@@ -272,7 +289,7 @@ const createAppointment = async (req, res) => {
 
     // Handle client authentication - if authenticated as client, identify their specific client record for this business
     let actualClientId = clientId;
-    if (req.user && req.user.type === "client") {
+    if (req.user && isClientActor(req.user)) {
       actualClientId = req.user._id;
 
       // Verify the client is trying to book for themselves
@@ -292,6 +309,18 @@ const createAppointment = async (req, res) => {
       return ErrorHandler("Business not found", 404, req, res);
     }
 
+    if (
+      !isClientActor(req.user) &&
+      !canManageBusinessAppointments(req.user, business)
+    ) {
+      return ErrorHandler(
+        "Not authorized to create appointments for this business",
+        403,
+        req,
+        res
+      );
+    }
+
     // Validate client
     const client = await Client.findById(actualClientId);
     if (!client) {
@@ -308,7 +337,7 @@ const createAppointment = async (req, res) => {
       );
     }
     // Determine if caller is staff or owner (who are allowed to bypass the automated block)
-    const isBusinessCaller = req.user && (req.user.role === "barber" || req.user.role === "admin" || req.user.role === "sub-admin");
+    const isBusinessCaller = canManageBusinessAppointments(req.user, business);
 
     // Hard enforcement of the no-show block for non-business users
     if (!isBusinessCaller && actualClientId) {
@@ -924,7 +953,7 @@ const getAppointments = async (req, res) => {
      }
   */
   try {
-    const userId = req.user.id;
+    const userId = getActorId(req.user);
     const { status, date, staffId, page = 1, limit = 10 } = req.query;
 
     console.log("getAppointments called with:", {
@@ -938,9 +967,10 @@ const getAppointments = async (req, res) => {
 
     const isClientUser = req.user.type === "client";
     const normalizedUserEmail = normalizeEmail(req.user.email);
-    const ownerBusiness = isClientUser
-      ? null
-      : await Business.findOne({ owner: userId }).select("_id");
+    const ownerBusiness =
+      isClientUser || PLATFORM_ADMIN_ROLES.has(req.user.role)
+        ? null
+        : await Business.findOne({ owner: userId }).select("_id");
     const isBusinessOwner = Boolean(ownerBusiness);
     console.log("Is business owner:", isBusinessOwner);
 
@@ -2106,8 +2136,12 @@ const updateAppointment = async (req, res) => {
 
     // Check authorization
     const business = await Business.findById(appointment.business);
-    const isBusinessOwner = business.owner.toString() === userId;
-    const isClient = appointment.client.toString() === userId;
+    if (!business) {
+      return ErrorHandler("Business not found", 404, req, res);
+    }
+    const isBusinessOwner = canManageBusinessAppointments(req.user, business);
+    const isClient =
+      isClientActor(req.user) && appointment.client.toString() === userId;
 
     if (!isBusinessOwner && !isClient) {
       return ErrorHandler(
@@ -2149,9 +2183,17 @@ const updateAppointment = async (req, res) => {
       let duration = appointment.duration;
 
       if (serviceId) {
-        const service = await Service.findById(serviceId);
+        const service = await resolveCanonicalServiceForBusiness(
+          business,
+          serviceId
+        );
         if (!service) {
-          return ErrorHandler("Service not found", 404, req, res);
+          return ErrorHandler(
+            "Service not found or doesn't belong to this business",
+            404,
+            req,
+            res
+          );
         }
         // Duration is now handled per staff-service relationship
         // Keep the existing duration or use provided duration

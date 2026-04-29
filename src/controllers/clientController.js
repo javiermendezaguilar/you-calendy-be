@@ -2799,52 +2799,49 @@ const unblockClient = async (req, res) => {
        #swagger.security = [{ "Bearer": [] }]
     */
   const session = await mongoose.startSession();
-  session.startTransaction();
   try {
     const { clientId } = req.params;
     const userId = req.user._id || req.user.id;
     const business = await Business.findOne({ owner: userId });
     
     if (!business) {
-      await session.abortTransaction();
-      session.endSession();
       return ErrorHandler("Business not found for this user.", 404, req, res);
     }
 
-    const client = await Client.findOne({ _id: clientId, business: business._id }).session(session);
-    if (!client) {
-      await session.abortTransaction();
-      session.endSession();
-      return ErrorHandler("Client not found.", 404, req, res);
-    }
-
-    client.appBookingBlocked = false;
-    await client.save({ session });
-
-    // Record audit trail
-    await Auditing.create([{
-      entityType: "Client",
-      entityId: client._id,
-      action: "modified",
-      reason: "Client unblocked from app booking by barber.",
-      createdBy: userId,
-      metadata: {
-        actionType: 'unblock',
-        businessId: business._id,
-        businessName: business.name || business.businessName
+    await session.withTransaction(async () => {
+      const client = await Client.findOne({ _id: clientId, business: business._id }).session(session);
+      if (!client) {
+        const error = new Error("Client not found.");
+        error.statusCode = 404;
+        throw error;
       }
-    }], { session });
 
-    await session.commitTransaction();
-    session.endSession();
+      client.appBookingBlocked = false;
+      await client.save({ session });
+
+      // Record audit trail
+      await Auditing.create([{
+        entityType: "Client",
+        entityId: client._id,
+        action: "modified",
+        reason: "Client unblocked from app booking by barber.",
+        createdBy: userId,
+        metadata: {
+          actionType: 'unblock',
+          businessId: business._id,
+          businessName: business.name || business.businessName
+        }
+      }], { session });
+    });
 
     return SuccessHandler("Client unblocked successfully.", 200, res);
   } catch (error) {
-    if (session) {
+    if (session && session.inTransaction()) {
       await session.abortTransaction();
-      session.endSession();
     }
-    return ErrorHandler(error.message, 500, req, res);
+    return ErrorHandler(error.message, error.statusCode || 500, req, res);
+  } finally {
+    session.endSession();
   }
 };
 

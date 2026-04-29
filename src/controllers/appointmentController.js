@@ -1392,151 +1392,150 @@ const updateAppointmentStatus = async (req, res) => {
     );
     if (policySensitiveStatus) {
       session = await mongoose.startSession();
-      session.startTransaction();
     }
 
     try {
       if ((status === "No-Show" || status === "Missed") && isBusinessOwner) {
-        const policyResult = resolveNoShowOutcome({
-          appointment,
-          business,
-          actorId: userId,
-          payload: req.body,
-          isBusinessOwner,
-        });
-
-        appointment.policyOutcome = policyResult.outcome;
-        appointment.penalty = policyResult.penalty;
-
-        // Handle client blocking and incident notes
-        const { incidentNote } = req.body;
-        const clientDoc = await Client.findById(appointment.client).session(session);
-        
-        if (clientDoc) {
-          // If barber chose to block the client
-          let blockActionTaken = false;
-          if (policyResult.blockApplied) {
-            console.log(`[updateAppointmentStatus] Blocking client ${clientDoc._id} due to No-Show.`);
-            clientDoc.appBookingBlocked = true;
-            clientDoc.lastNoShowDate = appointment.date || new Date();
-            clientDoc.blockAppliedDate = new Date();
-            blockActionTaken = true;
-          }
-
-          // Initialize incidentNotes array if not exists
-          if (!clientDoc.incidentNotes) {
-            clientDoc.incidentNotes = [];
-          }
-
-          // Resolve service name for incident notes
-          let serviceName = "Appointment Service";
-          if (appointment.service && typeof appointment.service === "object" && appointment.service.name) {
-            serviceName = appointment.service.name;
-          } else {
-            const sId = (appointment.service && typeof appointment.service === "object" && appointment.service._id) 
-              ? appointment.service._id.toString() 
-              : appointment.service?.toString();
-            if (sId) {
-              const standaloneService = await Service.findById(sId);
-              if (standaloneService) {
-                serviceName = standaloneService.name;
-              } else {
-                const bizService = business?.services?.id(sId);
-                if (bizService) serviceName = bizService.name;
-              }
-            }
-          }
-
-          const finalNote = incidentNote && incidentNote.trim()
-            ? incidentNote.trim()
-            : `No-show for ${serviceName} appointment`;
-
-          // Add the incident note
-          clientDoc.incidentNotes.push({
-            date: new Date(),
-            type: 'no-show',
-            appointmentId: appointment._id,
-            serviceName: serviceName,
-            note: finalNote,
-            createdBy: userId,
+        await session.withTransaction(async () => {
+          const policyResult = resolveNoShowOutcome({
+            appointment,
+            business,
+            actorId: userId,
+            payload: req.body,
+            isBusinessOwner,
           });
 
-          await clientDoc.save({ session });
-
-          // Record audit trail for blocking if applied
-          if (blockActionTaken) {
-            await Auditing.create([{
-              entityType: "Client",
-              entityId: clientDoc._id,
-              action: "modified",
-              reason: `Blocked from app booking due to no-show on ${moment(appointment.date).format('DD/MM/YYYY')}`,
-              createdBy: userId,
-              metadata: {
-                actionType: 'block',
-                appointmentId: appointment._id,
-                noShowDate: appointment.date,
-                blockAppliedDate: clientDoc.blockAppliedDate,
-                policyVersion: policyResult.policy.version,
-                policySource: policyResult.policy.source,
-              }
-            }], { session });
-          }
-        }
-
-        // Update appointment status within transaction
-        appointment.status = status;
-        Object.assign(appointment, buildAppointmentSemanticState(status));
-        applyWalkInQueueStatusForLegacyStatus(appointment, status);
-        appointment.updatedAt = new Date();
-        await appointment.save({ session });
-
-        await session.commitTransaction();
-      } else if (status === "Canceled") {
-        const policyResult = resolveCancellationOutcome({
-          appointment,
-          business,
-          actorId: userId,
-          payload: req.body,
-          isBusinessOwner,
-        });
-
-        if (policyResult.outcome) {
           appointment.policyOutcome = policyResult.outcome;
           appointment.penalty = policyResult.penalty;
 
-          const clientDoc = await Client.findById(appointment.client).session(
-            session
-          );
-          if (clientDoc) {
-            const serviceName =
-              appointment.service &&
-              typeof appointment.service === "object" &&
-              appointment.service.name
-                ? appointment.service.name
-                : "Appointment Service";
+          // Handle client blocking and incident notes
+          const { incidentNote } = req.body;
+          const clientDoc = await Client.findById(appointment.client).session(session);
 
-            clientDoc.incidentNotes = clientDoc.incidentNotes || [];
+          if (clientDoc) {
+            // If barber chose to block the client
+            let blockActionTaken = false;
+            if (policyResult.blockApplied) {
+              console.log(`[updateAppointmentStatus] Blocking client ${clientDoc._id} due to No-Show.`);
+              clientDoc.appBookingBlocked = true;
+              clientDoc.lastNoShowDate = appointment.date || new Date();
+              clientDoc.blockAppliedDate = new Date();
+              blockActionTaken = true;
+            }
+
+            // Initialize incidentNotes array if not exists
+            if (!clientDoc.incidentNotes) {
+              clientDoc.incidentNotes = [];
+            }
+
+            // Resolve service name for incident notes
+            let serviceName = "Appointment Service";
+            if (appointment.service && typeof appointment.service === "object" && appointment.service.name) {
+              serviceName = appointment.service.name;
+            } else {
+              const sId = (appointment.service && typeof appointment.service === "object" && appointment.service._id)
+                ? appointment.service._id.toString()
+                : appointment.service?.toString();
+              if (sId) {
+                const standaloneService = await Service.findById(sId).session(session);
+                if (standaloneService) {
+                  serviceName = standaloneService.name;
+                } else {
+                  const bizService = business?.services?.id(sId);
+                  if (bizService) serviceName = bizService.name;
+                }
+              }
+            }
+
+            const finalNote = incidentNote && incidentNote.trim()
+              ? incidentNote.trim()
+              : `No-show for ${serviceName} appointment`;
+
+            // Add the incident note
             clientDoc.incidentNotes.push({
               date: new Date(),
-              type: "cancellation",
+              type: 'no-show',
               appointmentId: appointment._id,
-              serviceName,
-              note:
-                policyResult.outcome.note ||
-                `Late cancellation for ${serviceName} appointment`,
+              serviceName: serviceName,
+              note: finalNote,
               createdBy: userId,
             });
+
             await clientDoc.save({ session });
+
+            // Record audit trail for blocking if applied
+            if (blockActionTaken) {
+              await Auditing.create([{
+                entityType: "Client",
+                entityId: clientDoc._id,
+                action: "modified",
+                reason: `Blocked from app booking due to no-show on ${moment(appointment.date).format('DD/MM/YYYY')}`,
+                createdBy: userId,
+                metadata: {
+                  actionType: 'block',
+                  appointmentId: appointment._id,
+                  noShowDate: appointment.date,
+                  blockAppliedDate: clientDoc.blockAppliedDate,
+                  policyVersion: policyResult.policy.version,
+                  policySource: policyResult.policy.source,
+                }
+              }], { session });
+            }
           }
-        }
 
-        appointment.status = status;
-        Object.assign(appointment, buildAppointmentSemanticState(status));
-        applyWalkInQueueStatusForLegacyStatus(appointment, status);
-        appointment.updatedAt = new Date();
-        await appointment.save({ session });
+          // Update appointment status within transaction
+          appointment.status = status;
+          Object.assign(appointment, buildAppointmentSemanticState(status));
+          applyWalkInQueueStatusForLegacyStatus(appointment, status);
+          appointment.updatedAt = new Date();
+          await appointment.save({ session });
+        });
+      } else if (status === "Canceled") {
+        await session.withTransaction(async () => {
+          const policyResult = resolveCancellationOutcome({
+            appointment,
+            business,
+            actorId: userId,
+            payload: req.body,
+            isBusinessOwner,
+          });
 
-        await session.commitTransaction();
+          if (policyResult.outcome) {
+            appointment.policyOutcome = policyResult.outcome;
+            appointment.penalty = policyResult.penalty;
+
+            const clientDoc = await Client.findById(appointment.client).session(
+              session
+            );
+            if (clientDoc) {
+              const serviceName =
+                appointment.service &&
+                typeof appointment.service === "object" &&
+                appointment.service.name
+                  ? appointment.service.name
+                  : "Appointment Service";
+
+              clientDoc.incidentNotes = clientDoc.incidentNotes || [];
+              clientDoc.incidentNotes.push({
+                date: new Date(),
+                type: "cancellation",
+                appointmentId: appointment._id,
+                serviceName,
+                note:
+                  policyResult.outcome.note ||
+                  `Late cancellation for ${serviceName} appointment`,
+                createdBy: userId,
+              });
+              await clientDoc.save({ session });
+            }
+          }
+
+          appointment.status = status;
+          Object.assign(appointment, buildAppointmentSemanticState(status));
+          applyWalkInQueueStatusForLegacyStatus(appointment, status);
+          appointment.updatedAt = new Date();
+          await appointment.save({ session });
+        });
       } else {
         // For non-no-show/missed statuses, perform standard update
         appointment.status = status;
@@ -1546,7 +1545,9 @@ const updateAppointmentStatus = async (req, res) => {
         await appointment.save();
       }
     } catch (error) {
-      if (session) await session.abortTransaction();
+      if (session && session.inTransaction()) {
+        await session.abortTransaction();
+      }
       throw error;
     } finally {
       if (session) session.endSession();

@@ -2675,7 +2675,7 @@ const getAvailableTimeSlots = async (req, res) => {
      #swagger.parameters['serviceId'] = { in: 'query', description: 'Service ID', required: true, type: 'string' }
      #swagger.parameters['date'] = { in: 'query', description: 'Date (YYYY-MM-DD)', required: true, type: 'string' }
      #swagger.parameters['staffId'] = { in: 'query', description: 'Optional: Staff Member ID to check availability for. If provided, uses staff-specific booking buffer. If not provided, uses business default booking buffer.', type: 'string' }
-     #swagger.parameters['timezoneOffset'] = { in: 'query', description: 'Optional: User\'s timezone offset in minutes (e.g., 300 for UTC+5, -60 for UTC-1) or as string (e.g., "+05:00", "-01:00"). If not provided, uses server timezone. Recommended to send for accurate time slot filtering across different regions.', type: 'string' }
+     #swagger.parameters['timezoneOffset'] = { in: 'query', description: 'Optional timezone offset in minutes or HH:MM offset. Used to avoid showing past slots in the user local timezone.', type: 'string' }
      #swagger.responses[200] = {
         description: 'Available time slots (excluding slots within booking buffer for today)',
         schema: {

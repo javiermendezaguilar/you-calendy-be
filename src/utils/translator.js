@@ -1,5 +1,4 @@
 // Google Cloud Translation utility
-const { TranslationServiceClient } = require("@google-cloud/translate").v3;
 const path = require("path");
 const TranslationCache = require("../models/translationCache");
 const dotenv = require("dotenv");
@@ -7,12 +6,16 @@ const {
   loadServiceAccount,
   describeServiceAccountSource,
 } = require("./serviceAccount");
+const { getGoogleAccessToken } = require("./googleServiceAccountAuth");
 
 // Load environment variables from config.env
 dotenv.config({ path: path.join(__dirname, "../config/config.env") });
 
 const projectId = process.env.GCLOUD_PROJECT_ID;
 const location = "global";
+const TRANSLATION_API_BASE_URL = "https://translation.googleapis.com/v3";
+const TRANSLATION_API_SCOPE =
+  "https://www.googleapis.com/auth/cloud-translation";
 
 console.log("Translation setup - Project ID:", projectId);
 console.log(
@@ -94,15 +97,84 @@ if (!projectId) {
   );
 }
 
-let client = null;
+let translationAuthOptions = null;
 if (translationEnabled) {
-  console.log("Initializing Google Cloud Translation client...");
-  client = new TranslationServiceClient(
-    hasInlineCredentials
+  console.log("Initializing Google Cloud Translation REST auth options...");
+  translationAuthOptions = {
+    ...(hasInlineCredentials
       ? { credentials: translationServiceAccount.credentials }
-      : { keyFilename }
+      : { keyFilename }),
+    scopes: [TRANSLATION_API_SCOPE],
+  };
+  console.log("Google Cloud Translation REST auth options initialized");
+}
+
+async function requestTranslationApi(action, payload) {
+  const accessToken = await getGoogleAccessToken(translationAuthOptions);
+  if (!accessToken) {
+    throw new Error("Google Translation access token not available");
+  }
+
+  const parent = `projects/${projectId}/locations/${location}`;
+  const response = await fetch(
+    `${TRANSLATION_API_BASE_URL}/${parent}:${action}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }
   );
-  console.log("Google Cloud Translation client initialized successfully");
+
+  let result = {};
+  try {
+    result = await response.json();
+  } catch (error) {
+    result = {};
+  }
+
+  if (!response.ok) {
+    const apiError = result.error || {};
+    const error = new Error(
+      apiError.message ||
+        `Google Translation request failed with status ${response.status}`
+    );
+    error.code = apiError.code || response.status;
+    error.status = apiError.status;
+    error.details = apiError.details;
+    throw error;
+  }
+
+  return result;
+}
+
+function logTranslationApiError(context, err) {
+  console.error(`${context} error details:`);
+  console.error("- Message:", err.message);
+  console.error("- Code:", err.code);
+  console.error("- Status:", err.status);
+  console.error("- Details:", err.details);
+  console.error("- Full error:", JSON.stringify(err, null, 2));
+
+  if (err.code === 7 || err.code === 403 || err.status === "PERMISSION_DENIED") {
+    console.error(
+      "ERROR: Permission denied. Check if the service account has the 'Cloud Translation API User' role."
+    );
+  } else if (err.code === 3 || err.code === 400) {
+    console.error(
+      "ERROR: Invalid argument. Check if the project ID is correct."
+    );
+  } else if (err.code === 12 || err.code === 501) {
+    console.error(
+      "ERROR: Unimplemented. Check if the Cloud Translation API is enabled for this project."
+    );
+  } else if (err.message && err.message.includes("billing")) {
+    console.error(
+      "ERROR: Billing not enabled for this project. Enable billing in Google Cloud Console."
+    );
+  }
 }
 
 /**
@@ -112,7 +184,7 @@ if (translationEnabled) {
  * @returns {Promise<string>} - The translated text
  */
 async function translateText(text, targetLang) {
-  if (!translationEnabled || !client) {
+  if (!translationEnabled || !translationAuthOptions) {
     console.log(`Translation disabled - returning original text: "${text}"`);
     return text;
   }
@@ -152,7 +224,6 @@ async function translateText(text, targetLang) {
     console.log(`Using project: ${projectId}, location: ${location}`);
 
     const request = {
-      parent: `projects/${projectId}/locations/${location}`,
       contents: [text],
       mimeType: "text/plain",
       targetLanguageCode: targetLang,
@@ -160,7 +231,7 @@ async function translateText(text, targetLang) {
 
     console.log("Translation request:", JSON.stringify(request, null, 2));
 
-    const [response] = await client.translateText(request);
+    const response = await requestTranslationApi("translateText", request);
 
     console.log("Translation response:", JSON.stringify(response, null, 2));
 
@@ -183,32 +254,7 @@ async function translateText(text, targetLang) {
 
     return translated;
   } catch (err) {
-    console.error("Translation error details:");
-    console.error("- Message:", err.message);
-    console.error("- Code:", err.code);
-    console.error("- Status:", err.status);
-    console.error("- Details:", err.details);
-    console.error("- Full error:", JSON.stringify(err, null, 2));
-
-    // Check for specific error types
-    if (err.code === 7) {
-      console.error(
-        "ERROR: Permission denied. Check if the service account has the 'Cloud Translation API User' role."
-      );
-    } else if (err.code === 3) {
-      console.error(
-        "ERROR: Invalid argument. Check if the project ID is correct."
-      );
-    } else if (err.code === 12) {
-      console.error(
-        "ERROR: Unimplemented. Check if the Cloud Translation API is enabled for this project."
-      );
-    } else if (err.message && err.message.includes("billing")) {
-      console.error(
-        "ERROR: Billing not enabled for this project. Enable billing in Google Cloud Console."
-      );
-    }
-
+    logTranslationApiError("Translation", err);
     return text;
   }
 }
@@ -222,7 +268,7 @@ async function translateText(text, targetLang) {
 async function translateBatch(texts, targetLang) {
   // Always coerce to array to maintain consistent API contract
   const inputArray = Array.isArray(texts) ? texts : [texts];
-  if (!translationEnabled || !client) {
+  if (!translationEnabled || !translationAuthOptions) {
     console.log(`Translation disabled - returning original texts:`, inputArray);
     return inputArray;
   }
@@ -285,7 +331,6 @@ async function translateBatch(texts, targetLang) {
     console.log(`Making batch API call for ${textsToTranslate.length} texts`);
 
     const request = {
-      parent: `projects/${projectId}/locations/${location}`,
       contents: textsToTranslate,
       mimeType: "text/plain",
       targetLanguageCode: targetLang,
@@ -293,7 +338,7 @@ async function translateBatch(texts, targetLang) {
 
     console.log("Batch translation request:", JSON.stringify(request, null, 2));
 
-    const [response] = await client.translateText(request);
+    const response = await requestTranslationApi("translateText", request);
 
     console.log("Batch translation response received");
 
@@ -339,32 +384,7 @@ async function translateBatch(texts, targetLang) {
     );
     return results;
   } catch (err) {
-    console.error("Batch translation error details:");
-    console.error("- Message:", err.message);
-    console.error("- Code:", err.code);
-    console.error("- Status:", err.status);
-    console.error("- Details:", err.details);
-    console.error("- Full error:", JSON.stringify(err, null, 2));
-
-    // Check for specific error types
-    if (err.code === 7) {
-      console.error(
-        "ERROR: Permission denied. Check if the service account has the 'Cloud Translation API User' role."
-      );
-    } else if (err.code === 3) {
-      console.error(
-        "ERROR: Invalid argument. Check if the project ID is correct."
-      );
-    } else if (err.code === 12) {
-      console.error(
-        "ERROR: Unimplemented. Check if the Cloud Translation API is enabled for this project."
-      );
-    } else if (err.message && err.message.includes("billing")) {
-      console.error(
-        "ERROR: Billing not enabled for this project. Enable billing in Google Cloud Console."
-      );
-    }
-
+    logTranslationApiError("Batch translation", err);
     // Return original texts on error (as array)
     return inputArray;
   }
@@ -376,11 +396,10 @@ async function translateBatch(texts, targetLang) {
  * @returns {Promise<string>} - Detected language code
  */
 async function detectLanguage(text) {
-  if (!translationEnabled || !client) return "en";
+  if (!translationEnabled || !translationAuthOptions) return "en";
   if (!text) return "en";
   try {
-    const [response] = await client.detectLanguage({
-      parent: `projects/${projectId}/locations/${location}`,
+    const response = await requestTranslationApi("detectLanguage", {
       content: text,
       mimeType: "text/plain",
     });

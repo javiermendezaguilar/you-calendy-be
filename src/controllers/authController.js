@@ -300,7 +300,7 @@ const login = async (req, res) => {
       user.deviceToken = deviceToken;
       await user.save();
     }
-    jwtToken = user.getJWTToken();
+    const jwtToken = user.getJWTToken();
     
     let cookieName = 'userToken';
     if (userType === 'admin' && (user.role === 'admin' || user.role === 'sub-admin')) {
@@ -353,7 +353,6 @@ const forgotPassword = async (req, res) => {
     const passwordResetTokenExpires = new Date(Date.now() + 10 * 60 * 1000);
     user.passwordResetToken = passwordResetToken;
     user.passwordResetTokenExpires = passwordResetTokenExpires;
-    console.log(passwordResetToken);
     await user.save();
     const ejTemp = await ejs.renderFile(
       `${path.join(__dirname, "../ejs")}/forgetPassword.ejs`,
@@ -395,6 +394,8 @@ const resetPassword = async (req, res) => {
       return ErrorHandler("User does not exist", 400, req, res);
     }
     if (
+      !user.passwordResetToken ||
+      !user.passwordResetTokenExpires ||
       user.passwordResetToken.toString() !== passwordResetToken.toString() ||
       user.passwordResetTokenExpires < Date.now()
     ) {

@@ -26,6 +26,8 @@ const {
   updateNotificationSettings,
 } = require("../controllers/authController");
 const { isAuthenticated, isAdmin } = require("../middleware/auth");
+const { validateRequest } = require("../middleware/validateRequest");
+const { authInputSchemas } = require("../validation/authInputSchemas");
 const rateLimit = require("express-rate-limit");
 const uploader = require("../utils/uploader");
 
@@ -53,13 +55,37 @@ const authWriteLimiter = rateLimit({
 
 // Auth routes
 router.use(authRouterLimiter);
-router.route("/register").post(authWriteLimiter, register);
-router.route("/login").post(authWriteLimiter, login);
+router
+  .route("/register")
+  .post(authWriteLimiter, validateRequest(authInputSchemas.register), register);
+router
+  .route("/login")
+  .post(authWriteLimiter, validateRequest(authInputSchemas.login), login);
 // Logout doesn't require authentication (works even with expired tokens)
-router.route("/logout").post(logout);
-router.route("/forgotPassword").post(authWriteLimiter, forgotPassword);
-router.route("/resetPassword").put(authWriteLimiter, resetPassword);
-router.route("/updatePassword").put(isAuthenticated, updatePassword);
+router
+  .route("/logout")
+  .post(validateRequest(authInputSchemas.logout), logout);
+router
+  .route("/forgotPassword")
+  .post(
+    authWriteLimiter,
+    validateRequest(authInputSchemas.forgotPassword),
+    forgotPassword
+  );
+router
+  .route("/resetPassword")
+  .put(
+    authWriteLimiter,
+    validateRequest(authInputSchemas.resetPassword),
+    resetPassword
+  );
+router
+  .route("/updatePassword")
+  .put(
+    isAuthenticated,
+    validateRequest(authInputSchemas.updatePassword),
+    updatePassword
+  );
 router.route("/me").get(isAuthenticated, getMe);
 router.route("/role-permissions").get(isAuthenticated, getRolePermissions);
 // router.route("/updateProfile").put(
@@ -83,7 +109,11 @@ router
 
 router
   .route("/notification-settings")
-  .patch(isAuthenticated, updateNotificationSettings);
+  .patch(
+    isAuthenticated,
+    validateRequest(authInputSchemas.notificationSettings),
+    updateNotificationSettings
+  );
 
 // router
 //   .route("/updateAdminProfile")
@@ -93,7 +123,13 @@ router
 //     updateAdminProfile
 //   );
 
-router.route("/socialAuth").post(authWriteLimiter, socialAuth);
+router
+  .route("/socialAuth")
+  .post(
+    authWriteLimiter,
+    validateRequest(authInputSchemas.socialAuth),
+    socialAuth
+  );
 
 router.route("/barbers").get(isAuthenticated, getBarber);
 
@@ -101,12 +137,24 @@ router.patch(
   "/barbers/:id/status",
   isAuthenticated,
   isAdmin,
+  validateRequest(authInputSchemas.updateBarberStatus),
   updateBarberStatus
 );
 
-router.get("/barbers/:id", isAuthenticated, getByID);
+router.get(
+  "/barbers/:id",
+  isAuthenticated,
+  validateRequest(authInputSchemas.barberById),
+  getByID
+);
 
-router.delete("/barbers/:id", isAuthenticated, isAdmin, deleteBarber);
+router.delete(
+  "/barbers/:id",
+  isAuthenticated,
+  isAdmin,
+  validateRequest(authInputSchemas.barberById),
+  deleteBarber
+);
 
 router.post("/subadmins", isAuthenticated, isAdmin, createSubadmin);
 router.get("/subadmins", isAuthenticated, isAdmin, getAllSubadmins);

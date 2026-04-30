@@ -10,7 +10,6 @@ const ErrorHandler = require("../utils/ErrorHandler");
 const stripe = require("../services/billing/stripeClient");
 const moment = require("moment");
 const EmailCampaign = require("../models/emailCampaign");
-const sendMail = require("../utils/sendMail");
 const {
   sendNotificationToAdmins,
 } = require("../utils/adminNotificationHelper");
@@ -25,6 +24,9 @@ const {
 const {
   filterMarketingSmsRecipients,
 } = require("../services/messaging/smsPolicy");
+const {
+  filterMarketingEmailRecipients,
+} = require("../services/messaging/emailPolicy");
 const { getBusinessCredits } = require("../utils/creditManager");
 const BarberLink = require("../models/barberLink");
 const { normalizePhone } = require("../utils/index");
@@ -1469,17 +1471,30 @@ const createEmailCampaign = async (req, res) => {
       imageUrl = result.secure_url;
     }
 
-    // Fetch all active clients for this business
-    let clientEmails = [];
+    // Fetch all active clients for this business and enforce marketing consent.
+    let emailRecipients = [];
+    let skippedEmailRecipients = [];
     if (deliveryType === "send_now") {
       const clients = await Client.find(
         { business: business._id, isActive: true, status: "activated" },
-        "email"
+        "email consentFlags notificationsEnabled"
       );
-      clientEmails = clients.map((c) => c.email).filter(Boolean);
-      if (clientEmails.length === 0) {
+      if (clients.length === 0) {
         return ErrorHandler(
           "No active clients with email addresses found.",
+          400,
+          req,
+          res
+        );
+      }
+
+      const filteredRecipients = filterMarketingEmailRecipients(clients);
+      emailRecipients = filteredRecipients.recipients;
+      skippedEmailRecipients = filteredRecipients.skippedRecipients;
+
+      if (emailRecipients.length === 0) {
+        return ErrorHandler(
+          "No email recipients have marketing email consent and notifications enabled.",
           400,
           req,
           res
@@ -1509,15 +1524,13 @@ const createEmailCampaign = async (req, res) => {
 
     // If it's a send_now campaign, send immediately to all client emails
     if (deliveryType === "send_now") {
-      // Prepare recipients for bulk email sending
-      const recipients = clientEmails.map((email) => ({ email }));
       const emailContent = imageUrl
         ? `<img src="${imageUrl}" style="max-width: 100%; height: auto; margin-bottom: 20px;"><br>${content}`
         : content;
 
       // Send bulk emails with credit validation
       const results = await sendBulkEmailWithCredits(
-        recipients,
+        emailRecipients,
         "Email from " + business.name,
         emailContent,
         business._id,
@@ -1537,10 +1550,15 @@ const createEmailCampaign = async (req, res) => {
 
       campaign.status = results.successCount > 0 ? "sent" : "failed";
       campaign.sentAt = new Date();
-      campaign.sentTo = clientEmails.join(",");
+      campaign.sentTo = emailRecipients
+        .map((recipient) => recipient.email)
+        .join(",");
       campaign.metadata.totalSent = results.successCount;
       campaign.metadata.totalFailed = results.failedCount;
       campaign.metadata.creditsUsed = results.creditsUsed;
+      campaign.metadata.creditsRefunded = results.creditsRefunded || 0;
+      campaign.metadata.totalSkipped = skippedEmailRecipients.length;
+      campaign.metadata.skippedRecipients = skippedEmailRecipients;
       if (results.failedRecipients.length > 0) {
         campaign.errorMessage = JSON.stringify(results.failedRecipients);
       }
@@ -1767,20 +1785,28 @@ const sendEmailCampaign = async (req, res) => {
       return ErrorHandler("Campaign has already been sent", 400, req, res);
     }
 
-    if (!campaign.targetEmail) {
-      return ErrorHandler("No target email found for campaign", 400, req, res);
-    }
-
-    // Fetch all active clients for this business
+    // Fetch all active clients for this business and enforce marketing consent.
     const clients = await Client.find(
       { business: business._id, isActive: true, status: "activated" },
-      "email"
+      "email consentFlags notificationsEnabled"
     );
-    const clientEmails = clients.map((c) => c.email).filter(Boolean);
 
-    if (clientEmails.length === 0) {
+    if (clients.length === 0) {
       return ErrorHandler(
         "No active clients with email addresses found.",
+        400,
+        req,
+        res
+      );
+    }
+
+    const filteredRecipients = filterMarketingEmailRecipients(clients);
+    const emailRecipients = filteredRecipients.recipients;
+    const skippedEmailRecipients = filteredRecipients.skippedRecipients;
+
+    if (emailRecipients.length === 0) {
+      return ErrorHandler(
+        "No email recipients have marketing email consent and notifications enabled.",
         400,
         req,
         res
@@ -1793,12 +1819,9 @@ const sendEmailCampaign = async (req, res) => {
         ? `<img src="${campaign.imageUrl}" style="max-width: 100%; height: auto; margin-bottom: 20px;"><br>${campaign.content}`
         : campaign.content;
 
-      // Prepare recipients for bulk email sending
-      const recipients = clientEmails.map((email) => ({ email }));
-
       // Send bulk emails with credit validation
       const results = await sendBulkEmailWithCredits(
-        recipients,
+        emailRecipients,
         "Email from " + business.name,
         emailContent,
         business._id,
@@ -1818,10 +1841,15 @@ const sendEmailCampaign = async (req, res) => {
 
       campaign.status = results.successCount > 0 ? "sent" : "failed";
       campaign.sentAt = new Date();
-      campaign.sentTo = clientEmails.join(",");
+      campaign.sentTo = emailRecipients
+        .map((recipient) => recipient.email)
+        .join(",");
       campaign.metadata.totalSent = results.successCount;
       campaign.metadata.totalFailed = results.failedCount;
       campaign.metadata.creditsUsed = results.creditsUsed;
+      campaign.metadata.creditsRefunded = results.creditsRefunded || 0;
+      campaign.metadata.totalSkipped = skippedEmailRecipients.length;
+      campaign.metadata.skippedRecipients = skippedEmailRecipients;
       if (results.failedRecipients.length > 0) {
         campaign.errorMessage = JSON.stringify(results.failedRecipients);
       }

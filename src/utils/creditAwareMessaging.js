@@ -181,14 +181,17 @@ const sendEmailWithCredits = async (
     didReserveCredits = true;
 
     // Send Email
-    await sendMail(email, subject, content);
+    const result = await sendMail(email, subject, content);
 
     console.log(
-      `Email sent successfully to ${email} using 1 credit from business ${businessId}`
+      `Email sent successfully to ${email} using 1 credit from business ${businessId}. Message ID: ${result.messageId}`
     );
 
     return {
       success: true,
+      messageId: result.messageId || null,
+      provider: result.provider || "brevo",
+      attempts: result.attempts || 1,
       creditsUsed: 1,
     };
   } catch (error) {

@@ -9,6 +9,11 @@ const haircutGalleryController = require("../controllers/haircutGalleryControlle
 const messageBlastController = require("../controllers/messageBlastController");
 const visitController = require("../controllers/visitController");
 const { validateRequest } = require("../middleware/validateRequest");
+const {
+  bookingWriteLimiter,
+  communicationWriteLimiter,
+  subscriptionWriteLimiter,
+} = require("../middleware/economicRateLimit");
 const { serviceInputSchemas } = require("../validation/serviceInputSchemas");
 
 // Multer setup for file uploads
@@ -94,6 +99,7 @@ router.delete(
 router.post(
   "/waitlist",
   isAuthenticated,
+  bookingWriteLimiter,
   businessController.createWaitlistEntry
 );
 router.get(
@@ -109,6 +115,7 @@ router.get(
 router.post(
   "/waitlist/find-match",
   isAuthenticated,
+  bookingWriteLimiter,
   businessController.findWaitlistMatches
 );
 
@@ -197,6 +204,7 @@ router.get(
 router.post(
   "/clients/messages",
   isAuthenticated,
+  communicationWriteLimiter,
   clientController.sendCustomMessageToClients
 );
 
@@ -284,11 +292,13 @@ router.get(
 router.post(
   "/clients/:clientId/update-link",
   isAuthenticated,
+  communicationWriteLimiter,
   clientController.updateClientInvitationToken
 );
 router.post(
   "/clients/:clientId/resend-invitation",
   isAuthenticated,
+  communicationWriteLimiter,
   clientController.resendInvitationSMS
 );
 
@@ -353,6 +363,7 @@ router.put(
 router.post(
   "/message-blast/email",
   isAuthenticated,
+  communicationWriteLimiter,
   messageBlastController.sendEmailBlast
 );
 router.get(
@@ -367,7 +378,12 @@ router.get(
 );
 
 // Business freemium/premium routes
-router.post("/start-trial", isAuthenticated, businessController.startFreeTrial);
+router.post(
+  "/start-trial",
+  isAuthenticated,
+  subscriptionWriteLimiter,
+  businessController.startFreeTrial
+);
 router.get(
   "/subscription-status",
   isAuthenticated,
@@ -383,6 +399,7 @@ router.get(
 router.post(
   "/create-subscription",
   isAuthenticated,
+  subscriptionWriteLimiter,
   businessController.createStripeSubscription
 );
 // router.post("/test-webhook", isAuthenticated, businessController.testWebhook);
@@ -413,11 +430,13 @@ router.delete(
 router.post(
   "/email-campaigns/:campaignId/send",
   isAuthenticated,
+  communicationWriteLimiter,
   businessController.sendEmailCampaign
 );
 router.post(
   "/email-campaigns/process",
   isAuthenticated,
+  communicationWriteLimiter,
   businessController.triggerEmailCampaignProcessing
 );
 router.get(
@@ -430,6 +449,7 @@ router.get(
 router.post(
   "/sms-campaigns",
   isAuthenticated,
+  communicationWriteLimiter,
   businessController.createSmsCampaign
 );
 
@@ -465,11 +485,13 @@ router.post(
 router.post(
   "/walk-ins",
   isAuthenticated,
+  bookingWriteLimiter,
   businessController.createWalkIn
 );
 router.post(
   "/walk-ins/:appointmentId/abandon",
   isAuthenticated,
+  bookingWriteLimiter,
   businessController.abandonWalkIn
 );
 router.get(
@@ -480,6 +502,7 @@ router.get(
 router.post(
   "/unregistered-client",
   isAuthenticated,
+  bookingWriteLimiter,
   upload.array("haircutPhotos"),
   businessController.createUnregisteredClient
 );
@@ -488,6 +511,7 @@ router.post(
 router.post(
   "/clients/:clientId/convert-to-registered",
   isAuthenticated,
+  bookingWriteLimiter,
   businessController.convertClientToRegistered
 );
 // router.get(

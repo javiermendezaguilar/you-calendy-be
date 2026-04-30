@@ -15,12 +15,23 @@ const firebaseServiceAccount = loadServiceAccount({
   fallbackPaths: firebaseFallbackPaths,
 });
 
-console.log(
-  "Firebase service account source:",
-  describeServiceAccountSource(firebaseServiceAccount.source, firebaseFallbackPaths)
-);
+const isTest = process.env.NODE_ENV === "test";
 
-if (!firebaseServiceAccount.credentials && !firebaseServiceAccount.keyFilename) {
+if (!isTest) {
+  console.log(
+    "Firebase service account source:",
+    describeServiceAccountSource(
+      firebaseServiceAccount.source,
+      firebaseFallbackPaths
+    )
+  );
+}
+
+if (
+  !isTest &&
+  !firebaseServiceAccount.credentials &&
+  !firebaseServiceAccount.keyFilename
+) {
   console.warn("Firebase service account not configured. Push notifications will be disabled.");
 }
 

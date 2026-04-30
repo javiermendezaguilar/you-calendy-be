@@ -16,9 +16,16 @@ const location = "global";
 const TRANSLATION_API_BASE_URL = "https://translation.googleapis.com/v3";
 const TRANSLATION_API_SCOPE =
   "https://www.googleapis.com/auth/cloud-translation";
+const isTest = process.env.NODE_ENV === "test";
+const startupLog = (...args) => {
+  if (!isTest) console.log(...args);
+};
+const startupError = (...args) => {
+  if (!isTest) console.error(...args);
+};
 
-console.log("Translation setup - Project ID:", projectId);
-console.log(
+startupLog("Translation setup - Project ID:", projectId);
+startupLog(
   "Translation setup - Key file path:",
   process.env.GCLOUD_TRANSLATE_KEYFILE
 );
@@ -69,8 +76,8 @@ if (!keyFilename && process.env.GCLOUD_TRANSLATE_KEYFILE) {
   keyFilename = resolveKeyFilePathFromEnv(process.env.GCLOUD_TRANSLATE_KEYFILE);
 }
 
-console.log("Resolved key file path:", keyFilename);
-console.log(
+startupLog("Resolved key file path:", keyFilename);
+startupLog(
   "Translation credential source:",
   describeServiceAccountSource(
     translationServiceAccount.source,
@@ -85,28 +92,33 @@ const translationEnabled =
 
 // If the key file still doesn't exist, disable translation gracefully
 if (!hasInlineCredentials && !hasKeyFile) {
-  console.error("Google Cloud key file not found at any expected location.");
-  console.error("Checked:", process.env.GCLOUD_TRANSLATE_KEYFILE, "=>", keyFilename);
-  console.error("Translation will be disabled.");
+  startupError("Google Cloud key file not found at any expected location.");
+  startupError(
+    "Checked:",
+    process.env.GCLOUD_TRANSLATE_KEYFILE,
+    "=>",
+    keyFilename
+  );
+  startupError("Translation will be disabled.");
 }
 
 // Check if project ID is available
 if (!projectId) {
-  console.error(
+  startupError(
     "GCLOUD_PROJECT_ID not found in environment variables. Translation will be disabled."
   );
 }
 
 let translationAuthOptions = null;
 if (translationEnabled) {
-  console.log("Initializing Google Cloud Translation REST auth options...");
+  startupLog("Initializing Google Cloud Translation REST auth options...");
   translationAuthOptions = {
     ...(hasInlineCredentials
       ? { credentials: translationServiceAccount.credentials }
       : { keyFilename }),
     scopes: [TRANSLATION_API_SCOPE],
   };
-  console.log("Google Cloud Translation REST auth options initialized");
+  startupLog("Google Cloud Translation REST auth options initialized");
 }
 
 async function requestTranslationApi(action, payload) {

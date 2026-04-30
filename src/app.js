@@ -66,7 +66,9 @@ const appLimiter = rateLimit({
   },
 });
 
-logStripeWebhookSecretMode();
+if (process.env.NODE_ENV !== "test") {
+  logStripeWebhookSecretMode();
+}
 
 // League related global variable doesn't exist
 // console.log(global.onlineUsers);

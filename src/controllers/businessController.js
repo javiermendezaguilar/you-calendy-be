@@ -16,13 +16,15 @@ const {
 } = require("../utils/adminNotificationHelper");
 const { uploadToCloudinary, deleteImage } = require("../functions/cloudinary");
 const SmsCampaign = require("../models/smsCampaign");
-const { sendSMS } = require("../utils/twilio");
 const Client = require("../models/client");
 const {
   sendBulkSMSWithCredits,
   sendBulkEmailWithCredits,
   checkBulkCredits,
 } = require("../utils/creditAwareMessaging");
+const {
+  filterMarketingSmsRecipients,
+} = require("../services/messaging/smsPolicy");
 const { getBusinessCredits } = require("../utils/creditManager");
 const BarberLink = require("../models/barberLink");
 const { normalizePhone } = require("../utils/index");
@@ -2011,7 +2013,8 @@ const createSmsCampaign = async (req, res) => {
     }
 
     // Fetch clients for this business based on clientIds or all active clients
-    let clientPhones = [];
+    let smsRecipients = [];
+    let skippedSmsRecipients = [];
     if (deliveryType === "send_now") {
       let clients = [];
 
@@ -2020,22 +2023,33 @@ const createSmsCampaign = async (req, res) => {
         clients = await Client.find({
           _id: { $in: clientIds },
           business: business._id,
-          phone: { $exists: true, $ne: null, $ne: "" },
-        }).select("phone");
+        }).select("phone consentFlags notificationsEnabled");
       } else {
         // Otherwise, fetch all active clients (backward compatibility)
         clients = await Client.find(
           { business: business._id, isActive: true, status: "activated" },
-          "phone"
+          "phone consentFlags notificationsEnabled"
         );
       }
 
-      clientPhones = clients.map((c) => c.phone).filter(Boolean);
-      if (clientPhones.length === 0) {
+      if (clients.length === 0) {
         return ErrorHandler(
           clientIds && clientIds.length > 0
             ? "No clients found with the provided client IDs that have phone numbers."
             : "No active clients with phone numbers found.",
+          400,
+          req,
+          res
+        );
+      }
+
+      const filteredRecipients = filterMarketingSmsRecipients(clients);
+      smsRecipients = filteredRecipients.recipients;
+      skippedSmsRecipients = filteredRecipients.skippedRecipients;
+
+      if (smsRecipients.length === 0) {
+        return ErrorHandler(
+          "No SMS recipients have marketing SMS consent and notifications enabled.",
           400,
           req,
           res
@@ -2064,12 +2078,9 @@ const createSmsCampaign = async (req, res) => {
 
     // If it's a send_now campaign, send immediately to all client phones
     if (deliveryType === "send_now") {
-      // Prepare recipients for bulk SMS sending
-      const recipients = clientPhones.map((phone) => ({ phone }));
-
       // Send bulk SMS with credit validation
       const results = await sendBulkSMSWithCredits(
-        recipients,
+        smsRecipients,
         content,
         business._id,
         req,
@@ -2088,10 +2099,15 @@ const createSmsCampaign = async (req, res) => {
 
       campaign.status = results.successCount > 0 ? "sent" : "failed";
       campaign.sentAt = new Date();
-      campaign.sentTo = clientPhones.join(",");
+      campaign.sentTo = smsRecipients
+        .map((recipient) => recipient.phone)
+        .join(",");
       campaign.metadata.totalSent = results.successCount;
       campaign.metadata.totalFailed = results.failedCount;
       campaign.metadata.creditsUsed = results.creditsUsed;
+      campaign.metadata.creditsRefunded = results.creditsRefunded || 0;
+      campaign.metadata.totalSkipped = skippedSmsRecipients.length;
+      campaign.metadata.skippedRecipients = skippedSmsRecipients;
       if (results.failedRecipients.length > 0) {
         campaign.errorMessage = JSON.stringify(results.failedRecipients);
       }

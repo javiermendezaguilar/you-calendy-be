@@ -84,6 +84,10 @@ const sendBulkWithReservedCredits = async ({
       results.failedRecipients.push({
         [recipientKey]: recipient[recipientKey],
         error: sendError.message,
+        provider: sendError.provider || null,
+        code: sendError.code || null,
+        status: sendError.status || null,
+        attempts: sendError.attempts || null,
       });
       console.error(
         `Failed to send ${creditTypeName} to ${recipient[recipientKey]}:`,
@@ -133,7 +137,9 @@ const sendSMSWithCredits = async (to, body, businessId, req, res) => {
 
     return {
       success: true,
-      messageId: result.sid,
+      messageId: result.messageId || result.sid || null,
+      provider: result.provider || "twilio",
+      attempts: result.attempts || 1,
       creditsUsed: 1,
     };
   } catch (error) {

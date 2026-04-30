@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { isAuthenticated, isAdmin } = require("../middleware/auth");
+const { creditCheckoutWriteLimiter } = require("../middleware/economicRateLimit");
 const {
   createCreditProduct,
   listCreditProducts,
@@ -37,6 +38,7 @@ router.delete(
 router.post(
   "/checkout",
   isAuthenticated,
+  creditCheckoutWriteLimiter,
   /* #swagger.tags = ['Credits'] */ createCheckoutSession
 );
 

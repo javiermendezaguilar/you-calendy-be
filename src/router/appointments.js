@@ -4,7 +4,11 @@ const { isAuthenticated, tryAuthenticate } = require("../middleware/auth");
 const checkNoShowBlock = require("../middleware/checkBlock");
 const appointmentController = require("../controllers/appointmentController");
 const policyChargeController = require("../controllers/policyChargeController");
-const { policyChargeWriteLimiter } = require("../middleware/economicRateLimit");
+const {
+  bookingWriteLimiter,
+  communicationWriteLimiter,
+  policyChargeWriteLimiter,
+} = require("../middleware/economicRateLimit");
 const { validateRequest } = require("../middleware/validateRequest");
 const {
   appointmentInputSchemas,
@@ -32,6 +36,7 @@ router.get(
 router.post(
   "/", 
   isAuthenticated, 
+  bookingWriteLimiter,
   upload.array("referencePhotos", 5), 
   validateRequest(appointmentInputSchemas.createAppointment),
   checkNoShowBlock, 
@@ -40,6 +45,7 @@ router.post(
 router.post(
   "/barber",
   isAuthenticated,
+  bookingWriteLimiter,
 
   // upload.array("photos", 5),
   validateRequest(appointmentInputSchemas.createAppointmentByBarber),
@@ -79,6 +85,7 @@ router.get(
 router.post(
   "/automated-reminder",
   isAuthenticated,
+  communicationWriteLimiter,
   validateRequest(appointmentInputSchemas.automatedReminder),
   appointmentController.automatedReminder
 );
@@ -94,6 +101,7 @@ router.get(
 router.put(
   "/bulk-update-reminder-settings",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.bulkReminderSettings),
   appointmentController.bulkUpdateReminderSettings
 );
@@ -102,6 +110,7 @@ router.put(
 router.post(
   "/generate-review-link",
   isAuthenticated,
+  communicationWriteLimiter,
   validateRequest(appointmentInputSchemas.reviewLink),
   appointmentController.generateReviewLink
 );
@@ -129,24 +138,28 @@ router.get(
 router.put(
   "/:id",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.updateAppointment),
   appointmentController.updateAppointment
 );
 router.put(
   "/:id/status",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.updateStatus),
   appointmentController.updateAppointmentStatus
 );
 router.post(
   "/:id/check-in",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.checkIn),
   appointmentController.checkInAppointment
 );
 router.post(
   "/:id/start-service",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.startService),
   appointmentController.startAppointmentService
 );
@@ -155,6 +168,7 @@ router.post(
 router.post(
   "/:id/penalty",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.applyPenalty),
   appointmentController.applyPenalty
 );
@@ -167,6 +181,7 @@ router.get(
 router.put(
   "/penalties/:penaltyId/pay",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.payPenalty),
   appointmentController.payPenalty
 );
@@ -175,6 +190,7 @@ router.put(
 router.post(
   "/:id/delay",
   isAuthenticated,
+  communicationWriteLimiter,
   validateRequest(appointmentInputSchemas.delay),
   appointmentController.notifyDelay
 );
@@ -189,6 +205,7 @@ router.get(
 router.put(
   "/:id/reminder-settings",
   isAuthenticated,
+  bookingWriteLimiter,
   validateRequest(appointmentInputSchemas.updateReminderSettings),
   appointmentController.updateAppointmentReminderSettings
 );

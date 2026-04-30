@@ -28,30 +28,11 @@ const {
 const { isAuthenticated, isAdmin } = require("../middleware/auth");
 const { validateRequest } = require("../middleware/validateRequest");
 const { authInputSchemas } = require("../validation/authInputSchemas");
-const rateLimit = require("express-rate-limit");
+const {
+  authRouterLimiter,
+  authWriteLimiter,
+} = require("../middleware/economicRateLimit");
 const uploader = require("../utils/uploader");
-
-const authRouterLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many authentication requests, please try again later.",
-  },
-});
-
-const authWriteLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many authentication attempts, please try again later.",
-  },
-});
 
 // Auth routes
 router.use(authRouterLimiter);
@@ -83,6 +64,7 @@ router
   .route("/updatePassword")
   .put(
     isAuthenticated,
+    authWriteLimiter,
     validateRequest(authInputSchemas.updatePassword),
     updatePassword
   );

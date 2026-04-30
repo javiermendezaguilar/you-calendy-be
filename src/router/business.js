@@ -8,6 +8,8 @@ const clientController = require("../controllers/clientController");
 const haircutGalleryController = require("../controllers/haircutGalleryController");
 const messageBlastController = require("../controllers/messageBlastController");
 const visitController = require("../controllers/visitController");
+const { validateRequest } = require("../middleware/validateRequest");
+const { serviceInputSchemas } = require("../validation/serviceInputSchemas");
 
 // Multer setup for file uploads
 const storage = multer.memoryStorage();
@@ -74,16 +76,19 @@ router.get(
 router.post(
   "/services",
   isAuthenticated,
+  validateRequest(serviceInputSchemas.createBusinessService),
   businessController.addBusinessService
 );
 router.put(
   "/services/:serviceId",
   isAuthenticated,
+  validateRequest(serviceInputSchemas.updateBusinessService),
   businessController.updateBusinessService
 );
 router.delete(
   "/services/:serviceId",
   isAuthenticated,
+  validateRequest(serviceInputSchemas.deleteBusinessService),
   businessController.deleteBusinessService
 );
 router.post(

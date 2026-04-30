@@ -216,7 +216,7 @@ const updateService = async (req, res) => {
     const updates = {
       name: name || service.name,
       description: description || service.description,
-      price: price ? parseFloat(price) : service.price,
+      price: price !== undefined ? parseFloat(price) : service.price,
       currency: currency || service.currency,
       category: category || service.category,
       image: imageData,

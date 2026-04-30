@@ -136,9 +136,18 @@ describe("creditAwareMessaging SMS handling", () => {
       totalCredits: 9,
       addedCredits: 1,
     });
+    const providerError = new Error("SMTP auth");
+    providerError.provider = "brevo";
+    providerError.code = "EAUTH";
+    providerError.status = 401;
+    providerError.attempts = 1;
     sendMail
-      .mockResolvedValueOnce({ messageId: "E1" })
-      .mockRejectedValueOnce(new Error("SMTP auth"));
+      .mockResolvedValueOnce({
+        messageId: "E1",
+        provider: "brevo",
+        attempts: 1,
+      })
+      .mockRejectedValueOnce(providerError);
 
     const result = await sendBulkEmailWithCredits(
       [{ email: "one@example.com" }, { email: "two@example.com" }],
@@ -151,6 +160,16 @@ describe("creditAwareMessaging SMS handling", () => {
     expect(result.failedCount).toBe(1);
     expect(result.creditsUsed).toBe(1);
     expect(result.creditsRefunded).toBe(1);
+    expect(result.failedRecipients).toEqual([
+      {
+        email: "two@example.com",
+        error: "SMTP auth",
+        provider: "brevo",
+        code: "EAUTH",
+        status: 401,
+        attempts: 1,
+      },
+    ]);
     expect(deductEmailCredits).toHaveBeenCalledWith("business-1", 2);
     expect(addEmailCredits).toHaveBeenCalledWith("business-1", 1);
   });
@@ -166,7 +185,12 @@ describe("creditAwareMessaging SMS handling", () => {
       totalCredits: 10,
       addedCredits: 1,
     });
-    sendMail.mockRejectedValue(new Error("SMTP auth"));
+    const providerError = new Error("SMTP auth");
+    providerError.provider = "brevo";
+    providerError.code = "EAUTH";
+    providerError.status = 401;
+    providerError.attempts = 1;
+    sendMail.mockRejectedValue(providerError);
 
     const result = await sendEmailWithCredits(
       "one@example.com",
@@ -177,8 +201,42 @@ describe("creditAwareMessaging SMS handling", () => {
 
     expect(result.error).toBe(true);
     expect(result.message).toBe("SMTP auth");
+    expect(result.details).toMatchObject({
+      provider: "brevo",
+      code: "EAUTH",
+      status: 401,
+      attempts: 1,
+    });
     expect(deductEmailCredits).toHaveBeenCalledWith("business-1", 1);
     expect(addEmailCredits).toHaveBeenCalledWith("business-1", 1);
+  });
+
+  test("deducts one Email credit and returns Brevo metadata after a successful send", async () => {
+    deductEmailCredits.mockResolvedValue({
+      success: true,
+      remainingCredits: 9,
+      deductedCredits: 1,
+    });
+    sendMail.mockResolvedValue({
+      messageId: "BREVO-1",
+      provider: "brevo",
+      attempts: 1,
+    });
+
+    const result = await sendEmailWithCredits(
+      "one@example.com",
+      "subject",
+      "hello",
+      "business-1"
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.messageId).toBe("BREVO-1");
+    expect(result.provider).toBe("brevo");
+    expect(result.attempts).toBe(1);
+    expect(result.creditsUsed).toBe(1);
+    expect(deductEmailCredits).toHaveBeenCalledWith("business-1", 1);
+    expect(addEmailCredits).not.toHaveBeenCalled();
   });
 
   test("bulk SMS does not call provider when credit reservation fails", async () => {

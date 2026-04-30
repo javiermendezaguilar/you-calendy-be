@@ -52,6 +52,9 @@ const {
   hasConsentForChannel,
 } = require("../services/client/consentService");
 const {
+  canSendMarketingSms,
+} = require("../services/messaging/smsPolicy");
+const {
   syncClientLifecycleForOwner,
 } = require("../services/client/lifecycleService");
 
@@ -686,7 +689,7 @@ const sendCustomMessageToClients = async (req, res) => {
         emailError = "Missing marketing email consent";
       }
 
-      if (c.phone && hasConsentForChannel(c, "marketingSms")) {
+      if (canSendMarketingSms(c)) {
         try {
           await sendSMS(c.phone, `${smsBodyPrefix}${messageText}`);
           smsSent = true;
@@ -694,7 +697,7 @@ const sendCustomMessageToClients = async (req, res) => {
           smsError = err?.message || "Failed to send SMS";
         }
       } else if (c.phone) {
-        smsError = "Missing marketing SMS consent";
+        smsError = "Missing marketing SMS consent or client opted out";
       }
 
       results.push({

@@ -75,6 +75,8 @@ describe("creditAwareMessaging SMS handling", () => {
 
     expect(result.success).toBe(true);
     expect(result.messageId).toBe("SM123");
+    expect(result.provider).toBe("twilio");
+    expect(result.attempts).toBe(1);
     expect(deductSmsCredits).toHaveBeenCalledWith("business-1", 1);
     expect(addSmsCredits).not.toHaveBeenCalled();
   });
@@ -90,9 +92,14 @@ describe("creditAwareMessaging SMS handling", () => {
       totalCredits: 9,
       addedCredits: 1,
     });
+    const providerError = new Error("Authenticate");
+    providerError.provider = "twilio";
+    providerError.code = 20003;
+    providerError.status = 401;
+    providerError.attempts = 1;
     sendSMS
       .mockResolvedValueOnce({ sid: "SM1" })
-      .mockRejectedValueOnce(new Error("Authenticate"));
+      .mockRejectedValueOnce(providerError);
 
     const result = await sendBulkSMSWithCredits(
       [{ phone: "+34600000001" }, { phone: "+34600000002" }],
@@ -104,6 +111,16 @@ describe("creditAwareMessaging SMS handling", () => {
     expect(result.failedCount).toBe(1);
     expect(result.creditsUsed).toBe(1);
     expect(result.creditsRefunded).toBe(1);
+    expect(result.failedRecipients).toEqual([
+      {
+        phone: "+34600000002",
+        error: "Authenticate",
+        provider: "twilio",
+        code: 20003,
+        status: 401,
+        attempts: 1,
+      },
+    ]);
     expect(deductSmsCredits).toHaveBeenCalledWith("business-1", 2);
     expect(addSmsCredits).toHaveBeenCalledWith("business-1", 1);
   });

@@ -67,6 +67,30 @@ const smsCampaignSchema = new Schema(
         type: Number,
         default: 0,
       },
+      creditsUsed: {
+        type: Number,
+        default: 0,
+      },
+      creditsRefunded: {
+        type: Number,
+        default: 0,
+      },
+      totalSkipped: {
+        type: Number,
+        default: 0,
+      },
+      skippedRecipients: [
+        {
+          client: {
+            type: Schema.Types.ObjectId,
+            ref: "Client",
+          },
+          reason: {
+            type: String,
+            trim: true,
+          },
+        },
+      ],
     },
     createdBy: {
       type: Schema.Types.ObjectId,

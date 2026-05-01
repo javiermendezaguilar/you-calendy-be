@@ -147,6 +147,26 @@ const closeCashSessionBody = z
   })
   .passthrough();
 
+const paymentPeriodQuery = z
+  .object({
+    startDate: dateOnly.optional(),
+    endDate: dateOnly.optional(),
+  })
+  .passthrough()
+  .superRefine((query, ctx) => {
+    if (
+      query.startDate &&
+      query.endDate &&
+      new Date(query.startDate) > new Date(query.endDate)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["startDate"],
+        message: "must be before or equal to endDate",
+      });
+    }
+  });
+
 module.exports = {
   appointmentIdParams,
   checkoutIdParams,
@@ -169,6 +189,12 @@ module.exports = {
     },
     paymentIdRead: {
       params: idParams,
+    },
+    summaryRead: {
+      query: paymentPeriodQuery,
+    },
+    reconciliationRead: {
+      query: paymentPeriodQuery,
     },
   },
   checkoutInputSchemas: {

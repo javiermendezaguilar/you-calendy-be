@@ -15,10 +15,16 @@ router.post(
   validateRequest(paymentInputSchemas.capturePayment),
   paymentController.capturePayment
 );
-router.get("/summary", isAuthenticated, paymentController.getPaymentSummary);
+router.get(
+  "/summary",
+  isAuthenticated,
+  validateRequest(paymentInputSchemas.summaryRead),
+  paymentController.getPaymentSummary
+);
 router.get(
   "/reconciliation",
   isAuthenticated,
+  validateRequest(paymentInputSchemas.reconciliationRead),
   paymentController.getPaymentReconciliation
 );
 router.get(

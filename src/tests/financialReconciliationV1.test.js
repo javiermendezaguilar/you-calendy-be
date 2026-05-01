@@ -209,6 +209,18 @@ describe("Financial reconciliation v1", () => {
     const res = await getReconciliation(token, { startDate: "not-a-date" });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/startDate must be a valid date/i);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/startDate/i);
+  });
+
+  test("rejects periods with startDate after endDate", async () => {
+    const res = await getReconciliation(token, {
+      startDate: "2026-04-20",
+      endDate: "2026-04-19",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/before or equal to endDate/i);
   });
 });

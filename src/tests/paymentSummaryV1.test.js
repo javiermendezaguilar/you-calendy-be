@@ -282,6 +282,26 @@ describe("Payment summary v1", () => {
     expect(res.body.data.rebooking.rate).toBe(0.25);
   });
 
+  test("rejects invalid summary period filters before building the read model", async () => {
+    const res = await request(app)
+      .get("/payment/summary?startDate=not-a-date")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/startDate/i);
+  });
+
+  test("rejects summary periods with startDate after endDate", async () => {
+    const res = await request(app)
+      .get("/payment/summary?startDate=2026-04-20&endDate=2026-04-19")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/before or equal to endDate/i);
+  });
+
   test("returns service revenue from performed service snapshots only", async () => {
     const legacyCheckout = await createSummaryCheckout(fixture, {
       total: 60,

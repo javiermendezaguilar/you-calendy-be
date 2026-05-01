@@ -32,6 +32,10 @@ const {
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
+const PAYMENT_READ_SORT = { capturedAt: 1, _id: 1 };
+const REFUND_READ_SORT = { refundedAt: 1, _id: 1 };
+const CHECKOUT_READ_SORT = { openedAt: 1, _id: 1 };
+
 const toMoneyNumber = (value, fallback = 0) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -894,15 +898,21 @@ const getPaymentSummary = async (req, res) => {
         business: business._id,
         ...paymentDateFilter,
         ...buildCommercePaymentFilter(),
-      }).lean(),
+      })
+        .sort(PAYMENT_READ_SORT)
+        .lean(),
       Refund.find({
         business: business._id,
         ...refundDateFilter,
-      }).lean(),
+      })
+        .sort(REFUND_READ_SORT)
+        .lean(),
       Checkout.find({
         business: business._id,
         ...checkoutDateFilter,
-      }).lean(),
+      })
+        .sort(CHECKOUT_READ_SORT)
+        .lean(),
     ]);
 
     const checkoutIds = checkouts.map((checkout) => checkout._id);

@@ -15,6 +15,7 @@ const {
   subscriptionWriteLimiter,
 } = require("../middleware/economicRateLimit");
 const { serviceInputSchemas } = require("../validation/serviceInputSchemas");
+const { clientInputSchemas } = require("../validation/clientInputSchemas");
 
 // Multer setup for file uploads
 const storage = multer.memoryStorage();
@@ -186,12 +187,14 @@ router.get(
   "/clients",
   isAuthenticated,
   isBusinessOwner,
+  validateRequest(clientInputSchemas.listClients),
   clientController.getClients
 );
 router.get(
   "/clients/count",
   isAuthenticated,
   isBusinessOwner,
+  validateRequest(clientInputSchemas.countClients),
   clientController.getClientsCount
 );
 

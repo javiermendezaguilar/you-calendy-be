@@ -3,25 +3,15 @@ const request = require("supertest");
 const app = require("../app");
 const Appointment = require("../models/appointment");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
   createCommerceFixture,
 } = require("./helpers/commerceFixture");
+const { useCommerceTestDatabase } = require("./helpers/testLifecycle");
 
 describe("BE-P2-05 appointment list pagination, filters and order", () => {
   let fixture;
   let consoleLogSpy;
 
-  beforeAll(async () => {
-    await connectCommerceTestDatabase();
-  });
-
-  afterAll(async () => {
-    await disconnectCommerceTestDatabase();
-    await new Promise((resolve) => {
-      setTimeout(resolve, 1100);
-    });
-  });
+  useCommerceTestDatabase();
 
   beforeEach(async () => {
     consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
@@ -34,6 +24,19 @@ describe("BE-P2-05 appointment list pagination, filters and order", () => {
 
   const authGet = (path) =>
     request(app).get(path).set("Authorization", `Bearer ${fixture.token}`);
+
+  const listCases = [
+    {
+      label: "/appointments",
+      invalidPath: "/appointments?page=0",
+      listPath: "/appointments?page=1&limit=2",
+    },
+    {
+      label: "/business/appointments",
+      invalidPath: "/business/appointments?limit=201",
+      listPath: "/business/appointments?page=1&limit=2",
+    },
+  ];
 
   const createSameSlotAppointments = async () => {
     const base = {
@@ -58,22 +61,13 @@ describe("BE-P2-05 appointment list pagination, filters and order", () => {
     return [fixture.appointment, ...extra];
   };
 
-  test("rejects invalid appointment list pagination before controller execution", async () => {
-    const res = await authGet("/appointments?page=0");
-
-    expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
-  });
-
-  test("returns /appointments in deterministic order with pagination metadata", async () => {
-    const allAppointments = await createSameSlotAppointments();
-    const expectedFirstPageIds = allAppointments
+  const buildExpectedFirstPageIds = (appointments) =>
+    appointments
       .map((appointment) => appointment._id.toString())
       .sort()
       .slice(0, 2);
 
-    const res = await authGet("/appointments?page=1&limit=2");
-
+  const expectStableFirstPage = (res, expectedFirstPageIds) => {
     expect(res.status).toBe(200);
     expect(res.body.data.pagination).toMatchObject({
       total: 3,
@@ -85,34 +79,26 @@ describe("BE-P2-05 appointment list pagination, filters and order", () => {
     expect(
       res.body.data.appointments.map((appointment) => appointment._id.toString())
     ).toEqual(expectedFirstPageIds);
-  });
+  };
 
-  test("rejects invalid business appointment query params", async () => {
-    const res = await authGet("/business/appointments?limit=201");
+  test.each(listCases)(
+    "rejects invalid query params for $label",
+    async ({ invalidPath }) => {
+      const res = await authGet(invalidPath);
 
-    expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
-  });
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    }
+  );
 
-  test("returns /business/appointments in deterministic order with pagination metadata", async () => {
-    const allAppointments = await createSameSlotAppointments();
-    const expectedFirstPageIds = allAppointments
-      .map((appointment) => appointment._id.toString())
-      .sort()
-      .slice(0, 2);
+  test.each(listCases)(
+    "returns $label in deterministic order with pagination metadata",
+    async ({ listPath }) => {
+      const allAppointments = await createSameSlotAppointments();
+      const expectedFirstPageIds = buildExpectedFirstPageIds(allAppointments);
+      const res = await authGet(listPath);
 
-    const res = await authGet("/business/appointments?page=1&limit=2");
-
-    expect(res.status).toBe(200);
-    expect(res.body.data.pagination).toMatchObject({
-      total: 3,
-      page: 1,
-      limit: 2,
-      pages: 2,
-      hasMore: true,
-    });
-    expect(
-      res.body.data.appointments.map((appointment) => appointment._id.toString())
-    ).toEqual(expectedFirstPageIds);
-  });
+      expectStableFirstPage(res, expectedFirstPageIds);
+    }
+  );
 });

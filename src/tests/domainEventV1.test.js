@@ -100,7 +100,7 @@ describe("Domain event v1", () => {
   });
 
   test("keeps distinct events that share type and correlation but carry different payloads", async () => {
-    const { fixture } = await createPaymentCommerceFixture({
+    const { fixture, token } = await createPaymentCommerceFixture({
       ownerEmail: "domain-distinct-owner@example.com",
       businessName: "Domain Distinct Shop",
     });
@@ -110,6 +110,7 @@ describe("Domain event v1", () => {
       actorId: fixture.owner._id,
       shopId: fixture.business._id,
       correlationId: fixture.appointment._id,
+      occurredAt: new Date("2026-04-20T10:00:00.000Z"),
       payload: {
         appointmentId: fixture.appointment._id,
         modifiedFields: ["startTime"],
@@ -122,6 +123,7 @@ describe("Domain event v1", () => {
       actorId: fixture.owner._id,
       shopId: fixture.business._id,
       correlationId: fixture.appointment._id,
+      occurredAt: new Date("2026-04-20T11:00:00.000Z"),
       payload: {
         appointmentId: fixture.appointment._id,
         modifiedFields: ["startTime"],
@@ -135,6 +137,24 @@ describe("Domain event v1", () => {
     }).lean();
 
     expect(storedEvents).toHaveLength(2);
+
+    const eventsRes = await request(app)
+      .get("/business/domain-events")
+      .set("Authorization", `Bearer ${token}`)
+      .query({ type: "booking_modified", limit: 1 });
+
+    expect(eventsRes.status).toBe(200);
+    expect(eventsRes.body.data.total).toBe(2);
+    expect(eventsRes.body.data.filters.type).toBe("booking_modified");
+    expect(eventsRes.body.data.pagination).toMatchObject({
+      total: 2,
+      page: 1,
+      limit: 1,
+      pages: 2,
+      hasMore: true,
+    });
+    expect(eventsRes.body.data.events).toHaveLength(1);
+    expect(eventsRes.body.data.events[0].payload.startTime).toBe("11:00");
   });
 
   test("requires correlation id for domain events", async () => {
@@ -216,6 +236,8 @@ describe("Domain event v1", () => {
 
     expect(eventsRes.status).toBe(200);
     expect(eventsRes.body.data.total).toBeGreaterThanOrEqual(5);
+    expect(eventsRes.body.data.pagination.limit).toBe(10);
+    expect(eventsRes.body.data.pagination.page).toBe(1);
     expect(eventsRes.body.data.events.map((event) => event.type)).toEqual(
       expect.arrayContaining([
         "checkout_opened",
@@ -266,5 +288,27 @@ describe("Domain event v1", () => {
     expect(eventsRes.body.data.events[0].shopId.toString()).toBe(
       fixture.business._id.toString()
     );
+  });
+
+  test("rejects invalid domain event query contracts", async () => {
+    const { token } = await createPaymentCommerceFixture();
+
+    const invalidLimitRes = await request(app)
+      .get("/business/domain-events")
+      .set("Authorization", `Bearer ${token}`)
+      .query({ limit: 101 });
+
+    expect(invalidLimitRes.status).toBe(400);
+    expect(invalidLimitRes.body.success).toBe(false);
+    expect(invalidLimitRes.body.message).toMatch(/limit/i);
+
+    const invalidTypeRes = await request(app)
+      .get("/business/domain-events")
+      .set("Authorization", `Bearer ${token}`)
+      .query({ type: "not_a_real_event" });
+
+    expect(invalidTypeRes.status).toBe(400);
+    expect(invalidTypeRes.body.success).toBe(false);
+    expect(invalidTypeRes.body.message).toMatch(/domain event type/i);
   });
 });

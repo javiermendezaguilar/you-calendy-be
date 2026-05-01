@@ -19,6 +19,9 @@ const { clientInputSchemas } = require("../validation/clientInputSchemas");
 const {
   appointmentInputSchemas,
 } = require("../validation/appointmentInputSchemas");
+const {
+  domainEventInputSchemas,
+} = require("../validation/domainEventInputSchemas");
 
 // Multer setup for file uploads
 const storage = multer.memoryStorage();
@@ -44,6 +47,7 @@ router.get(
 router.get(
   "/domain-events",
   isAuthenticated,
+  validateRequest(domainEventInputSchemas.listDomainEvents),
   businessController.getDomainEvents
 );
 router.get(

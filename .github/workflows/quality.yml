@@ -27,6 +27,9 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=high
 
+      - name: Static security check
+        run: npm run security:static
+
       - name: Risk suite inventory
         run: npm run test:risk -- --list
 

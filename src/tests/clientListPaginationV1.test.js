@@ -3,24 +3,14 @@ const request = require("supertest");
 const app = require("../app");
 const Client = require("../models/client");
 const {
-  connectCommerceTestDatabase,
-  disconnectCommerceTestDatabase,
   createCommerceFixture,
 } = require("./helpers/commerceFixture");
+const { useCommerceTestDatabase } = require("./helpers/testLifecycle");
 
 describe("BE-P2-05 client list pagination, filters and order", () => {
   let fixture;
 
-  beforeAll(async () => {
-    await connectCommerceTestDatabase();
-  });
-
-  afterAll(async () => {
-    await disconnectCommerceTestDatabase();
-    await new Promise((resolve) => {
-      setTimeout(resolve, 1100);
-    });
-  });
+  useCommerceTestDatabase();
 
   beforeEach(async () => {
     fixture = await createCommerceFixture();

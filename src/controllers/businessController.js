@@ -3093,7 +3093,9 @@ const getOperationalReporting = async (req, res) => {
     const payload = await getOperationalReportingForOwner(req.user.id, req.query);
     return SuccessHandler(payload, 200, res);
   } catch (error) {
-    console.error("Get operational reporting error:", error.message);
+    if (!error.statusCode || error.statusCode >= 500) {
+      console.error("Get operational reporting error:", error.message);
+    }
     return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };

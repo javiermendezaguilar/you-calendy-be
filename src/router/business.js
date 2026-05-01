@@ -22,6 +22,9 @@ const {
 const {
   domainEventInputSchemas,
 } = require("../validation/domainEventInputSchemas");
+const {
+  operationalReportingInputSchemas,
+} = require("../validation/operationalReportingInputSchemas");
 
 // Multer setup for file uploads
 const storage = multer.memoryStorage();
@@ -42,6 +45,7 @@ router.get(
 router.get(
   "/operational-reporting",
   isAuthenticated,
+  validateRequest(operationalReportingInputSchemas.operationalReporting),
   businessController.getOperationalReporting
 );
 router.get(

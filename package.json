@@ -12,6 +12,7 @@
     "test:risk": "node ./scripts/test-risk-suite.js",
     "staging:checklist": "node ./scripts/staging-validation-checklist.js",
     "rollback:checklist": "node ./scripts/rollback-recovery-checklist.js",
+    "restore:drill:staging": "node ./scripts/restore-drill-staging.js",
     "smoke:fe-core": "node ./scripts/fe-core-smoke.js",
     "seed:fe-core-staging": "node ./scripts/fe-core-staging-seed.js",
     "seed:gallery": "node ./seeds/gallerySeeder.js",

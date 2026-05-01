@@ -38,6 +38,15 @@ const normalizeLimit = (value) => {
   return Math.min(parsed, 100);
 };
 
+const normalizePage = (value) => {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return 1;
+  }
+
+  return parsed;
+};
+
 const normalizeType = (value) => {
   if (!value) {
     return null;
@@ -180,7 +189,7 @@ const recordDomainEvent = async ({
   }
 };
 
-const getDomainEventsForOwner = async (ownerId, { type, limit } = {}) => {
+const getDomainEventsForOwner = async (ownerId, { type, limit, page } = {}) => {
   const business = await Business.findOne({ owner: ownerId });
   if (!business) {
     const error = new Error("Business not found");
@@ -197,14 +206,33 @@ const getDomainEventsForOwner = async (ownerId, { type, limit } = {}) => {
     query.type = { $eq: normalizedType };
   }
 
-  const events = await DomainEvent.find(query)
-    .sort({ occurredAt: -1, recordedAt: -1, _id: -1 })
-    .limit(normalizeLimit(limit))
-    .lean();
+  const normalizedLimit = normalizeLimit(limit);
+  const normalizedPage = normalizePage(page);
+  const skip = (normalizedPage - 1) * normalizedLimit;
+  const sort = { occurredAt: -1, recordedAt: -1, _id: -1 };
+
+  const [total, events] = await Promise.all([
+    DomainEvent.countDocuments(query),
+    DomainEvent.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(normalizedLimit)
+      .lean(),
+  ]);
 
   return {
     businessId: business._id,
-    total: events.length,
+    total,
+    filters: {
+      type: normalizedType,
+    },
+    pagination: {
+      total,
+      page: normalizedPage,
+      limit: normalizedLimit,
+      pages: Math.ceil(total / normalizedLimit),
+      hasMore: normalizedPage * normalizedLimit < total,
+    },
     events,
   };
 };

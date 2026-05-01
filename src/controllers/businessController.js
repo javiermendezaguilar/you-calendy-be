@@ -3103,7 +3103,9 @@ const getDomainEvents = async (req, res) => {
     const payload = await getDomainEventsForOwner(req.user.id, req.query);
     return SuccessHandler(payload, 200, res);
   } catch (error) {
-    console.error("Get domain events error:", error.message);
+    if (!error.statusCode || error.statusCode >= 500) {
+      console.error("Get domain events error:", error.message);
+    }
     return ErrorHandler(error.message, error.statusCode || 500, req, res);
   }
 };

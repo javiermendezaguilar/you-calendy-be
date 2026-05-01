@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 const moment = require("moment");
 const Appointment = require("../../models/appointment");
 const CapacityLock = require("../../models/capacityLock");
+const {
+  recordBusinessOperationalAlert,
+} = require("../businessOperationalAlertService");
 
 const NON_BLOCKING_CAPACITY_STATUSES = ["Canceled", "No-Show", "Missed"];
 const DEFAULT_CONFLICT_MESSAGE =
@@ -177,6 +180,25 @@ const runWithCapacityGuard = async ({
       });
 
       if (conflictingAppointment) {
+        await recordBusinessOperationalAlert("overbooking_guard_triggered", {
+          businessId,
+          source: "capacity_guard",
+          correlationId: [
+            "capacity-conflict",
+            descriptor.lockKey,
+            startTime,
+            endTime,
+          ].join(":"),
+          entityType: "appointment",
+          entityId: conflictingAppointment._id,
+          metadata: {
+            staffId: staffId || null,
+            date: descriptor.dateKey,
+            startTime,
+            endTime,
+            conflictingAppointmentId: conflictingAppointment._id,
+          },
+        });
         throw buildCapacityError(conflictMessage, 409);
       }
 

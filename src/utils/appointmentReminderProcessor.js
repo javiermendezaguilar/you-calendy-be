@@ -1,7 +1,40 @@
 const Appointment = require("../models/appointment");
 const Business = require("../models/User/business");
 const { sendSMSWithCredits } = require("../utils/creditAwareMessaging");
+const {
+  recordBusinessOperationalAlert,
+} = require("../services/businessOperationalAlertService");
 const logger = require("../functions/logger");
+
+const recordReminderAlert = async ({
+  business,
+  appointment,
+  action,
+  reason,
+  metadata = {},
+}) => {
+  await recordBusinessOperationalAlert("reminder_delivery_anomaly", {
+    businessId: business?._id || appointment?.business || null,
+    actorId: business?.owner || null,
+    source: "appointment_reminder_processor",
+    correlationId: [
+      "appointment-reminder",
+      appointment?._id || "unknown",
+      appointment?.reminderTime || "unknown",
+      action || "anomaly",
+    ].join(":"),
+    action,
+    reason,
+    entityType: "appointment",
+    entityId: appointment?._id || "",
+    metadata: {
+      reminderTime: appointment?.reminderTime || "",
+      appointmentDate: appointment?.date || null,
+      startTime: appointment?.startTime || "",
+      ...metadata,
+    },
+  });
+};
 
 /**
  * Process appointment reminders for all businesses
@@ -40,6 +73,7 @@ const processAppointmentReminders = async () => {
           date: { $gte: startOfToday },
           appointmentReminder: true,
           reminderTime: { $in: Object.keys(reminderMap) },
+          reminderSent: { $ne: true },
         };
 
         const appointments = await Appointment.find(query).populate(
@@ -95,6 +129,29 @@ const processAppointmentReminders = async () => {
 
           // Check if current time is within the reminder window
           if (now >= reminderWindowStart && now < reminderWindowEnd) {
+            const claimedAppointment = await Appointment.findOneAndUpdate(
+              {
+                _id: appt._id,
+                reminderSent: { $ne: true },
+              },
+              {
+                $set: {
+                  reminderSent: true,
+                },
+              },
+              { new: true }
+            );
+
+            if (!claimedAppointment) {
+              await recordReminderAlert({
+                business,
+                appointment: appt,
+                action: "duplicate_blocked",
+                reason: "reminder_already_claimed",
+              });
+              continue;
+            }
+
             try {
               // Format appointment date for message
               const appointmentDateStr = appt.date.toLocaleDateString("en-US", {
@@ -133,6 +190,20 @@ const processAppointmentReminders = async () => {
                   `Reminder SMS sent successfully to ${appt.client.phone} for appointment ${appt._id}`
                 );
               } else {
+                await Appointment.updateOne(
+                  { _id: appt._id },
+                  { $set: { reminderSent: false } }
+                );
+                await recordReminderAlert({
+                  business,
+                  appointment: appt,
+                  action: "delivery_failed",
+                  reason: "provider_returned_failure",
+                  metadata: {
+                    providerMessage:
+                      smsResult?.message || smsResult?.error || "Unknown error",
+                  },
+                });
                 logger.warn(
                   `Failed to send reminder SMS to ${appt.client.phone}: ${
                     smsResult?.message || smsResult?.error || "Unknown error"
@@ -144,6 +215,19 @@ const processAppointmentReminders = async () => {
                 `Error sending reminder SMS for appointment ${appt._id}:`,
                 smsError.message
               );
+              await Appointment.updateOne(
+                { _id: appt._id },
+                { $set: { reminderSent: false } }
+              );
+              await recordReminderAlert({
+                business,
+                appointment: appt,
+                action: "delivery_failed",
+                reason: "provider_exception",
+                metadata: {
+                  errorMessage: smsError.message,
+                },
+              });
             }
           }
         }

@@ -29,6 +29,9 @@ const {
 const {
   syncClientLifecycleAfterPayment,
 } = require("../services/client/lifecycleService");
+const {
+  recordBusinessOperationalAlert,
+} = require("../services/businessOperationalAlertService");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -208,6 +211,45 @@ const withOptionalSession = (query, mongoSession) =>
 const getRefundIdempotencyKey = (req) => {
   const rawKey = req.get?.("Idempotency-Key") || req.body?.idempotencyKey || "";
   return String(rawKey).trim();
+};
+
+const recordRefundAnomaly = async ({
+  req,
+  business,
+  payment,
+  amount,
+  idempotencyKey,
+  reason,
+  statusCode,
+}) => {
+  if (!business || !payment) {
+    return;
+  }
+
+  await recordBusinessOperationalAlert("refund_anomaly", {
+    businessId: business._id,
+    actorId: req.user?._id || req.user?.id || null,
+    actorType: "user",
+    source: "payment_controller",
+    correlationId: [
+      "refund-anomaly",
+      payment._id,
+      idempotencyKey || "no-key",
+      reason || "unknown",
+    ].join(":"),
+    action: "refund_blocked",
+    reason: reason || "refund_anomaly",
+    entityType: "payment",
+    entityId: payment._id,
+    metadata: {
+      amount,
+      idempotencyKeyPresent: Boolean(idempotencyKey),
+      paymentStatus: payment.status,
+      refundedTotal: payment.refundedTotal || 0,
+      paymentAmount: payment.amount,
+      statusCode,
+    },
+  });
 };
 
 const getCaptureIdempotencyKey = (req) => {
@@ -763,12 +805,34 @@ const refundPayment = async (req, res) => {
         return SuccessHandler(hydratedExistingRefund, 200, res);
       }
 
+      await recordRefundAnomaly({
+        req,
+        business: businessForIdempotency,
+        payment: paymentForIdempotency,
+        amount: normalizedAmount,
+        idempotencyKey,
+        reason: "idempotency_key_reused_for_different_refund",
+        statusCode: 409,
+      });
+
       return ErrorHandler(
         "Idempotency key already used for a different refund amount",
         409,
         req,
         res
       );
+    }
+
+    if (error?.statusCode === 409) {
+      await recordRefundAnomaly({
+        req,
+        business: businessForIdempotency,
+        payment: paymentForIdempotency,
+        amount: normalizedAmount,
+        idempotencyKey,
+        reason: error.message,
+        statusCode: error.statusCode,
+      });
     }
 
     return ErrorHandler(error.message, error.statusCode || 500, req, res);

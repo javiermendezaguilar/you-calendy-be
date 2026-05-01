@@ -98,6 +98,7 @@ const RISK_TEST_GROUPS = Object.freeze({
     tests: [
       "src/tests/adminRevenueProjectionV1.test.js",
       "src/tests/appointmentRevenueProjectionV1.test.js",
+      "src/tests/businessOperationalAlertsV1.test.js",
       "src/tests/businessObservabilityV1.test.js",
       "src/tests/businessServicesSourceOfTruth.test.js",
       "src/tests/clientLifecycleConsentV1.test.js",

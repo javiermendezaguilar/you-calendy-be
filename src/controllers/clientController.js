@@ -92,11 +92,12 @@ const buildClientBaseQuery = ({
   const baseQuery = { business: businessId };
 
   if (isActive !== undefined) {
-    baseQuery.isActive = isActive === "true";
+    baseQuery.isActive = isActive === true || isActive === "true";
   }
 
   if (isProfileComplete !== undefined) {
-    baseQuery.isProfileComplete = isProfileComplete === "true";
+    baseQuery.isProfileComplete =
+      isProfileComplete === true || isProfileComplete === "true";
   }
 
   return baseQuery;
@@ -117,6 +118,8 @@ const buildClientSort = (sort) => {
   if (!Object.keys(sortObj).length) {
     sortObj.firstName = 1;
   }
+
+  sortObj._id = Object.values(sortObj)[0] || 1;
 
   return sortObj;
 };
@@ -309,10 +312,12 @@ const getClients = async (req, res) => {
       isProfileComplete,
       page = 1,
       limit = 10,
-      includeCount = "true",
+      includeCount = true,
     } = req.query;
-    const shouldIncludeCount = includeCount !== "false";
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
+    const shouldIncludeCount = includeCount !== false && includeCount !== "false";
+    const skip = (pageNumber - 1) * limitNumber;
     const baseQuery = buildClientBaseQuery({
       businessId: business._id,
       isActive,
@@ -356,7 +361,7 @@ const getClients = async (req, res) => {
         },
         { $sort: sortObj },
         { $skip: skip },
-        { $limit: parseInt(limit) },
+        { $limit: limitNumber },
       ];
       const clients = await Client.aggregate(matchStage);
       const clientsAggMs = Date.now() - clientsAggStart;
@@ -372,9 +377,10 @@ const getClients = async (req, res) => {
             clients,
             pagination: {
               total: null,
-              page: parseInt(page),
+              page: pageNumber,
+              limit: limitNumber,
               pages: null,
-              hasMore: clients.length === parseInt(limit),
+              hasMore: clients.length === limitNumber,
             },
           },
           200,
@@ -429,8 +435,10 @@ const getClients = async (req, res) => {
           clients,
           pagination: {
             total,
-            page: parseInt(page),
-            pages: Math.ceil(total / parseInt(limit)),
+            page: pageNumber,
+            limit: limitNumber,
+            pages: Math.ceil(total / limitNumber),
+            hasMore: pageNumber < Math.ceil(total / limitNumber),
           },
         },
         200,
@@ -444,7 +452,7 @@ const getClients = async (req, res) => {
       .populate({ path: "staff", select: "firstName lastName position" })
       .sort(sortObj)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(limitNumber);
     const clientsQueryMs = Date.now() - clientsQueryStart;
 
     if (!shouldIncludeCount) {
@@ -456,13 +464,14 @@ const getClients = async (req, res) => {
       return SuccessHandler(
         {
           clients,
-          pagination: {
-            total: null,
-            page: parseInt(page),
-            pages: null,
-            hasMore: clients.length === parseInt(limit),
+            pagination: {
+              total: null,
+              page: pageNumber,
+              limit: limitNumber,
+              pages: null,
+              hasMore: clients.length === limitNumber,
+            },
           },
-        },
         200,
         res
       );
@@ -482,8 +491,10 @@ const getClients = async (req, res) => {
         clients,
         pagination: {
           total,
-          page: parseInt(page),
-          pages: Math.ceil(total / parseInt(limit)),
+          page: pageNumber,
+          limit: limitNumber,
+          pages: Math.ceil(total / limitNumber),
+          hasMore: pageNumber < Math.ceil(total / limitNumber),
         },
       },
       200,
@@ -511,6 +522,8 @@ const getClientsCount = async (req, res) => {
       page = 1,
       limit = 10,
     } = req.query;
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
 
     const baseQuery = buildClientBaseQuery({
       businessId: business._id,
@@ -566,8 +579,10 @@ const getClientsCount = async (req, res) => {
         {
           pagination: {
             total,
-            page: parseInt(page),
-            pages: Math.max(1, Math.ceil(total / parseInt(limit))),
+            page: pageNumber,
+            limit: limitNumber,
+            pages: Math.max(1, Math.ceil(total / limitNumber)),
+            hasMore: pageNumber < Math.ceil(total / limitNumber),
           },
         },
         200,
@@ -586,13 +601,15 @@ const getClientsCount = async (req, res) => {
     });
 
     return SuccessHandler(
-      {
-        pagination: {
-          total,
-          page: parseInt(page),
-          pages: Math.max(1, Math.ceil(total / parseInt(limit))),
+        {
+          pagination: {
+            total,
+            page: pageNumber,
+            limit: limitNumber,
+            pages: Math.max(1, Math.ceil(total / limitNumber)),
+            hasMore: pageNumber < Math.ceil(total / limitNumber),
+          },
         },
-      },
       200,
       res
     );

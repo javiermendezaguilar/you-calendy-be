@@ -5,6 +5,7 @@ const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 const ApiError = require("./utils/ApiError");
+const { sendErrorResponse } = require("./utils/apiResponse");
 const app = express();
 const router = require("./router");
 const loggerMiddleware = require("./middleware/loggerMiddleware");
@@ -161,10 +162,7 @@ app.use((err, req, res, next) => {
     console.error("Unhandled application error:", message);
   }
 
-  res.status(statusCode).json({
-    success: false,
-    message,
-  });
+  sendErrorResponse(res, { statusCode, message });
 });
 
 // Cron jobs removed to simplify boilerplate

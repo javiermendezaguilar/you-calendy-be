@@ -309,6 +309,22 @@ describe("Operational reporting v1", () => {
     expect(res.body.data.reportingScope.moneyScope).toEqual(
       COMMERCE_REPORTING_SCOPE
     );
+    expect(res.body.data.reportingScope.filters).toMatchObject({
+      accepted: ["date", "startDate", "endDate"],
+      date: null,
+      startDate: `${REPORT_DATE}T00:00:00.000Z`,
+      endDate: `${REPORT_DATE}T23:59:59.999Z`,
+    });
+    const { ordering } = res.body.data.reportingScope;
+    expect(Object.keys(ordering).sort()).toEqual(
+      ["appointments", "cashSessions", "checkouts", "payments", "refunds", "staff"]
+    );
+    expect(ordering.payments).toEqual(
+      expect.arrayContaining(["capturedAt asc", "_id asc"])
+    );
+    expect(ordering.appointments).toEqual(
+      expect.arrayContaining(["date asc", "startTime asc", "_id asc"])
+    );
     expect(res.body.data.reportingScope.excludes).toEqual(
       expect.arrayContaining([
         "platform_billing",
@@ -374,6 +390,25 @@ describe("Operational reporting v1", () => {
     });
   });
 
+  test("accepts date shortcut without range filters", async () => {
+    const res = await request(app)
+      .get(`/business/operational-reporting?date=${REPORT_DATE}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.reportingScope.filters).toMatchObject({
+      date: REPORT_DATE,
+      startDate: null,
+      endDate: null,
+    });
+    expect(
+      new Date(res.body.data.reportingScope.period.startDate).getTime()
+    ).toBeLessThan(
+      new Date(res.body.data.reportingScope.period.endDate).getTime()
+    );
+    expect(res.body.data.revenue.netRevenue).toBe(130);
+  });
+
   test("rejects invalid date ranges", async () => {
     const res = await request(app)
       .get(
@@ -382,6 +417,21 @@ describe("Operational reporting v1", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe("startDate must be before endDate");
+    expect(res.body.message).toContain(
+      "startDate must be before or equal to endDate"
+    );
+  });
+
+  test("rejects mixed date shortcut and range filters", async () => {
+    const res = await request(app)
+      .get(
+        `/business/operational-reporting?date=${REPORT_DATE}&startDate=${REPORT_DATE}T00:00:00.000Z`
+      )
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain(
+      "date cannot be combined with startDate or endDate"
+    );
   });
 });

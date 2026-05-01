@@ -37,6 +37,21 @@ const DAY_NAMES = [
   "saturday",
   "sunday",
 ];
+const REPORTING_QUERY_FILTERS = ["date", "startDate", "endDate"];
+const REPORTING_SORT_ORDER = {
+  payments: ["capturedAt asc", "_id asc"],
+  refunds: ["refundedAt asc", "_id asc"],
+  appointments: ["date asc", "startTime asc", "_id asc"],
+  cashSessions: ["closedAt asc", "_id asc"],
+  staff: ["lastName asc", "firstName asc", "_id asc"],
+  checkouts: ["openedAt asc", "_id asc"],
+};
+const PAYMENT_SORT = { capturedAt: 1, _id: 1 };
+const REFUND_SORT = { refundedAt: 1, _id: 1 };
+const APPOINTMENT_SORT = { date: 1, startTime: 1, _id: 1 };
+const CASH_SESSION_SORT = { closedAt: 1, _id: 1 };
+const STAFF_SORT = { lastName: 1, firstName: 1, _id: 1 };
+const CHECKOUT_SORT = { openedAt: 1, _id: 1 };
 
 const roundMetric = (value, decimals = 4) => {
   const number = Number(value) || 0;
@@ -49,12 +64,8 @@ const divideRate = (numerator, denominator) =>
   denominator > 0 ? roundMetric(numerator / denominator) : 0;
 
 const parseDate = (value, fieldName) => {
-  if (!value) {
-    return { date: null };
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const date = value ? new Date(value) : null;
+  if (date && Number.isNaN(date.getTime())) {
     return { error: `${fieldName} must be a valid date` };
   }
 
@@ -428,8 +439,17 @@ const findCheckoutsForPayments = async (businessId, payments) => {
   return Checkout.find({
     _id: { $in: checkoutIds },
     business: businessId,
-  }).lean();
+  })
+    .sort(CHECKOUT_SORT)
+    .lean();
 };
+
+const buildAppliedFilters = (query = {}) => ({
+  accepted: REPORTING_QUERY_FILTERS,
+  date: query.date || null,
+  startDate: query.startDate || null,
+  endDate: query.endDate || null,
+});
 
 const getOperationalReportingForOwner = async (ownerId, query = {}) => {
   const business = await getBusinessForOwner(ownerId);
@@ -442,21 +462,27 @@ const getOperationalReportingForOwner = async (ownerId, query = {}) => {
 
   const [payments, refunds, appointments, cashSessions, staffMembers] =
     await Promise.all([
-      Payment.find(paymentFilter).lean(),
+      Payment.find(paymentFilter).sort(PAYMENT_SORT).lean(),
       Refund.find({
         business: business._id,
         ...buildDateRangeFilter("refundedAt", period),
-      }).lean(),
+      })
+        .sort(REFUND_SORT)
+        .lean(),
       Appointment.find({
         business: business._id,
         ...buildDateRangeFilter("date", period),
-      }).lean(),
+      })
+        .sort(APPOINTMENT_SORT)
+        .lean(),
       CashSession.find({
         business: business._id,
         status: "closed",
         ...buildDateRangeFilter("closedAt", period),
-      }).lean(),
-      Staff.find({ business: business._id }).lean(),
+      })
+        .sort(CASH_SESSION_SORT)
+        .lean(),
+      Staff.find({ business: business._id }).sort(STAFF_SORT).lean(),
     ]);
 
   const checkouts = await findCheckoutsForPayments(business._id, payments);
@@ -469,6 +495,8 @@ const getOperationalReportingForOwner = async (ownerId, query = {}) => {
         startDate: period.start,
         endDate: period.end,
       },
+      filters: buildAppliedFilters(query),
+      ordering: REPORTING_SORT_ORDER,
       sources: {
         revenue: "Payment.capturedAt + Refund.refundedAt",
         appointments: "Appointment.date + Appointment.policyOutcome",

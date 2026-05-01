@@ -5,7 +5,7 @@
   "main": "./src/index.js",
   "packageManager": "npm@11.13.0",
   "scripts": {
-    "test": "jest src/tests --setupFilesAfterEnv ./src/tests/setup.js --runInBand",
+    "test": "jest src/tests --setupFilesAfterEnv ./src/tests/setup.js --runInBand --detectOpenHandles",
     "dev": "nodemon ./src/index.js",
     "start": "node ./src/index.js",
     "swagger": "node ./swagger.js",
@@ -13,6 +13,7 @@
     "staging:checklist": "node ./scripts/staging-validation-checklist.js",
     "rollback:checklist": "node ./scripts/rollback-recovery-checklist.js",
     "restore:drill:staging": "node ./scripts/restore-drill-staging.js",
+    "security:static": "node ./scripts/static-security-check.js",
     "smoke:fe-core": "node ./scripts/fe-core-smoke.js",
     "seed:fe-core-staging": "node ./scripts/fe-core-staging-seed.js",
     "seed:gallery": "node ./seeds/gallerySeeder.js",

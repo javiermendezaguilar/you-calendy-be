@@ -1,8 +1,10 @@
 const CreditProduct = require("../models/creditProduct");
 const Business = require("../models/User/business");
 const Payment = require("../models/payment");
+const DomainEvent = require("../models/domainEvent");
 const request = require("supertest");
 const { createCommerceFixture } = require("./helpers/commerceFixture");
+const logger = require("../functions/logger");
 const {
   mockStripe,
   createWebhookResponse,
@@ -21,11 +23,15 @@ const {
   getStripeWebhookSecretInfo,
   logStripeWebhookSecretMode,
 } = require("../services/billing/stripeWebhookService");
+const {
+  BUSINESS_OBSERVABILITY_EVENT_TYPE,
+} = require("../services/businessObservabilityService");
 
 registerStripeBillingTestHooks({ clearLegacyWebhookSecrets: true });
 
 const handleWebhookAndCaptureOutcome = async (signature) => {
-  const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+  const infoSpy = jest.spyOn(logger, "info").mockImplementation(() => {});
+  const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => {});
   const res = createWebhookResponse();
 
   await handleStripeWebhook(
@@ -36,19 +42,20 @@ const handleWebhookAndCaptureOutcome = async (signature) => {
     res
   );
 
-  const outcomeCall = consoleSpy.mock.calls.find(
-    (call) => call[0] === "Stripe webhook outcome:"
+  const outcomeCall = [...infoSpy.mock.calls, ...warnSpy.mock.calls].find(
+    (call) => call[0]?.signalType === "stripe_webhook_outcome"
   );
-  consoleSpy.mockRestore();
+  infoSpy.mockRestore();
+  warnSpy.mockRestore();
 
   return {
     res,
-    outcome: outcomeCall?.[1] || "",
+    outcome: outcomeCall?.[0] || null,
   };
 };
 
 describe("Stripe webhook v1", () => {
-  test("logs structured outcome metadata for invoice.paid", async () => {
+  test("records structured outcome metadata for invoice.paid", async () => {
     const fixture = await createCommerceFixture({
       ownerName: "Stripe Outcome Owner",
       ownerEmail: "stripe-outcome-owner@example.com",
@@ -67,7 +74,6 @@ describe("Stripe webhook v1", () => {
     });
 
     mockStripe.webhooks.constructEvent.mockReturnValue(invoiceEvent);
-    const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 
     const res = createWebhookResponse();
     await handleStripeWebhook(
@@ -78,17 +84,26 @@ describe("Stripe webhook v1", () => {
       res
     );
 
-    const outcomeCall = consoleSpy.mock.calls.find(
-      (call) => call[0] === "Stripe webhook outcome:"
-    );
+    const outcomeEvent = await DomainEvent.findOne({
+      type: BUSINESS_OBSERVABILITY_EVENT_TYPE,
+      correlationId: "evt_invoice_paid_observed",
+      shopId: fixture.business._id,
+    }).lean();
 
     expect(res.statusCode).toBe(200);
-    expect(outcomeCall).toBeDefined();
-    expect(outcomeCall[1]).toContain('"eventType":"invoice.paid"');
-    expect(outcomeCall[1]).toContain('"businessId"');
-    expect(outcomeCall[1]).toContain('"providerReference":"invoice:in_paid_observed"');
-
-    consoleSpy.mockRestore();
+    expect(outcomeEvent).toBeTruthy();
+    expect(outcomeEvent.payload).toMatchObject({
+      signalType: "stripe_webhook_outcome",
+      severity: "info",
+      action: "processed",
+      reason: "Invoice payment recorded",
+    });
+    expect(outcomeEvent.payload.metadata).toMatchObject({
+      eventId: "evt_invoice_paid_observed",
+      eventType: "invoice.paid",
+      businessId: fixture.business._id.toString(),
+      providerReference: "invoice:in_paid_observed",
+    });
   });
 
   test("logs when a stale subscription event is ignored", async () => {
@@ -117,8 +132,6 @@ describe("Stripe webhook v1", () => {
       },
     });
 
-    const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-
     const res = createWebhookResponse();
     await handleStripeWebhook(
       {
@@ -129,18 +142,25 @@ describe("Stripe webhook v1", () => {
     );
 
     const updatedBusiness = await Business.findById(fixture.business._id).lean();
-    const outcomeCall = consoleSpy.mock.calls.find(
-      (call) => call[0] === "Stripe webhook outcome:"
-    );
+    const outcomeEvent = await DomainEvent.findOne({
+      type: BUSINESS_OBSERVABILITY_EVENT_TYPE,
+      "payload.metadata.subscriptionId": "sub_stale",
+      shopId: fixture.business._id,
+    }).lean();
 
     expect(res.statusCode).toBe(200);
     expect(res.payload).toBe("Stale subscription event ignored");
     expect(updatedBusiness.stripeSubscriptionId).toBe("sub_canonical");
-    expect(outcomeCall).toBeDefined();
-    expect(outcomeCall[1]).toContain('"stale":true');
-    expect(outcomeCall[1]).toContain('"reason":"stale_subscription_event"');
-
-    consoleSpy.mockRestore();
+    expect(outcomeEvent).toBeTruthy();
+    expect(outcomeEvent.payload).toMatchObject({
+      signalType: "stripe_webhook_outcome",
+      severity: "info",
+      reason: "stale_subscription_event",
+    });
+    expect(outcomeEvent.payload.metadata).toMatchObject({
+      stale: true,
+      reason: "stale_subscription_event",
+    });
   });
 
   test("keeps /webhook/stripe as the only supported public webhook route", async () => {
@@ -654,8 +674,15 @@ describe("Stripe webhook v1", () => {
     expect(res.statusCode).toBe(200);
     expect(res.payload).toBe("Stripe billing business not resolved, skipping");
     expect(storedPayment).toBeNull();
-    expect(outcome).toContain('"reason":"business_not_resolved"');
-    expect(outcome).toContain('"businessResolution":"not_resolved"');
+    expect(outcome).toMatchObject({
+      signalType: "stripe_webhook_outcome",
+      severity: "warning",
+      reason: "business_not_resolved",
+    });
+    expect(outcome.metadata).toMatchObject({
+      businessResolution: "not_resolved",
+      reason: "business_not_resolved",
+    });
   });
 
   test("does not fallback to subscription id when invoice metadata points to a missing business", async () => {
@@ -696,10 +723,15 @@ describe("Stripe webhook v1", () => {
     expect(res.payload).toBe("Stripe billing business not resolved, skipping");
     expect(storedPayment).toBeNull();
     expect(updatedBusiness.subscriptionStatus).toBe("past_due");
-    expect(outcome).toContain('"reason":"business_not_found"');
-    expect(outcome).toContain(
-      '"businessResolution":"metadata_business_id_not_found"'
-    );
+    expect(outcome).toMatchObject({
+      signalType: "stripe_webhook_outcome",
+      severity: "warning",
+      reason: "business_not_found",
+    });
+    expect(outcome.metadata).toMatchObject({
+      businessResolution: "metadata_business_id_not_found",
+      reason: "business_not_found",
+    });
   });
 
   test("records invoice.payment_failed as failed platform billing and syncs negative subscription status", async () => {

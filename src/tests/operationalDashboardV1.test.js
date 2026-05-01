@@ -45,7 +45,7 @@ describe("Operational dashboard v1", () => {
     fixture = paymentFixture.fixture;
     checkout = paymentFixture.checkout;
     token = paymentFixture.token;
-    today = "2026-05-01";
+    today = moment.utc().add(1, "day").format("YYYY-MM-DD");
     const stuckAppointmentStart = moment(`${today} 08:00`, "YYYY-MM-DD HH:mm");
 
     await assignPrimaryServiceToStaff(fixture.staff, fixture.service, 30);

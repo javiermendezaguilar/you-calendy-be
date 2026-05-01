@@ -1,4 +1,7 @@
 const Business = require("../models/User/business");
+const {
+  recordBusinessSignal,
+} = require("../services/businessObservabilityService");
 
 /**
  * Credit Management Utility
@@ -43,8 +46,25 @@ const buildInsufficientCreditsError = (label, requiredCredits, currentCredits) =
     `Insufficient ${label} credits. Required: ${requiredCredits}, Available: ${currentCredits}`
   );
 
-const logCreditOutcome = (payload) => {
-  console.log("Business credit outcome:", JSON.stringify(payload));
+const creditSignalTypesByAction = {
+  added: "credit_added",
+  deducted: "credit_deducted",
+  deduct_rejected: "credit_deduction_rejected",
+};
+
+const logCreditOutcome = async (payload) => {
+  const action = payload.action || "unknown";
+  await recordBusinessSignal({
+    signalType: creditSignalTypesByAction[action] || "credit_outcome",
+    severity: action === "deduct_rejected" ? "warning" : "info",
+    businessId: payload.businessId,
+    source: "credit_manager",
+    action,
+    reason: payload.reason || action,
+    entityType: "credit_balance",
+    entityId: payload.creditType || "",
+    metadata: payload,
+  });
 };
 
 const checkCredits = async (businessId, requiredCredits, creditType) => {
@@ -82,7 +102,7 @@ const deductCredits = async (businessId, creditsToDeduct, creditType) => {
 
   if (!business) {
     const currentCredits = await getBusinessCreditBalance(businessId, field);
-    logCreditOutcome({
+    await logCreditOutcome({
       businessId: String(businessId),
       creditType,
       action: "deduct_rejected",
@@ -97,7 +117,7 @@ const deductCredits = async (businessId, creditsToDeduct, creditType) => {
     );
   }
 
-  logCreditOutcome({
+  await logCreditOutcome({
     businessId: String(businessId),
     creditType,
     action: "deducted",
@@ -142,7 +162,7 @@ const addCredits = async (businessId, creditsToAdd, creditType) => {
     throw new Error("Business not found");
   }
 
-  logCreditOutcome({
+  await logCreditOutcome({
     businessId: String(businessId),
     creditType,
     action: "added",

@@ -26,6 +26,7 @@ const ALLOWED_EVENT_TYPES = new Set([
   "rebook_created",
   "rebooking_follow_up_needed",
   "rebooking_declined",
+  "business_observability_signal",
 ]);
 
 const normalizeLimit = (value) => {

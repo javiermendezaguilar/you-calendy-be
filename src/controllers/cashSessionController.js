@@ -4,6 +4,9 @@ const Payment = require("../models/payment");
 const { resolveBusinessOrReply } = require("./commerceShared");
 const { buildCommercePaymentFilter } = require("../services/payment/paymentScope");
 const { buildCashSessionSnapshot } = require("../services/payment/cashSessionSummary");
+const {
+  recordBusinessOperationalAlert,
+} = require("../services/businessOperationalAlertService");
 const SuccessHandler = require("../utils/SuccessHandler");
 const ErrorHandler = require("../utils/ErrorHandler");
 
@@ -597,6 +600,26 @@ const closeCashSession = async (req, res) => {
 
     if (!closedSession) {
       return ErrorHandler("Cash session is already closed", 409, req, res);
+    }
+
+    if (snapshot.variance !== 0) {
+      await recordBusinessOperationalAlert("cash_session_variance", {
+        businessId: business._id,
+        actorId: req.user?._id || req.user?.id || null,
+        actorType: "user",
+        source: "cash_session_controller",
+        correlationId: `cash-session-variance:${closedSession._id}`,
+        entityType: "cash_session",
+        entityId: closedSession._id,
+        metadata: {
+          openingFloat: cashSession.openingFloat,
+          closingDeclared,
+          closingExpected: snapshot.closingExpected,
+          variance: snapshot.variance,
+          varianceStatus: getVarianceStatus(snapshot.variance),
+          hasClosingNote: Boolean(closingNote),
+        },
+      });
     }
 
     const hydrated = await hydrateCashSession(closedSession._id);

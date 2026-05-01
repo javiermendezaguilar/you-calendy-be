@@ -7,6 +7,9 @@ const {
 const {
   recordBusinessSignal,
 } = require("../services/businessObservabilityService");
+const {
+  recordBusinessOperationalAlert,
+} = require("../services/businessOperationalAlertService");
 
 const shouldRecordStripeWebhookOutcome = (result) => {
   if (!result || typeof result !== "object") {
@@ -38,6 +41,33 @@ const logStripeWebhookOutcome = async (result, event) => {
   }
 
   const meta = result.meta || {};
+  if (
+    meta.eventType === "checkout.session.completed" &&
+    meta.creditsApplied === false &&
+    meta.action &&
+    meta.action !== "created_payment"
+  ) {
+    await recordBusinessOperationalAlert("duplicate_credit_guard", {
+      businessId: meta.businessId || null,
+      source: "stripe_webhook",
+      correlationId: `${event?.id || meta.providerReference || "unknown"}:duplicate-credit-guard`,
+      action: "duplicate_credit_prevented",
+      reason: "credits_already_processed",
+      entityType: "stripe_event",
+      entityId: event?.id || meta.providerReference || "",
+      metadata: {
+        eventId: event?.id || "",
+        eventType: event?.type || meta.eventType || "",
+        providerReference: meta.providerReference || "",
+        paymentId: meta.paymentId || "",
+        paymentScope: meta.paymentScope || "",
+        paymentStatus: meta.paymentStatus || "",
+        action: meta.action,
+        creditsApplied: meta.creditsApplied,
+      },
+    });
+  }
+
   await recordBusinessSignal({
     signalType: "stripe_webhook_outcome",
     severity: getStripeWebhookSeverity(meta),
@@ -64,6 +94,22 @@ const recordStripeWebhookFailure = async ({
   event = null,
   error = null,
 }) => {
+  await recordBusinessOperationalAlert("webhook_processing_anomaly", {
+    severity,
+    source: "stripe_webhook",
+    correlationId: event?.id || null,
+    action: "webhook_failed",
+    reason,
+    entityType: "stripe_event",
+    entityId: event?.id || "",
+    metadata: {
+      signalType,
+      eventId: event?.id || "",
+      eventType: event?.type || "",
+      errorMessage: error?.message || "",
+    },
+  });
+
   await recordBusinessSignal({
     signalType,
     severity,

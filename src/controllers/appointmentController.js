@@ -955,6 +955,8 @@ const getAppointments = async (req, res) => {
   try {
     const userId = getActorId(req.user);
     const { status, date, staffId, page = 1, limit = 10 } = req.query;
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
 
     console.log("getAppointments called with:", {
       userId,
@@ -1019,8 +1021,10 @@ const getAppointments = async (req, res) => {
                 appointments: [],
                 pagination: {
                   total: 0,
-                  page: parseInt(page),
+                  page: pageNumber,
+                  limit: limitNumber,
                   pages: 0,
+                  hasMore: false,
                 },
               },
               200,
@@ -1066,7 +1070,7 @@ const getAppointments = async (req, res) => {
     console.log("Final query:", query);
 
     // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
 
     // Get appointments WITHOUT populating service initially to preserve the ID
     const appointments = await Appointment.find(query)
@@ -1077,9 +1081,9 @@ const getAppointments = async (req, res) => {
       })
       .populate("business", "name contactInfo.phone")
       .populate("staff", "firstName lastName")
-      .sort({ date: 1, startTime: 1 })
+      .sort({ date: 1, startTime: 1, _id: 1 })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(limitNumber);
 
     // Manual Service Resolution Strategy
     // 1. Collect all service IDs from current appointments
@@ -1187,8 +1191,10 @@ const getAppointments = async (req, res) => {
       appointments: transformedAppointments,
       pagination: {
         total,
-        page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        page: pageNumber,
+        limit: limitNumber,
+        pages: Math.ceil(total / limitNumber),
+        hasMore: pageNumber < Math.ceil(total / limitNumber),
       },
     };
 
@@ -2815,6 +2821,8 @@ const getBusinessAppointments = async (req, res) => {
   try {
     const userId = req.user.id;
     const { status, date, search, page = 1, limit = 10 } = req.query;
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
 
     // Find the business owned by the user
     const business = await Business.findOne({ owner: userId });
@@ -2858,7 +2866,7 @@ const getBusinessAppointments = async (req, res) => {
     }
 
     // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
 
     // Get appointments
     const appointments = await Appointment.find(query)
@@ -2869,9 +2877,9 @@ const getBusinessAppointments = async (req, res) => {
         select: "name email phone profileImage",
       })
       .populate("business", "name contactInfo.phone")
-      .sort({ date: 1, startTime: 1 })
+      .sort({ date: 1, startTime: 1, _id: 1 })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(limitNumber);
 
     // Get total count for pagination
     const total = await Appointment.countDocuments(query);
@@ -2881,8 +2889,10 @@ const getBusinessAppointments = async (req, res) => {
         appointments,
         pagination: {
           total,
-          page: parseInt(page),
-          pages: Math.ceil(total / parseInt(limit)),
+          page: pageNumber,
+          limit: limitNumber,
+          pages: Math.ceil(total / limitNumber),
+          hasMore: pageNumber < Math.ceil(total / limitNumber),
         },
       },
       200,

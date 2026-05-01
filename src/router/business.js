@@ -16,6 +16,9 @@ const {
 } = require("../middleware/economicRateLimit");
 const { serviceInputSchemas } = require("../validation/serviceInputSchemas");
 const { clientInputSchemas } = require("../validation/clientInputSchemas");
+const {
+  appointmentInputSchemas,
+} = require("../validation/appointmentInputSchemas");
 
 // Multer setup for file uploads
 const storage = multer.memoryStorage();
@@ -141,6 +144,7 @@ router.put(
 router.get(
   "/appointments",
   isAuthenticated,
+  validateRequest(appointmentInputSchemas.businessAppointments),
   require("../controllers/appointmentController").getBusinessAppointments
 );
 

@@ -121,6 +121,15 @@ const appointmentHistoryQuery = z
   })
   .passthrough();
 
+const businessAppointmentsQuery = z
+  .object({
+    status: optionalString(80),
+    date: dateOnly.optional(),
+    search: optionalString(120),
+    ...paginationQuery,
+  })
+  .passthrough();
+
 const dashboardStatsQuery = z
   .object({
     month: optionalIntegerRange(1, 12),
@@ -228,6 +237,9 @@ module.exports = {
     },
     listAppointments: {
       query: listAppointmentsQuery,
+    },
+    businessAppointments: {
+      query: businessAppointmentsQuery,
     },
     appointmentHistory: {
       query: appointmentHistoryQuery,

@@ -21,6 +21,9 @@ const {
 const {
   buildRolePermissionMatrix,
 } = require("../services/identity/rolePermissionMatrix");
+const {
+  buildClearAuthCookieOptions,
+} = require("../utils/authCookieOptions");
 
 const LEGACY_BARBER_OWNER_SCOPE = Object.freeze({
   entity: "owner_business_legacy",
@@ -1749,17 +1752,7 @@ const updateNotificationSettings = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    const isProduction = process.env.NODE_ENV === 'production' || 
-                         process.env.VERCEL === '1' || 
-                         process.env.RAILWAY_ENVIRONMENT === 'production';
-    
-    const cookieOptions = {
-      path: '/',
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax'
-    };
-    
+    const cookieOptions = buildClearAuthCookieOptions();
     const userType = req.body?.userType || req.query?.userType;
     let cookieToClear = null;
     

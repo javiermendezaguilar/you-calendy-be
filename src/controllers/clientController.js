@@ -57,6 +57,9 @@ const {
 const {
   syncClientLifecycleForOwner,
 } = require("../services/client/lifecycleService");
+const {
+  buildClearAuthCookieOptions,
+} = require("../utils/authCookieOptions");
 
 const setPerfHeader = (res, timings) => {
   const value = Object.entries(timings)
@@ -2782,18 +2785,7 @@ const clientLogout = async (req, res) => {
      }
   */
   try {
-    // Determine if we're in production (check multiple ways for reliability)
-    const isProduction = process.env.NODE_ENV === 'production' ||
-      process.env.VERCEL === '1' ||
-      process.env.RAILWAY_ENVIRONMENT === 'production';
-
-    // Cookie options must match the ones used when setting cookies
-    const cookieOptions = {
-      path: '/',
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax'
-    };
+    const cookieOptions = buildClearAuthCookieOptions();
 
     // Clear client auth cookie (works even if token is expired)
     res.clearCookie('clientToken', cookieOptions);

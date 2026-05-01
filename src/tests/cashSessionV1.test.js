@@ -557,15 +557,42 @@ describe("CashSession v1", () => {
       });
 
     expect(listRes.status).toBe(200);
-    expect(listRes.body.data).toHaveLength(1);
-    expect(listRes.body.data[0]._id).toBe(secondOpenRes.body.data._id);
-    expect(listRes.body.data[0].status).toBe("closed");
-    expect(listRes.body.data[0].summary.cashSalesTotal).toBe(25);
-    expect(listRes.body.data[0].summary.expectedDrawerTotal).toBe(55);
-    expect(listRes.body.data[0].closing.ready).toBe(true);
-    expect(listRes.body.data[0].closing.transactionCount).toBe(1);
-    expect(listRes.body.data[0].closing.cashSalesTotal).toBe(25);
-    expect(listRes.body.data[0].closing.expectedDrawerTotal).toBe(55);
+    expect(listRes.body.data.pagination).toMatchObject({
+      total: 2,
+      page: 1,
+      limit: 1,
+      pages: 2,
+      hasMore: true,
+    });
+    expect(listRes.body.data.sessions).toHaveLength(1);
+    expect(listRes.body.data.sessions[0]._id).toBe(secondOpenRes.body.data._id);
+    expect(listRes.body.data.sessions[0].status).toBe("closed");
+    expect(listRes.body.data.sessions[0].summary.cashSalesTotal).toBe(25);
+    expect(listRes.body.data.sessions[0].summary.expectedDrawerTotal).toBe(55);
+    expect(listRes.body.data.sessions[0].closing.ready).toBe(true);
+    expect(listRes.body.data.sessions[0].closing.transactionCount).toBe(1);
+    expect(listRes.body.data.sessions[0].closing.cashSalesTotal).toBe(25);
+    expect(listRes.body.data.sessions[0].closing.expectedDrawerTotal).toBe(55);
+  });
+
+  test("rejects invalid cash session list and report query contracts", async () => {
+    const invalidLimitRes = await request(app)
+      .get("/cash-sessions")
+      .set("Authorization", `Bearer ${token}`)
+      .query({ limit: 101 });
+
+    expect(invalidLimitRes.status).toBe(400);
+    expect(invalidLimitRes.body.success).toBe(false);
+    expect(invalidLimitRes.body.message).toMatch(/limit/i);
+
+    const invertedReportRes = await request(app)
+      .get("/cash-sessions/report")
+      .set("Authorization", `Bearer ${token}`)
+      .query({ from: "2026-04-20", to: "2026-04-19" });
+
+    expect(invertedReportRes.status).toBe(400);
+    expect(invertedReportRes.body.success).toBe(false);
+    expect(invertedReportRes.body.message).toMatch(/before or equal to query.to/i);
   });
 
   test("returns a business-scoped cash session report with variance totals", async () => {
@@ -646,7 +673,8 @@ describe("CashSession v1", () => {
       .set("Authorization", `Bearer ${foreignOwnerToken}`);
 
     expect(listRes.status).toBe(200);
-    expect(listRes.body.data).toHaveLength(0);
+    expect(listRes.body.data.sessions).toHaveLength(0);
+    expect(listRes.body.data.pagination.total).toBe(0);
 
     const getRes = await request(app)
       .get(`/cash-sessions/${openRes.body.data._id}`)

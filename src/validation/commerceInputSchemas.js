@@ -128,7 +128,8 @@ const activeCashSessionQuery = z
 const listCashSessionsQuery = z
   .object({
     status: z.enum(["open", "closed"]).optional(),
-    limit: optionalIntegerMin(1),
+    limit: optionalIntegerRange(1, 100),
+    page: optionalIntegerMin(1),
   })
   .passthrough();
 
@@ -138,7 +139,16 @@ const cashSessionReportQuery = z
     from: dateOnly.optional(),
     to: dateOnly.optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((query, ctx) => {
+    if (query.from && query.to && new Date(query.from) > new Date(query.to)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["from"],
+        message: "must be before or equal to query.to",
+      });
+    }
+  });
 
 const closeCashSessionBody = z
   .object({

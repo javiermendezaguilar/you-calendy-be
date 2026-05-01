@@ -28,6 +28,10 @@ const PAYMENT_STATUSES_WITH_CHECKOUT_STATUS = [
   "voided",
 ];
 
+const PAYMENT_READ_SORT = { capturedAt: 1, _id: 1 };
+const CHECKOUT_READ_SORT = { openedAt: 1, _id: 1 };
+const CASH_SESSION_READ_SORT = { openedAt: 1, _id: 1 };
+
 const toMoney = (value) => roundMoney(Number(value) || 0);
 
 const moneyMatches = (left, right) => toMoney(left) === toMoney(right);
@@ -218,7 +222,9 @@ const findRetainedPaymentsForCheckouts = async (businessId, checkouts) => {
     checkout: { $in: checkoutIds },
     status: { $in: RETAINED_PAYMENT_STATUSES },
     ...buildCommercePaymentFilter(),
-  }).lean();
+  })
+    .sort(PAYMENT_READ_SORT)
+    .lean();
 };
 
 const reconcileProviderReference = (payment, addIssue) => {
@@ -412,12 +418,16 @@ const buildFinancialReconciliation = async ({
     business: businessId,
     ...paymentDateFilter,
     ...buildCommercePaymentFilter(),
-  }).lean();
+  })
+    .sort(PAYMENT_READ_SORT)
+    .lean();
 
   const checkoutsInRange = await Checkout.find({
     business: businessId,
     ...checkoutDateFilter,
-  }).lean();
+  })
+    .sort(CHECKOUT_READ_SORT)
+    .lean();
 
   const linkedCheckoutIds = [
     ...new Set(payments.map((payment) => toId(payment.checkout)).filter(Boolean)),
@@ -426,7 +436,9 @@ const buildFinancialReconciliation = async ({
     ? await Checkout.find({
         _id: { $in: linkedCheckoutIds },
         business: businessId,
-      }).lean()
+      })
+        .sort(CHECKOUT_READ_SORT)
+        .lean()
     : [];
 
   const checkouts = [
@@ -440,7 +452,9 @@ const buildFinancialReconciliation = async ({
   const cashSessionsInRange = await CashSession.find({
     business: businessId,
     ...cashSessionDateFilter,
-  }).lean();
+  })
+    .sort(CASH_SESSION_READ_SORT)
+    .lean();
 
   const cashSessionIds = [
     ...new Set(
@@ -454,7 +468,9 @@ const buildFinancialReconciliation = async ({
     ? await CashSession.find({
         _id: { $in: cashSessionIds },
         business: businessId,
-      }).lean()
+      })
+        .sort(CASH_SESSION_READ_SORT)
+        .lean()
     : [];
 
   const cashPayments = cashSessionIds.length
@@ -464,7 +480,9 @@ const buildFinancialReconciliation = async ({
         method: "cash",
         status: { $in: CASH_SESSION_PAYMENT_STATUSES },
         ...buildCommercePaymentFilter(),
-      }).lean()
+      })
+        .sort(PAYMENT_READ_SORT)
+        .lean()
     : [];
 
   const checkoutMap = mapById(checkouts);

@@ -13,6 +13,10 @@ const CASH_CLOSING_PAYMENT_STATUSES = [
   "refunded_full",
 ];
 
+const CASH_SESSION_LIST_SORT = { openedAt: -1, _id: -1 };
+const CASH_PAYMENT_READ_SORT = { capturedAt: 1, _id: 1 };
+const DEFAULT_CASH_SESSION_LIMIT = 10;
+
 const getVarianceStatus = (variance) => {
   if (variance === 0) {
     return "exact";
@@ -41,7 +45,7 @@ const getOpenCashSessionPayments = async (businessId, cashSessionId) =>
     ...buildCommercePaymentFilter(),
   })
     .select("amount tip method status reference capturedAt refundedTotal")
-    .sort({ capturedAt: 1 })
+    .sort(CASH_PAYMENT_READ_SORT)
     .lean();
 
 const buildVariancePreview = (expectedDrawerTotal, closingDeclaredPreview) => {
@@ -409,26 +413,43 @@ const listCashSessions = async (req, res) => {
       req.query.status === "open" || req.query.status === "closed"
         ? { status: req.query.status }
         : {};
-    const rawLimit = Number(req.query.limit);
-    const limit = Number.isNaN(rawLimit)
-      ? 10
-      : Math.min(Math.max(rawLimit, 1), 20);
-
-    const cashSessions = await CashSession.find({
+    const limit = Number(req.query.limit) || DEFAULT_CASH_SESSION_LIMIT;
+    const page = Number(req.query.page) || 1;
+    const skip = (page - 1) * limit;
+    const filter = {
       business: business._id,
       ...statusFilter,
-    })
-      .populate("openedBy", "name email")
-      .populate("closedBy", "name email")
-      .populate("handoffFrom", "closingDeclared closedAt variance varianceStatus")
-      .sort({ openedAt: -1 })
-      .limit(limit);
+    };
+
+    const [total, cashSessions] = await Promise.all([
+      CashSession.countDocuments(filter),
+      CashSession.find(filter)
+        .populate("openedBy", "name email")
+        .populate("closedBy", "name email")
+        .populate("handoffFrom", "closingDeclared closedAt variance varianceStatus")
+        .sort(CASH_SESSION_LIST_SORT)
+        .skip(skip)
+        .limit(limit),
+    ]);
 
     const readModels = await Promise.all(
       cashSessions.map((cashSession) => buildCashSessionReadModel(cashSession))
     );
 
-    return SuccessHandler(readModels, 200, res);
+    return SuccessHandler(
+      {
+        sessions: readModels,
+        pagination: {
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit),
+          hasMore: page * limit < total,
+        },
+      },
+      200,
+      res
+    );
   } catch (error) {
     return ErrorHandler(error.message, 500, req, res);
   }
@@ -477,7 +498,7 @@ const getCashSessionReport = async (req, res) => {
       .select(
         "status currency openingFloat openedAt closedAt closingExpected closingDeclared summary variance varianceStatus closingNote"
       )
-      .sort({ openedAt: -1 })
+      .sort({ [dateField]: -1, _id: -1 })
       .lean();
 
     const totals = buildCashSessionReportTotals(cashSessions);

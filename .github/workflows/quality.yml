@@ -24,18 +24,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Risk suite inventory
+        run: npm run test:risk -- --list
+
       - name: Test
         run: npm test
+
+      - name: Fetch base branch for PR quality comparison
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.base_ref }} --depth=1
+
+      - name: Whitespace regression check
+        if: github.event_name == 'pull_request'
+        run: git diff --check origin/${{ github.base_ref }}...HEAD
 
       - name: Duplicate code scan
         # Backend duplication baseline was reduced from ~5.95% to ~4.72%
         # across the first hardening passes. Keep a strict overall gate below
         # the previous legacy ceiling while we design a separate rule for new code.
         run: npx jscpd --threshold 5 --gitignore --reporters console src
-
-      - name: Fetch base branch for PR quality comparison
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
 
       - name: Duplicate code non-regression on PR
         if: github.event_name == 'pull_request'

@@ -17,6 +17,7 @@ const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 const mapStaffMembership = (staff) => ({
   staffId: toIdString(staff._id),
   businessId: toIdString(staff.business),
+  userId: toIdString(staff.user),
   email: staff.email || null,
   displayName: [staff.firstName, staff.lastName].filter(Boolean).join(" ").trim(),
 });
@@ -116,14 +117,22 @@ const resolveActorContext = async ({ user, client } = {}) => {
     });
   }
 
+  const explicitStaffMemberships = await Staff.find({ user: userId }).select(
+    "_id business user firstName lastName email"
+  );
   const email = normalizeEmail(user.email);
-  const staffMemberships = email
-    ? await Staff.find({ email }).select("_id business firstName lastName email")
-    : [];
+  let staffMemberships = explicitStaffMemberships;
+  if (staffMemberships.length === 0 && email) {
+    staffMemberships = await Staff.find({ email }).select(
+      "_id business user firstName lastName email"
+    );
+  }
   const mappedStaffMemberships = staffMemberships.map(mapStaffMembership);
   const primaryStaff = mappedStaffMemberships[0] || null;
 
   if (primaryStaff) {
+    const resolvedByExplicitUser = explicitStaffMemberships.length > 0;
+
     return withCapabilities({
       actorType: "staff",
       authSubjectType: "user",
@@ -139,8 +148,8 @@ const resolveActorContext = async ({ user, client } = {}) => {
       isClient: false,
       staffMemberships: mappedStaffMemberships,
       legacyResolution: {
-        type: "staff_email_match",
-        field: "email",
+        type: resolvedByExplicitUser ? "staff_user_link" : "staff_email_match",
+        field: resolvedByExplicitUser ? "user" : "email",
       },
     });
   }

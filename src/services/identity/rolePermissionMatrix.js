@@ -265,7 +265,7 @@ const ROLE_MATRIX = Object.freeze({
       "tenant.reconciliation.read",
     ],
     notes: [
-      "Current barber identity is resolved by matching User.email to Staff.email.",
+      "Barber identity resolves Staff.user first, with legacy User.email to Staff.email fallback.",
     ],
   }),
   client: role({
@@ -431,7 +431,7 @@ const buildRolePermissionMatrix = () => ({
   hybridAdminOwnerPolicy: HYBRID_ADMIN_OWNER_POLICY,
   identityMapping: {
     owner: "User.role=barber with Business.owner=User._id",
-    barber: "Legacy User.email matched to Staff.email",
+    barber: "Staff.user=User._id, falling back to legacy User.email matched to Staff.email",
     client: "Client document authenticated with client token",
     admin: "User.role=admin, platform scope",
     "sub-admin": "User.role=sub-admin, platform scope plus legacy permission level",

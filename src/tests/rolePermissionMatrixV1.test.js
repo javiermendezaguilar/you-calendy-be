@@ -11,9 +11,12 @@ const {
   disconnectCommerceTestDatabase,
   createCommerceFixture,
 } = require("./helpers/commerceFixture");
+const staffIdentityFixture = require("./helpers/staffIdentityFixture");
 
-const authHeaderFor = (payload) =>
-  `Bearer ${jwt.sign(payload, process.env.JWT_SECRET)}`;
+const authHeaderFor = (payload) => {
+  const token = jwt.sign(payload, process.env.JWT_SECRET);
+  return `Bearer ${token}`;
+};
 
 const clientAuthHeaderFor = (clientId, businessId) =>
   authHeaderFor({
@@ -22,6 +25,24 @@ const clientAuthHeaderFor = (clientId, businessId) =>
     type: "client",
     businessId: businessId.toString(),
   });
+
+const expectTenantStaffCapabilities = (res, fixture) => {
+  expect(res.status).toBe(200);
+  expect(res.body.data.effectiveCapabilities).toMatchObject({
+    effectiveRole: "barber",
+    scope: "tenant_staff",
+    businessId: fixture.business._id.toString(),
+    staffId: fixture.staff._id.toString(),
+  });
+  expect(res.body.data.effectiveCapabilities.permissionKeys).toEqual(
+    expect.arrayContaining(["tenant.appointments.own.operate"])
+  );
+};
+
+const getRolePermissionsForUser = (user) =>
+  request(app)
+    .get("/auth/role-permissions")
+    .set("Authorization", authHeaderFor({ id: user._id, role: "barber" }));
 
 beforeAll(async () => {
   await connectCommerceTestDatabase();
@@ -95,25 +116,35 @@ describe("Role permission matrix v1", () => {
       isActive: true,
     });
 
-    const res = await request(app)
-      .get("/auth/role-permissions")
-      .set("Authorization", authHeaderFor({ id: staffUser._id, role: "barber" }));
+    const res = await getRolePermissionsForUser(staffUser);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.effectiveCapabilities).toMatchObject({
-      effectiveRole: "barber",
-      scope: "tenant_staff",
-      businessId: fixture.business._id.toString(),
-      staffId: fixture.staff._id.toString(),
-    });
-    expect(res.body.data.effectiveCapabilities.permissionKeys).toEqual(
-      expect.arrayContaining(["tenant.appointments.own.operate"])
-    );
+    expectTenantStaffCapabilities(res, fixture);
     expect(res.body.data.effectiveCapabilities.permissionKeys).not.toContain(
       "tenant.payment.refund"
     );
     expect(res.body.data.effectiveCapabilities.permissionKeys).not.toContain(
       "tenant.cash.close"
+    );
+  });
+
+  test("uses explicit staff user link for barber capabilities", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Permission Linked Staff Owner",
+      ownerEmail: "permission-linked-staff-owner@example.com",
+      businessName: "Permission Linked Staff Shop",
+      staffEmail: "permission-linked-staff@example.com",
+    });
+    const staffUser = await staffIdentityFixture.createBarberUser({
+      name: "Permission Linked Staff User",
+      email: "permission-linked-user@example.com",
+    });
+    await staffIdentityFixture.linkStaffToUser(fixture.staff, staffUser);
+
+    const res = await getRolePermissionsForUser(staffUser);
+
+    expectTenantStaffCapabilities(res, fixture);
+    expect(res.body.data.effectiveCapabilities.permissionKeys).not.toContain(
+      "tenant.payment.refund"
     );
   });
 

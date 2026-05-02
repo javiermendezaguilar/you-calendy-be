@@ -120,6 +120,8 @@ describe("Onboarding backend v1", () => {
 
   test("public profile returns visible staff and populated service assignments", async () => {
     await makeStaffReady();
+    fixture.staff.user = fixture.owner._id;
+    await fixture.staff.save();
     await createPublicLink("onboarding-profile-staff");
 
     const res = await request(app).get(
@@ -132,5 +134,6 @@ describe("Onboarding backend v1", () => {
     expect(res.body.data.staff[0].services[0].service.name).toBe(
       fixture.service.name
     );
+    expect(res.body.data.staff[0].user).toBeUndefined();
   });
 });

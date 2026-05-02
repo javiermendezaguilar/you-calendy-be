@@ -42,6 +42,12 @@ const staffSchema = new Schema(
       required: true,
       index: true,
     },
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: undefined,
+      index: true,
+    },
     firstName: {
       type: String,
       required: [true, "First name is required"],
@@ -125,6 +131,13 @@ const staffSchema = new Schema(
 
 // To make searching easier
 staffSchema.index({ firstName: "text", lastName: "text", email: "text" });
+staffSchema.index(
+  { business: 1, user: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { user: { $exists: true } },
+  }
+);
 
 const Staff = mongoose.model("Staff", staffSchema);
 

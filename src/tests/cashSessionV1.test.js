@@ -27,6 +27,8 @@ describe("CashSession v1", () => {
   let token;
   let checkout;
   let foreignOwnerToken;
+  let staffToken;
+  let clientToken;
 
   const getActiveCashSessionForToken = (authToken = token, query = {}) =>
     request(app)
@@ -125,6 +127,30 @@ describe("CashSession v1", () => {
       { id: foreignOwner._id, role: "barber" },
       process.env.JWT_SECRET
     );
+
+    const staffUser = await User.create({
+      name: "Cash Staff User",
+      email: "cash-staff@example.com",
+      password: "password123",
+      role: "barber",
+      isActive: true,
+    });
+    fixture.staff.user = staffUser._id;
+    await fixture.staff.save();
+
+    staffToken = jwt.sign(
+      { id: staffUser._id, role: "barber" },
+      process.env.JWT_SECRET
+    );
+    clientToken = jwt.sign(
+      {
+        id: fixture.client._id,
+        role: "client",
+        type: "client",
+        businessId: fixture.business._id.toString(),
+      },
+      process.env.JWT_SECRET
+    );
   });
 
   test("opens a cash session, reads the active one, and blocks duplicates", async () => {
@@ -150,6 +176,22 @@ describe("CashSession v1", () => {
 
     expect(duplicateOpen.status).toBe(409);
     expect(duplicateOpen.body.message).toMatch(/active cash session already exists/i);
+  });
+
+  test("rejects staff and client actors without cash capabilities", async () => {
+    const staffOpenRes = await openCashSessionForToken(app, staffToken, {
+      openingFloat: 50,
+    });
+
+    expect(staffOpenRes.status).toBe(403);
+    expect(staffOpenRes.body.success).toBe(false);
+    expect(staffOpenRes.body.message).toMatch(/required capability/i);
+
+    const clientActiveRes = await getActiveCashSessionForToken(clientToken);
+
+    expect(clientActiveRes.status).toBe(403);
+    expect(clientActiveRes.body.success).toBe(false);
+    expect(clientActiveRes.body.message).toMatch(/required capability/i);
   });
 
   test("reopens cash session through handoff when opening float matches the previous closing declared amount", async () => {

@@ -89,7 +89,7 @@ describe("Commerce permissions v2", () => {
       });
 
     expect(res.status).toBe(403);
-    expect(res.body.message).toMatch(/business owner/i);
+    expect(res.body.message).toMatch(/required capability/i);
   });
 
   test("rejects a foreign barber closing cash session", async () => {
@@ -110,6 +110,6 @@ describe("Commerce permissions v2", () => {
       .send({ closingDeclared: 50 });
 
     expect(res.status).toBe(403);
-    expect(res.body.message).toMatch(/business owner/i);
+    expect(res.body.message).toMatch(/required capability/i);
   });
 });

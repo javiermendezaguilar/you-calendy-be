@@ -117,6 +117,42 @@ describe("Role permission matrix v1", () => {
     );
   });
 
+  test("uses explicit staff user link for barber capabilities", async () => {
+    const fixture = await createCommerceFixture({
+      ownerName: "Permission Linked Staff Owner",
+      ownerEmail: "permission-linked-staff-owner@example.com",
+      businessName: "Permission Linked Staff Shop",
+      staffEmail: "permission-linked-staff@example.com",
+    });
+    const staffUser = await User.create({
+      name: "Permission Linked Staff User",
+      email: "permission-linked-user@example.com",
+      password: "password123",
+      role: "barber",
+      isActive: true,
+    });
+    fixture.staff.user = staffUser._id;
+    await fixture.staff.save();
+
+    const res = await request(app)
+      .get("/auth/role-permissions")
+      .set("Authorization", authHeaderFor({ id: staffUser._id, role: "barber" }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.effectiveCapabilities).toMatchObject({
+      effectiveRole: "barber",
+      scope: "tenant_staff",
+      businessId: fixture.business._id.toString(),
+      staffId: fixture.staff._id.toString(),
+    });
+    expect(res.body.data.effectiveCapabilities.permissionKeys).toEqual(
+      expect.arrayContaining(["tenant.appointments.own.operate"])
+    );
+    expect(res.body.data.effectiveCapabilities.permissionKeys).not.toContain(
+      "tenant.payment.refund"
+    );
+  });
+
   test("limits clients to self-service capabilities", async () => {
     const fixture = await createCommerceFixture({
       ownerName: "Permission Client Owner",

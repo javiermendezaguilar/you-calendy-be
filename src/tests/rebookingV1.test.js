@@ -23,7 +23,7 @@ afterAll(async () => {
 
 describe("Rebooking v1", () => {
   const defaultRebookingPayload = {
-    date: "2026-05-02",
+    date: "2030-05-02",
     startTime: "11:30",
   };
 
@@ -218,7 +218,7 @@ describe("Rebooking v1", () => {
     });
 
     const rebookRes = await sendRebookingRequest({
-      date: "2026-05-03",
+      date: "2030-05-03",
       startTime: "11:30",
     });
 
@@ -246,7 +246,7 @@ describe("Rebooking v1", () => {
       .post(`/checkout/${paidCheckout._id}/rebook`)
       .set("Authorization", `Bearer ${token}`)
       .send({
-        date: "2026-05-04",
+        date: "2030-05-04",
         startTime: "12:30",
         serviceId: altService._id,
         staffId: altStaff._id,
@@ -297,7 +297,7 @@ describe("Rebooking v1", () => {
       .post(`/checkout/${paidCheckout._id}/rebook`)
       .set("Authorization", `Bearer ${token}`)
       .send({
-        date: "2026-05-07",
+        date: "2030-05-07",
         startTime: "12:30",
         source: "manual_follow_up",
       });
@@ -354,7 +354,7 @@ describe("Rebooking v1", () => {
       .post(`/checkout/${paidCheckout._id}/rebook`)
       .set("Authorization", `Bearer ${token}`)
       .send({
-        date: "2026-05-03",
+        date: "2030-05-03",
         startTime: "12:30",
       });
 
@@ -368,7 +368,7 @@ describe("Rebooking v1", () => {
       business: business._id,
       service: altService._id,
       staff: altStaff._id,
-      date: moment("2026-05-06", "YYYY-MM-DD").startOf("day").toDate(),
+      date: moment("2030-05-06", "YYYY-MM-DD").startOf("day").toDate(),
       startTime: "13:00",
       endTime: "13:30",
       duration: 30,
@@ -384,7 +384,7 @@ describe("Rebooking v1", () => {
       .post(`/checkout/${paidCheckout._id}/rebook`)
       .set("Authorization", `Bearer ${token}`)
       .send({
-        date: "2026-05-06",
+        date: "2030-05-06",
         startTime: "13:15",
         serviceId: altService._id,
         staffId: altStaff._id,

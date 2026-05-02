@@ -2328,7 +2328,9 @@ const getBarberProfileByLink = async (req, res) => {
       business: business._id,
       availableForBooking: { $ne: false },
       showInCalendar: { $ne: false },
-    }).populate("services.service", "name price duration category isActive");
+    })
+      .select("-user")
+      .populate("services.service", "name price duration category isActive");
 
     const [appointmentStats, revenueAgg] = await Promise.all([
       Appointment.aggregate([

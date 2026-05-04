@@ -36,6 +36,10 @@ const getBusinessForOwner = async (ownerId) => {
 };
 
 const getBusinessForOwnerOrReply = async (req, res) => {
+  if (req.business) {
+    return req.business;
+  }
+
   const business = await getBusinessForOwner(req.user.id);
   if (!business) {
     ErrorHandler("Business not found", 404, req, res);
@@ -261,10 +265,8 @@ const assertRebookingPrerequisites = async ({
 
 const openCheckout = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await getBusinessForOwnerOrReply(req, res);
+    if (!business) return;
 
     const appointment = await Appointment.findOne({
       _id: req.params.appointmentId,
@@ -344,10 +346,8 @@ const openCheckout = async (req, res) => {
 
 const getCheckoutById = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await getBusinessForOwnerOrReply(req, res);
+    if (!business) return;
 
     const checkout = await applyCheckoutReadPopulate(Checkout.findOne({
       _id: req.params.id,
@@ -366,10 +366,8 @@ const getCheckoutById = async (req, res) => {
 
 const getCheckoutByAppointment = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await getBusinessForOwnerOrReply(req, res);
+    if (!business) return;
 
     const checkout = await applyCheckoutReadPopulate(Checkout.findOne({
       appointment: req.params.appointmentId,
@@ -489,10 +487,8 @@ const updateServiceLines = async (req, res) => {
 
 const createRebooking = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await getBusinessForOwnerOrReply(req, res);
+    if (!business) return;
 
     const { date, startTime, serviceId, staffId } = req.body;
     const rebookingSource = normalizeRebookingSource(req.body.source);
@@ -744,10 +740,8 @@ const createRebooking = async (req, res) => {
 
 const markRebookingOutcome = async (req, res) => {
   try {
-    const business = await getBusinessForOwner(req.user.id);
-    if (!business) {
-      return ErrorHandler("Business not found", 404, req, res);
-    }
+    const business = await getBusinessForOwnerOrReply(req, res);
+    if (!business) return;
 
     const outcomeStatus = normalizeRebookingOutcome(req.body.status);
     const rebookingSource = normalizeRebookingSource(req.body.source);

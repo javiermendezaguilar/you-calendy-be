@@ -6,6 +6,7 @@ const {
   createOperationalCommerceFixture,
 } = require("./helpers/commerceFixture");
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
+const { futureDateOnly } = require("./helpers/dateTestHelpers");
 
 setupCommerceTestSuite();
 
@@ -35,6 +36,8 @@ describe("Booking event map v3", () => {
   });
 
   test("records booking_created when barber creates an appointment", async () => {
+    const bookingDate = futureDateOnly(7);
+
     const res = await request(app)
       .post("/appointments/barber")
       .set("Authorization", `Bearer ${fixture.token}`)
@@ -42,7 +45,7 @@ describe("Booking event map v3", () => {
         clientId: fixture.client._id,
         serviceId: fixture.service._id,
         staffId: fixture.staff._id,
-        date: "2026-05-04",
+        date: bookingDate,
         startTime: "12:00",
         price: 35,
       });

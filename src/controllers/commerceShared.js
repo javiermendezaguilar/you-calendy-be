@@ -6,6 +6,10 @@ const getBusinessForOwner = async (ownerId) => {
 };
 
 const resolveBusinessOrReply = async (req, res) => {
+  if (req.business) {
+    return req.business;
+  }
+
   const business = await getBusinessForOwner(req.user.id);
   if (!business) {
     ErrorHandler(

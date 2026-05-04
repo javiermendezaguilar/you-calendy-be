@@ -7,6 +7,7 @@ const {
   createOperationalCommerceFixture,
 } = require("./helpers/commerceFixture");
 const { setupCommerceTestSuite } = require("./helpers/commerceTestSuite");
+const { futureDateOnly } = require("./helpers/dateTestHelpers");
 
 setupCommerceTestSuite();
 
@@ -36,6 +37,8 @@ describe("Walk-ins v1", () => {
   });
 
   test("creates a walk-in for an existing client and marks it checked in", async () => {
+    const walkInDate = futureDateOnly(7);
+
     const res = await request(app)
       .post("/business/walk-ins")
       .set("Authorization", `Bearer ${token}`)
@@ -43,7 +46,7 @@ describe("Walk-ins v1", () => {
         clientId: client._id,
         serviceId: service._id,
         staffId: staff._id,
-        date: "2026-05-03",
+        date: walkInDate,
         startTime: "11:00",
       });
 
@@ -70,6 +73,8 @@ describe("Walk-ins v1", () => {
   });
 
   test("creates or reuses an unregistered client when clientId is not provided", async () => {
+    const walkInDate = futureDateOnly(8);
+
     const res = await request(app)
       .post("/business/walk-ins")
       .set("Authorization", `Bearer ${token}`)
@@ -79,7 +84,7 @@ describe("Walk-ins v1", () => {
         phone: "+34911111111",
         serviceId: service._id,
         staffId: staff._id,
-        date: "2026-05-03",
+        date: walkInDate,
         startTime: "12:00",
       });
 
@@ -95,12 +100,14 @@ describe("Walk-ins v1", () => {
   });
 
   test("rejects staff conflicts for walk-ins", async () => {
+    const walkInDate = futureDateOnly(9);
+
     await Appointment.create({
       client: client._id,
       business: business._id,
       service: service._id,
       staff: staff._id,
-      date: new Date("2026-05-03T00:00:00.000Z"),
+      date: new Date(`${walkInDate}T00:00:00.000Z`),
       startTime: "11:00",
       endTime: "11:30",
       duration: 30,
@@ -123,7 +130,7 @@ describe("Walk-ins v1", () => {
         clientId: client._id,
         serviceId: service._id,
         staffId: staff._id,
-        date: "2026-05-03",
+        date: walkInDate,
         startTime: "11:15",
       });
 
